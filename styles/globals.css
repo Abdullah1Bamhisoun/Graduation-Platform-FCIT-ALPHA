@@ -1,0 +1,93 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@layer base {
+  :root {
+    /* Brand Colors - Accessible Palette */
+    --color-primary-600: #1F7A5C;
+    --color-primary-700: #176148;
+    --color-primary-100: #E7F3EF;
+    
+    --color-text-900: #0B1220;
+    --color-text-600: #5B6472;
+    --color-text-700: #3F4651;
+    
+    --color-surface-white: #FFFFFF;
+    --color-surface-alt: #F8FAFB;
+    --color-border: #E6E9EF;
+    --color-focus: #2563EB;
+    
+    /* Semantic Colors */
+    --color-success: #16A34A;
+    --color-warning: #F59E0B;
+    --color-danger: #DC2626;
+    --color-info: #2563EB;
+    
+    /* Status Colors */
+    --color-status-draft: #9CA3AF;
+    --color-status-submitted: #2563EB;
+    --color-status-review: #8B5CF6;
+    --color-status-changes: #F59E0B;
+    --color-status-approved: #16A34A;
+    
+    /* Spacing & Radius */
+    --spacing-4: 0.25rem;
+    --spacing-8: 0.5rem;
+    --spacing-12: 0.75rem;
+    --spacing-16: 1rem;
+    --spacing-24: 1.5rem;
+    --spacing-32: 2rem;
+    
+    --radius-sm: 0.5rem;
+    --radius-md: 0.75rem;
+    --radius-lg: 1rem;
+    
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  }
+  
+  * {
+    @apply border-[var(--color-border)];
+    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  }
+  
+  body {
+    @apply bg-[var(--color-surface-alt)] text-[var(--color-text-900)];
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-weight: 500;
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+  
+  h1 {
+    font-size: 2rem;
+    line-height: 2.5rem;
+    font-weight: 700;
+  }
+  
+  h2 {
+    font-size: 1.5rem;
+    line-height: 2rem;
+    font-weight: 700;
+  }
+  
+  h3 {
+    font-size: 1.25rem;
+    line-height: 1.75rem;
+    font-weight: 700;
+  }
+  
+  p {
+    font-size: 1rem;
+    line-height: 1.5rem;
+    font-weight: 500;
+  }
+  
+  small {
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 500;
+  }
+}
