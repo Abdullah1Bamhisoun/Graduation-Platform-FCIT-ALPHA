@@ -2,13 +2,17 @@ import { Layout } from '../../components/Layout';
 import { DashboardCard } from '../../components/DashboardCard';
 import { MetricCard } from '../../components/MetricCard';
 import { Button } from '../../components/ui/button';
-import { mockUsers } from '../../lib/mock-data';
 import { Settings, Bell, BarChart3, Users, AlertTriangle, CheckCircle, Clock, FileText } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../lib/AuthContext';
 
 export function AdminDashboard() {
   const navigate = useNavigate();
-  const user = mockUsers.admin;
+  const { user } = useAuth();
+
+  if (!user) {
+    return null;
+  }
 
   return (
     <Layout user={user} pageTitle="Admin Dashboard">

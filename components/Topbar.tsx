@@ -2,6 +2,7 @@ import { Search, ChevronDown } from 'lucide-react';
 import { User } from '../lib/types';
 import { Link } from 'react-router-dom';
 import { useState } from 'react';
+import { useAuth } from '../lib/AuthContext';
 
 interface TopbarProps {
   user: User;
@@ -11,6 +12,12 @@ interface TopbarProps {
 
 export function Topbar({ user, pageTitle }: TopbarProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const { logout } = useAuth();
+
+  const handleLogout = () => {
+    setShowUserMenu(false);
+    logout();
+  };
 
   return (
     <div className="h-16 bg-[var(--color-surface-white)] border-b border-[var(--color-border)] fixed top-0 right-0 left-[280px] z-10 flex items-center justify-between px-6">
@@ -64,13 +71,12 @@ export function Topbar({ user, pageTitle }: TopbarProps) {
                   Profile Settings
                 </Link>
                 <div className="border-t border-[var(--color-border)] my-2"></div>
-                <Link
-                  to="/login"
-                  className="block px-4 py-2 text-[var(--color-danger)] hover:bg-[var(--color-surface-alt)]"
-                  onClick={() => setShowUserMenu(false)}
+                <button
+                  onClick={handleLogout}
+                  className="w-full text-left block px-4 py-2 text-[var(--color-danger)] hover:bg-[var(--color-surface-alt)]"
                 >
                   Sign Out
-                </Link>
+                </button>
               </div>
             </>
           )}

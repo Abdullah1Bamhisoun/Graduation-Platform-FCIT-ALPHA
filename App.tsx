@@ -1,5 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from './components/ui/sonner';
+import { AuthProvider } from './lib/AuthContext';
+import { ProtectedRoute } from './components/ProtectedRoute';
 
 // Auth
 import { Login } from './pages/Login';
@@ -47,63 +49,65 @@ import { ImportantFiles } from './pages/shared/ImportantFiles';
 export default function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        {/* Auth */}
-        <Route path="/login" element={<Login />} />
-        <Route path="/" element={<Navigate to="/login" replace />} />
+      <AuthProvider>
+        <Routes>
+          {/* Auth */}
+          <Route path="/login" element={<Login />} />
+          <Route path="/" element={<Navigate to="/login" replace />} />
 
-        {/* Student Routes */}
-        <Route path="/student" element={<StudentDashboard />} />
-        <Route path="/student/milestones" element={<StudentMilestones />} />
-        <Route path="/student/weekly-reports" element={<StudentWeeklyReports />} />
-        <Route path="/student/submissions/:id" element={<StudentSubmissionDetail />} />
-        <Route path="/student/feedback" element={<StudentFeedback />} />
-        <Route path="/student/grades" element={<StudentGradesOverview />} />
-        <Route path="/student/peer-feedback" element={<StudentPeerFeedback />} />
-        <Route path="/student/presentation-selection" element={<StudentPresentationSelection />} />
-        <Route path="/student/my-presentation" element={<StudentMyPresentation />} />
-        <Route path="/student/announcements" element={<Announcements userRole="student" />} />
-        <Route path="/student/calendar" element={<Calendar userRole="student" />} />
-        <Route path="/student/important-files" element={<ImportantFiles userRole="student" />} />
+          {/* Student Routes */}
+          <Route path="/student" element={<ProtectedRoute allowedRoles={['student']}><StudentDashboard /></ProtectedRoute>} />
+          <Route path="/student/milestones" element={<ProtectedRoute allowedRoles={['student']}><StudentMilestones /></ProtectedRoute>} />
+          <Route path="/student/weekly-reports" element={<ProtectedRoute allowedRoles={['student']}><StudentWeeklyReports /></ProtectedRoute>} />
+          <Route path="/student/submissions/:id" element={<ProtectedRoute allowedRoles={['student']}><StudentSubmissionDetail /></ProtectedRoute>} />
+          <Route path="/student/feedback" element={<ProtectedRoute allowedRoles={['student']}><StudentFeedback /></ProtectedRoute>} />
+          <Route path="/student/grades" element={<ProtectedRoute allowedRoles={['student']}><StudentGradesOverview /></ProtectedRoute>} />
+          <Route path="/student/peer-feedback" element={<ProtectedRoute allowedRoles={['student']}><StudentPeerFeedback /></ProtectedRoute>} />
+          <Route path="/student/presentation-selection" element={<ProtectedRoute allowedRoles={['student']}><StudentPresentationSelection /></ProtectedRoute>} />
+          <Route path="/student/my-presentation" element={<ProtectedRoute allowedRoles={['student']}><StudentMyPresentation /></ProtectedRoute>} />
+          <Route path="/student/announcements" element={<ProtectedRoute allowedRoles={['student']}><Announcements userRole="student" /></ProtectedRoute>} />
+          <Route path="/student/calendar" element={<ProtectedRoute allowedRoles={['student']}><Calendar userRole="student" /></ProtectedRoute>} />
+          <Route path="/student/important-files" element={<ProtectedRoute allowedRoles={['student']}><ImportantFiles userRole="student" /></ProtectedRoute>} />
 
-        {/* Supervisor Routes */}
-        <Route path="/supervisor" element={<SupervisorDashboard />} />
-        <Route path="/supervisor/groups" element={<SupervisorMyGroupsAndReviews />} />
-        <Route path="/supervisor/review/:id" element={<SupervisorSubmissionReview />} />
-        <Route path="/supervisor/weekly-reports" element={<SupervisorWeeklyReports />} />
-        <Route path="/supervisor/grading" element={<SupervisorGradingAssessment />} />
-        <Route path="/supervisor/committee" element={<SupervisorGradesCommittee />} />
-        <Route path="/supervisor/weekly-report/:id" element={<SupervisorMyGroupsAndReviews />} />
-        <Route path="/supervisor/schedule" element={<Calendar userRole="supervisor" />} />
-        <Route path="/supervisor/announcements" element={<Announcements userRole="supervisor" />} />
-        <Route path="/supervisor/important-files" element={<ImportantFiles userRole="supervisor" />} />
-        <Route path="/supervisor/evaluation" element={<SupervisorEvaluation />} />
-        <Route path="/supervisor/my-availability" element={<SupervisorMyAvailability />} />
-        <Route path="/supervisor/grading-evaluation" element={<SupervisorGradingEvaluation />} />
+          {/* Supervisor Routes */}
+          <Route path="/supervisor" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorDashboard /></ProtectedRoute>} />
+          <Route path="/supervisor/groups" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorMyGroupsAndReviews /></ProtectedRoute>} />
+          <Route path="/supervisor/review/:id" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorSubmissionReview /></ProtectedRoute>} />
+          <Route path="/supervisor/weekly-reports" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorWeeklyReports /></ProtectedRoute>} />
+          <Route path="/supervisor/grading" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorGradingAssessment /></ProtectedRoute>} />
+          <Route path="/supervisor/committee" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorGradesCommittee /></ProtectedRoute>} />
+          <Route path="/supervisor/weekly-report/:id" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorMyGroupsAndReviews /></ProtectedRoute>} />
+          <Route path="/supervisor/schedule" element={<ProtectedRoute allowedRoles={['supervisor']}><Calendar userRole="supervisor" /></ProtectedRoute>} />
+          <Route path="/supervisor/announcements" element={<ProtectedRoute allowedRoles={['supervisor']}><Announcements userRole="supervisor" /></ProtectedRoute>} />
+          <Route path="/supervisor/important-files" element={<ProtectedRoute allowedRoles={['supervisor']}><ImportantFiles userRole="supervisor" /></ProtectedRoute>} />
+          <Route path="/supervisor/evaluation" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorEvaluation /></ProtectedRoute>} />
+          <Route path="/supervisor/my-availability" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorMyAvailability /></ProtectedRoute>} />
+          <Route path="/supervisor/grading-evaluation" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorGradingEvaluation /></ProtectedRoute>} />
 
-        {/* Admin Routes */}
-        <Route path="/admin" element={<AdminDashboard />} />
-        <Route path="/admin/milestones" element={<AdminMilestonesConfig />} />
-        <Route path="/admin/weekly-reports" element={<AdminWeeklyReports />} />
-        <Route path="/admin/grades-deliverables" element={<AdminGradesDeliverables />} />
-        <Route path="/admin/presentation-committee" element={<AdminPresentationCommittee />} />
-        <Route path="/admin/announcements" element={<AnnouncementsManager />} />
-        <Route path="/admin/exports" element={<AdminExportsAudit />} />
-        <Route path="/admin/users" element={<AdminUserManagement />} />
-        <Route path="/admin/calendar" element={<Calendar userRole="admin" />} />
-        <Route path="/admin/important-files" element={<ImportantFilesManager />} />
+          {/* Admin Routes */}
+          <Route path="/admin" element={<ProtectedRoute allowedRoles={['admin']}><AdminDashboard /></ProtectedRoute>} />
+          <Route path="/admin/milestones" element={<ProtectedRoute allowedRoles={['admin']}><AdminMilestonesConfig /></ProtectedRoute>} />
+          <Route path="/admin/weekly-reports" element={<ProtectedRoute allowedRoles={['admin']}><AdminWeeklyReports /></ProtectedRoute>} />
+          <Route path="/admin/grades-deliverables" element={<ProtectedRoute allowedRoles={['admin']}><AdminGradesDeliverables /></ProtectedRoute>} />
+          <Route path="/admin/presentation-committee" element={<ProtectedRoute allowedRoles={['admin']}><AdminPresentationCommittee /></ProtectedRoute>} />
+          <Route path="/admin/announcements" element={<ProtectedRoute allowedRoles={['admin']}><AnnouncementsManager /></ProtectedRoute>} />
+          <Route path="/admin/exports" element={<ProtectedRoute allowedRoles={['admin']}><AdminExportsAudit /></ProtectedRoute>} />
+          <Route path="/admin/users" element={<ProtectedRoute allowedRoles={['admin']}><AdminUserManagement /></ProtectedRoute>} />
+          <Route path="/admin/calendar" element={<ProtectedRoute allowedRoles={['admin']}><Calendar userRole="admin" /></ProtectedRoute>} />
+          <Route path="/admin/important-files" element={<ProtectedRoute allowedRoles={['admin']}><ImportantFilesManager /></ProtectedRoute>} />
 
-        {/* Settings Routes by Role */}
-        <Route path="/student/settings" element={<Settings userRole="student" />} />
-        <Route path="/supervisor/settings" element={<Settings userRole="supervisor" />} />
-        <Route path="/admin/settings" element={<Settings userRole="admin" />} />
-        <Route path="/settings" element={<Navigate to="/login" replace />} />
+          {/* Settings Routes by Role */}
+          <Route path="/student/settings" element={<ProtectedRoute allowedRoles={['student']}><Settings userRole="student" /></ProtectedRoute>} />
+          <Route path="/supervisor/settings" element={<ProtectedRoute allowedRoles={['supervisor']}><Settings userRole="supervisor" /></ProtectedRoute>} />
+          <Route path="/admin/settings" element={<ProtectedRoute allowedRoles={['admin']}><Settings userRole="admin" /></ProtectedRoute>} />
+          <Route path="/settings" element={<Navigate to="/login" replace />} />
 
-        {/* Catch-all route for unmatched paths */}
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
-      
-      <Toaster position="top-right" />
+          {/* Catch-all route for unmatched paths */}
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
+
+        <Toaster position="top-right" />
+      </AuthProvider>
     </BrowserRouter>
   );
 }

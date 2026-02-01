@@ -3,17 +3,40 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { GraduationCap, Users, Shield } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import gppLogo from '/gpp-logo.png';
+import { useAuth } from '../lib/AuthContext';
 
 export function Login() {
   const navigate = useNavigate();
+  const { login, isAuthenticated, user } = useAuth();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleLogin = (role: 'student' | 'supervisor' | 'admin') => {
-    navigate(`/${role}`);
+  // Redirect if already authenticated
+  if (isAuthenticated && user) {
+    navigate(`/${user.role}`, { replace: true });
+    return null;
+  }
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setIsLoading(true);
+
+    try {
+      await login(email, password);
+      // Navigation is handled by the login function
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setIsLoading(false);
+    }
   };
+
 
   return (
     <div className="min-h-screen flex">
@@ -26,7 +49,14 @@ export function Login() {
             <p className="text-[var(--color-text-600)]">Sign in to your account to continue</p>
           </div>
 
-          <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
+          <form className="space-y-6" onSubmit={handleLogin}>
+            {error && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-800 text-sm">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
             <div>
               <Label htmlFor="email">University Email</Label>
               <Input
@@ -36,6 +66,8 @@ export function Login() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="mt-2"
+                required
+                disabled={isLoading}
               />
             </div>
 
@@ -48,6 +80,8 @@ export function Login() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="mt-2"
+                required
+                disabled={isLoading}
               />
             </div>
 
@@ -62,11 +96,11 @@ export function Login() {
             </div>
 
             <Button
-              type="button"
+              type="submit"
               className="w-full"
-              onClick={() => handleLogin('student')}
+              disabled={isLoading}
             >
-              Sign In
+              {isLoading ? 'Signing in...' : 'Sign In'}
             </Button>
 
             <Button
@@ -79,45 +113,6 @@ export function Login() {
             </Button>
           </form>
 
-          {/* Demo Role Switcher */}
-          <div className="mt-8 pt-8 border-t border-[var(--color-border)]">
-            <p className="text-[var(--color-text-600)] mb-4 text-center">Demo: Sign in as</p>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="flex flex-col items-center gap-2">
-                <div className="w-12 h-12 rounded-lg !bg-white text-blue-700 border-[1.5px] border-blue-500 flex items-center justify-center">
-                  <GraduationCap className="w-6 h-6" />
-                </div>
-                <Button
-                  className="w-full"
-                  onClick={() => handleLogin('student')}
-                >
-                  Student
-                </Button>
-              </div>
-              <div className="flex flex-col items-center gap-2">
-                <div className="w-12 h-12 rounded-lg !bg-white text-purple-700 border-[1.5px] border-purple-500 flex items-center justify-center">
-                  <Users className="w-6 h-6" />
-                </div>
-                <Button
-                  className="w-full"
-                  onClick={() => handleLogin('supervisor')}
-                >
-                  Supervisor
-                </Button>
-              </div>
-              <div className="flex flex-col items-center gap-2">
-                <div className="w-12 h-12 rounded-lg !bg-white text-amber-700 border-[1.5px] border-amber-500 flex items-center justify-center">
-                  <Shield className="w-6 h-6" />
-                </div>
-                <Button
-                  className="w-full"
-                  onClick={() => handleLogin('admin')}
-                >
-                  Admin
-                </Button>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 

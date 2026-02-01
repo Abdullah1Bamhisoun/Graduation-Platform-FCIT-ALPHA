@@ -3,13 +3,18 @@ import { DashboardCard } from '../../components/DashboardCard';
 import { MetricCard } from '../../components/MetricCard';
 import { StatusBadge } from '../../components/StatusBadge';
 import { Button } from '../../components/ui/button';
-import { mockUsers, mockMilestones, mockNotifications } from '../../lib/mock-data';
+import { mockMilestones, mockNotifications } from '../../lib/mock-data';
 import { Calendar, AlertCircle, CheckCircle, Clock, FileText, Upload } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../lib/AuthContext';
 
 export function StudentDashboard() {
   const navigate = useNavigate();
-  const user = mockUsers.student;
+  const { user } = useAuth();
+
+  if (!user) {
+    return null;
+  }
 
   const upcomingDeadlines = mockMilestones
     .filter(m => ['submitted', 'draft', 'changes-requested'].includes(m.status))

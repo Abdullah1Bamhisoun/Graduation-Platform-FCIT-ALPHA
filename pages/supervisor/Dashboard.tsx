@@ -3,13 +3,18 @@ import { DashboardCard } from '../../components/DashboardCard';
 import { MetricCard } from '../../components/MetricCard';
 import { StatusBadge } from '../../components/StatusBadge';
 import { Button } from '../../components/ui/button';
-import { mockUsers, mockSubmissions, mockWeeklyReports } from '../../lib/mock-data';
+import { mockSubmissions, mockWeeklyReports } from '../../lib/mock-data';
 import { ClipboardList, Users, Calendar, Clock, FileText, AlertCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../lib/AuthContext';
 
 export function SupervisorDashboard() {
   const navigate = useNavigate();
-  const user = mockUsers.supervisor;
+  const { user } = useAuth();
+
+  if (!user) {
+    return null;
+  }
 
   const pendingReviews = mockSubmissions.filter(s => s.status === 'submitted' || s.status === 'under-review');
   const weeklyReportsToReview = mockWeeklyReports.filter(r => r.status === 'submitted');
