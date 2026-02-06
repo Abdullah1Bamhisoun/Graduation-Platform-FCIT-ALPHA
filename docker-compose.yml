@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  app:
+    image: mcr.microsoft.com/devcontainers/javascript-node:20
+    container_name: gpp-devcontainer
+    volumes:
+      - ..:/workspace:cached
+    command: sleep infinity
+    networks:
+      - gpp-network
+    depends_on:
+      - mongodb
+      - redis
+      - minio
+
+  mongodb:
+    image: mongo:7.0
+    container_name: gpp-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_DATABASE=gpp-fcit
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    networks:
+      - gpp-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: gpp-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - gpp-network
+
+  minio:
+    image: minio/minio:latest
+    container_name: gpp-minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin123
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - gpp-network
+
+volumes:
+  mongodb_data:
+    driver: local
+  mongodb_config:
+    driver: local
+  redis_data:
+    driver: local
+  minio_data:
+    driver: local
+
+networks:
+  gpp-network:
+    driver: bridge

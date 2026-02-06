@@ -2,7 +2,7 @@ import { Search, ChevronDown } from 'lucide-react';
 import { User } from '../../types';
 import { Link } from 'react-router-dom';
 import { useState } from 'react';
-import { useAuth } from '../lib/AuthContext';
+import { useAuth } from '../../lib/AuthContext';
 
 interface TopbarProps {
   user: User;

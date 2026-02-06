@@ -1,10 +1,39 @@
 {
   "name": "Graduation Project Platform",
-  "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
-  "forwardPorts": [3000, 5173],
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspace",
+  "forwardPorts": [3000, 5173, 5000, 27017, 6379, 9000, 9001],
+  "portsAttributes": {
+    "3000": {
+      "label": "Frontend (Vite)",
+      "onAutoForward": "notify"
+    },
+    "5173": {
+      "label": "Vite Dev Server",
+      "onAutoForward": "notify"
+    },
+    "5000": {
+      "label": "Backend API",
+      "onAutoForward": "notify"
+    },
+    "27017": {
+      "label": "MongoDB"
+    },
+    "6379": {
+      "label": "Redis"
+    },
+    "9000": {
+      "label": "MinIO API"
+    },
+    "9001": {
+      "label": "MinIO Console"
+    }
+  },
   "customizations": {
     "vscode": {
       "extensions": [
+        "anthropic.claude-code",
         "dbaeumer.vscode-eslint",
         "esbenp.prettier-vscode",
         "ms-vscode.vscode-typescript-next",
@@ -19,9 +48,11 @@
         "formulahendry.auto-rename-tag",
         "humao.rest-client",
         "cweijan.vscode-redis-client",
-        "ms-vscode.live-server"
+        "ms-vscode.live-server",
+        "christian-kohler.npm-intellisense",
+        "leizongmin.node-module-intellisense"
       ]
     }
   },
-  "postCreateCommand": "npm install -g nodemon"
+  "postCreateCommand": "npm install && cd server && npm install && npm install -g nodemon"
 }
