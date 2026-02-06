@@ -8,11 +8,18 @@
         "dbaeumer.vscode-eslint",
         "esbenp.prettier-vscode",
         "ms-vscode.vscode-typescript-next",
-        "alexcvzz.vscode-sqlite",
         "rangav.vscode-thunder-client",
         "eamodio.gitlens",
         "bradlc.vscode-tailwindcss",
-        "ms-azuretools.vscode-docker"
+        "ms-azuretools.vscode-docker",
+        "mongodb.mongodb-vscode",
+        "dsznajder.es7-react-js-snippets",
+        "mikestead.dotenv",
+        "usernamehw.errorlens",
+        "formulahendry.auto-rename-tag",
+        "humao.rest-client",
+        "cweijan.vscode-redis-client",
+        "ms-vscode.live-server"
       ]
     }
   },
