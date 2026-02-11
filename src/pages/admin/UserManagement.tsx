@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { mockUsers } from '../../lib/mock-data';
 import { Button } from '../../components/ui/button';
@@ -7,7 +7,10 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2, Search } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, CheckCircle, XCircle, Eye, Clock } from 'lucide-react';
+import { getPendingRegistrations, approveRegistration, rejectRegistration, subscribe, type PendingRegistration } from '../../lib/pending-registrations';
+import { addApprovedUser } from '../../lib/AuthContext';
+import { UserRole } from '../../types';
 
 interface User {
   id: string;
@@ -69,6 +72,56 @@ export function AdminUserManagement() {
     studentId: '',
   });
 
+  // Pending registrations state
+  const [pendingRegs, setPendingRegs] = useState<PendingRegistration[]>(getPendingRegistrations());
+  const [viewingReg, setViewingReg] = useState<PendingRegistration | null>(null);
+  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
+
+  // Subscribe to registration store changes
+  useEffect(() => {
+    return subscribe(() => {
+      setPendingRegs(getPendingRegistrations());
+    });
+  }, []);
+
+  const handleApprove = (reg: PendingRegistration) => {
+    const approved = approveRegistration(reg.id);
+    if (!approved) return;
+
+    // Add to active users list
+    const newUser: User = {
+      id: `approved-${reg.id}`,
+      name: reg.name,
+      email: reg.email,
+      role: reg.accountType,
+      studentId: reg.accountType === 'student' ? reg.studentId : undefined,
+      employeeNumber: reg.accountType === 'supervisor' ? reg.employeeNumber : undefined,
+      status: 'active',
+    };
+    setUsers((prev) => [...prev, newUser]);
+
+    // Add credentials so they can log in
+    addApprovedUser(reg.email, reg.password, {
+      id: newUser.id,
+      name: reg.name,
+      email: reg.email,
+      role: reg.accountType as UserRole,
+      studentId: reg.studentId,
+      employeeNumber: reg.employeeNumber,
+    });
+
+    toast.success(`${reg.name} has been approved and can now log in`);
+    setIsViewDialogOpen(false);
+    setViewingReg(null);
+  };
+
+  const handleReject = (reg: PendingRegistration) => {
+    rejectRegistration(reg.id);
+    toast.success(`${reg.name}'s registration has been rejected`);
+    setIsViewDialogOpen(false);
+    setViewingReg(null);
+  };
+
   const handleAddUser = () => {
     if (!formData.name || !formData.email) {
       toast.error('Please fill in all required fields');
@@ -104,8 +157,8 @@ export function AdminUserManagement() {
   const handleEditUser = () => {
     if (!editingUser) return;
 
-    setUsers(users.map(u => 
-      u.id === editingUser.id 
+    setUsers(users.map(u =>
+      u.id === editingUser.id
         ? { ...u, ...formData }
         : u
     ));
@@ -161,6 +214,16 @@ export function AdminUserManagement() {
       admin: '!bg-white text-amber-600 border-[1.5px] border-amber-500',
     };
     return badges[role as keyof typeof badges];
+  };
+
+  const formatDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   };
 
   return (
@@ -265,6 +328,192 @@ export function AdminUserManagement() {
         </Dialog>
       </div>
 
+      {/* Pending Approvals Section */}
+      {pendingRegs.length > 0 && (
+        <div className="mb-8">
+          <div className="flex items-center gap-3 mb-4">
+            <h2 className="text-lg font-semibold text-[var(--color-text-900)]">Pending Approvals</h2>
+            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 text-amber-700 text-sm font-semibold">
+              {pendingRegs.length}
+            </span>
+          </div>
+
+          <div className="space-y-3">
+            {pendingRegs.map((reg) => (
+              <div
+                key={reg.id}
+                className="!bg-white rounded-xl border border-amber-200 shadow-sm p-4 flex items-center justify-between"
+              >
+                <div className="flex items-center gap-4 flex-1 min-w-0">
+                  <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                    <Clock className="w-5 h-5 text-amber-600" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="text-[var(--color-text-900)] font-medium truncate">{reg.name}</h3>
+                    <p className="text-sm text-[var(--color-text-600)] truncate">{reg.email}</p>
+                  </div>
+                  <span className={`inline-flex items-center px-3 py-1 rounded-full capitalize text-sm ${getRoleBadge(reg.accountType)}`}>
+                    {reg.accountType}
+                  </span>
+                  <span className="text-sm text-[var(--color-text-600)]">{reg.department}</span>
+                  <span className="text-sm text-[var(--color-text-600)]">{formatDate(reg.submittedAt)}</span>
+                </div>
+                <div className="flex items-center gap-2 ml-4">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setViewingReg(reg);
+                      setIsViewDialogOpen(true);
+                    }}
+                  >
+                    <Eye className="w-4 h-4 mr-1" />
+                    Details
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    onClick={() => handleApprove(reg)}
+                  >
+                    <CheckCircle className="w-4 h-4 mr-1" />
+                    Approve
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => handleReject(reg)}
+                  >
+                    <XCircle className="w-4 h-4 mr-1" />
+                    Reject
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* View Registration Details Dialog */}
+      <Dialog open={isViewDialogOpen} onOpenChange={(open) => {
+        setIsViewDialogOpen(open);
+        if (!open) setViewingReg(null);
+      }}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Registration Details</DialogTitle>
+            <DialogDescription>
+              Review all information submitted during registration
+            </DialogDescription>
+          </DialogHeader>
+          {viewingReg && (
+            <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto">
+              {/* Basic Info */}
+              <div>
+                <h4 className="text-sm font-semibold text-[var(--color-text-900)] mb-3">Basic Information</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3 bg-[var(--color-surface-alt)] rounded-lg">
+                    <p className="text-xs text-[var(--color-text-600)]">Full Name</p>
+                    <p className="text-sm font-medium text-[var(--color-text-900)]">{viewingReg.name}</p>
+                  </div>
+                  <div className="p-3 bg-[var(--color-surface-alt)] rounded-lg">
+                    <p className="text-xs text-[var(--color-text-600)]">Email</p>
+                    <p className="text-sm font-medium text-[var(--color-text-900)]">{viewingReg.email}</p>
+                  </div>
+                  <div className="p-3 bg-[var(--color-surface-alt)] rounded-lg">
+                    <p className="text-xs text-[var(--color-text-600)]">Account Type</p>
+                    <p className="text-sm font-medium text-[var(--color-text-900)] capitalize">{viewingReg.accountType}</p>
+                  </div>
+                  <div className="p-3 bg-[var(--color-surface-alt)] rounded-lg">
+                    <p className="text-xs text-[var(--color-text-600)]">Department</p>
+                    <p className="text-sm font-medium text-[var(--color-text-900)]">{viewingReg.department}</p>
+                  </div>
+                  <div className="p-3 bg-[var(--color-surface-alt)] rounded-lg">
+                    <p className="text-xs text-[var(--color-text-600)]">{viewingReg.accountType === 'student' ? 'Student ID' : 'Employee Number'}</p>
+                    <p className="text-sm font-medium text-[var(--color-text-900)]">
+                      {viewingReg.accountType === 'student' ? viewingReg.studentId : viewingReg.employeeNumber}
+                    </p>
+                  </div>
+                  <div className="p-3 bg-[var(--color-surface-alt)] rounded-lg">
+                    <p className="text-xs text-[var(--color-text-600)]">Submitted At</p>
+                    <p className="text-sm font-medium text-[var(--color-text-900)]">{formatDate(viewingReg.submittedAt)}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Student Academic Info */}
+              {viewingReg.accountType === 'student' && (
+                <div>
+                  <h4 className="text-sm font-semibold text-[var(--color-text-900)] mb-3">Academic Information</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3 bg-[var(--color-surface-alt)] rounded-lg">
+                      <p className="text-xs text-[var(--color-text-600)]">Course</p>
+                      <p className="text-sm font-medium text-[var(--color-text-900)]">{viewingReg.course || '—'}</p>
+                    </div>
+                    <div className="p-3 bg-[var(--color-surface-alt)] rounded-lg">
+                      <p className="text-xs text-[var(--color-text-600)]">Term</p>
+                      <p className="text-sm font-medium text-[var(--color-text-900)]">{viewingReg.term || '—'}</p>
+                    </div>
+                    <div className="p-3 bg-[var(--color-surface-alt)] rounded-lg col-span-2">
+                      <p className="text-xs text-[var(--color-text-600)]">Group ID</p>
+                      <p className="text-sm font-medium text-[var(--color-text-900)]">{viewingReg.groupId || '—'}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Project Info */}
+              {viewingReg.accountType === 'student' && (
+                <div>
+                  <h4 className="text-sm font-semibold text-[var(--color-text-900)] mb-3">Project Information</h4>
+                  {viewingReg.teammateSubmittedIdea ? (
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <p className="text-sm text-blue-800">Teammate has already submitted the project idea</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="p-3 bg-[var(--color-surface-alt)] rounded-lg">
+                        <p className="text-xs text-[var(--color-text-600)]">Project Name</p>
+                        <p className="text-sm font-medium text-[var(--color-text-900)]">{viewingReg.projectName || '—'}</p>
+                      </div>
+                      <div className="p-3 bg-[var(--color-surface-alt)] rounded-lg">
+                        <p className="text-xs text-[var(--color-text-600)]">Project Idea</p>
+                        <p className="text-sm text-[var(--color-text-900)]">{viewingReg.projectIdea || '—'}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setIsViewDialogOpen(false);
+              setViewingReg(null);
+            }}>
+              Close
+            </Button>
+            {viewingReg && (
+              <>
+                <Button
+                  variant="destructive"
+                  onClick={() => handleReject(viewingReg)}
+                >
+                  <XCircle className="w-4 h-4 mr-1" />
+                  Reject
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={() => handleApprove(viewingReg)}
+                >
+                  <CheckCircle className="w-4 h-4 mr-1" />
+                  Approve
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Filters */}
       <div className="mb-6 flex items-center gap-4">
         <div className="relative flex-1 max-w-md">
@@ -350,22 +599,26 @@ export function AdminUserManagement() {
       </div>
 
       {/* Stats */}
-      <div className="mt-6 grid grid-cols-4 gap-4">
+      <div className="mt-6 grid grid-cols-5 gap-4">
+        <div className="!bg-white rounded-lg border border-amber-200 p-4">
+          <p className="text-amber-600 mb-1">Pending Approvals</p>
+          <p className="text-[var(--color-text-900)] text-xl font-semibold">{pendingRegs.length}</p>
+        </div>
         <div className="!bg-white rounded-lg border border-[var(--color-border)] p-4">
           <p className="text-[var(--color-text-600)] mb-1">Total Users</p>
-          <p className="text-[var(--color-text-900)]">{users.length}</p>
+          <p className="text-[var(--color-text-900)] text-xl font-semibold">{users.length}</p>
         </div>
         <div className="!bg-white rounded-lg border border-[var(--color-border)] p-4">
           <p className="text-[var(--color-text-600)] mb-1">Students</p>
-          <p className="text-[var(--color-text-900)]">{users.filter(u => u.role === 'student').length}</p>
+          <p className="text-[var(--color-text-900)] text-xl font-semibold">{users.filter(u => u.role === 'student').length}</p>
         </div>
         <div className="!bg-white rounded-lg border border-[var(--color-border)] p-4">
           <p className="text-[var(--color-text-600)] mb-1">Supervisors</p>
-          <p className="text-[var(--color-text-900)]">{users.filter(u => u.role === 'supervisor').length}</p>
+          <p className="text-[var(--color-text-900)] text-xl font-semibold">{users.filter(u => u.role === 'supervisor').length}</p>
         </div>
         <div className="!bg-white rounded-lg border border-[var(--color-border)] p-4">
           <p className="text-[var(--color-text-600)] mb-1">Admins</p>
-          <p className="text-[var(--color-text-900)]">{users.filter(u => u.role === 'admin').length}</p>
+          <p className="text-[var(--color-text-900)] text-xl font-semibold">{users.filter(u => u.role === 'admin').length}</p>
         </div>
       </div>
     </Layout>

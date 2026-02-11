@@ -7,6 +7,7 @@ import { Textarea } from '../../../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/select';
 import { Checkbox } from '../../../components/ui/checkbox';
 import { GraduationCap, Users, CheckCircle, ArrowLeft, AlertCircle } from 'lucide-react';
+import { addRegistration } from '../../../lib/pending-registrations';
 
 type AccountType = 'student' | 'supervisor';
 type Department = 'CS' | 'IT' | 'IS' | '';
@@ -226,31 +227,32 @@ export function Register() {
       return;
     }
 
-    // In production, this would send data to the backend API
-    console.log('Form submitted:', {
-      accountType,
-      ...(accountType === 'student'
-        ? {
-            firstName: studentFirstName,
-            lastName: studentLastName,
-            studentId,
-            email: studentEmail,
-            department,
-            course,
-            term,
-            groupId,
-            teammateSubmittedIdea,
-            projectName: teammateSubmittedIdea ? null : projectName,
-            projectIdea: teammateSubmittedIdea ? null : projectIdea,
-          }
-        : {
-            firstName: supervisorFirstName,
-            lastName: supervisorLastName,
-            supervisorId,
-            email: supervisorEmail,
-            department: supervisorDepartment,
-          }),
-    });
+    // Store registration for admin approval
+    if (accountType === 'student') {
+      addRegistration({
+        accountType: 'student',
+        name: `${studentFirstName} ${studentLastName}`,
+        email: studentEmail,
+        password: studentPassword,
+        department,
+        studentId,
+        course,
+        term,
+        groupId,
+        teammateSubmittedIdea,
+        projectName: teammateSubmittedIdea ? undefined : projectName,
+        projectIdea: teammateSubmittedIdea ? undefined : projectIdea,
+      });
+    } else {
+      addRegistration({
+        accountType: 'supervisor',
+        name: `${supervisorFirstName} ${supervisorLastName}`,
+        email: supervisorEmail,
+        password: supervisorPassword,
+        department: supervisorDepartment,
+        employeeNumber: supervisorId,
+      });
+    }
 
     setSubmitted(true);
   };

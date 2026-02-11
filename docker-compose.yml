@@ -10,23 +10,8 @@ services:
     networks:
       - gpp-network
     depends_on:
-      - mongodb
       - redis
       - minio
-
-  mongodb:
-    image: mongo:7.0
-    container_name: gpp-mongodb
-    restart: unless-stopped
-    ports:
-      - "27017:27017"
-    environment:
-      - MONGO_INITDB_DATABASE=gpp-fcit
-    volumes:
-      - mongodb_data:/data/db
-      - mongodb_config:/data/configdb
-    networks:
-      - gpp-network
 
   redis:
     image: redis:7-alpine
@@ -56,10 +41,6 @@ services:
       - gpp-network
 
 volumes:
-  mongodb_data:
-    driver: local
-  mongodb_config:
-    driver: local
   redis_data:
     driver: local
   minio_data:

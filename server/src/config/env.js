@@ -3,9 +3,11 @@ require('dotenv').config();
 module.exports = {
   PORT: process.env.PORT || 5000,
   NODE_ENV: process.env.NODE_ENV || 'development',
-  MONGODB_URI: process.env.MONGODB_URI,
   JWT_SECRET: process.env.JWT_SECRET,
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '7d',
+  SUPABASE_URL: process.env.SUPABASE_URL,
+  SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
+  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
   MINIO_ENDPOINT: process.env.MINIO_ENDPOINT,
   MINIO_PORT: parseInt(process.env.MINIO_PORT, 10),
   MINIO_ACCESS_KEY: process.env.MINIO_ACCESS_KEY,

@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { User as SupabaseUser } from '@supabase/supabase-js';
+import { supabase } from './supabase';
 import { User, UserRole } from '../types';
 
 interface AuthContextType {
@@ -12,79 +14,65 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Mock user credentials (in production, this would be verified against a backend/database)
-const MOCK_CREDENTIALS = {
-  'abamhisoun@stu.kau.edu.sa': {
-    password: 'password123',
-    user: {
-      id: '2236500',
-      name: 'Abdullah Bamhisoun',
-      email: 'abamhisoun@stu.kau.edu.sa',
-      role: 'student' as UserRole,
-      studentId: '2236500',
-    },
-  },
-  'h.labani@kau.edu.sa': {
-    password: 'password123',
-    user: {
-      id: 'sup-001',
-      name: 'Dr. Hasan Labani',
-      email: 'h.labani@kau.edu.sa',
-      role: 'supervisor' as UserRole,
-      employeeNumber: '0000482731',
-    },
-  },
-  'coordinator@kau.edu.sa': {
-    password: 'password123',
-    user: {
-      id: 'admin-001',
-      name: 'Dr. Ahmad Al-Coordinator',
-      email: 'coordinator@kau.edu.sa',
-      role: 'admin' as UserRole,
-      employeeNumber: '0000195847',
-    },
-  },
-};
-
-const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
-
-interface SessionData {
-  user: User;
-  timestamp: number;
-  expiresAt: number;
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
 
-  // Load session from localStorage on mount
+  // Load session and set up auth state listener
   useEffect(() => {
-    const loadSession = () => {
-      try {
-        const sessionData = localStorage.getItem('gpp_session');
-        if (sessionData) {
-          const session: SessionData = JSON.parse(sessionData);
-
-          // Check if session has expired
-          if (Date.now() < session.expiresAt) {
-            setUser(session.user);
-          } else {
-            // Session expired, clear it
-            localStorage.removeItem('gpp_session');
-          }
-        }
-      } catch (error) {
-        console.error('Failed to load session:', error);
-        localStorage.removeItem('gpp_session');
-      } finally {
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        loadUserProfile(session.user);
+      } else {
         setIsLoading(false);
       }
-    };
+    });
 
-    loadSession();
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        await loadUserProfile(session.user);
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
+
+  // Load user profile from profiles table
+  const loadUserProfile = async (authUser: SupabaseUser) => {
+    try {
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', authUser.id)
+        .single();
+
+      if (error) throw error;
+
+      if (profile) {
+        const userData: User = {
+          id: profile.id,
+          name: profile.name,
+          email: profile.email,
+          role: profile.role as UserRole,
+          studentId: profile.student_id,
+          employeeNumber: profile.employee_number,
+          avatarUrl: profile.avatar_url,
+        };
+        setUser(userData);
+      }
+    } catch (error) {
+      console.error('Error loading user profile:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Validate email format
   const validateEmail = (email: string): boolean => {
@@ -109,36 +97,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error('Password must be at least 8 characters');
     }
 
-    // Simulate async authentication (in production, this would be an API call)
-    await new Promise(resolve => setTimeout(resolve, 500));
+    // Sign in with Supabase Auth
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-    // Check credentials
-    const credentials = MOCK_CREDENTIALS[email as keyof typeof MOCK_CREDENTIALS];
-
-    if (!credentials || credentials.password !== password) {
-      throw new Error('Invalid email or password');
+    if (error) {
+      if (error.message.includes('Invalid login credentials')) {
+        throw new Error('Invalid email or password');
+      }
+      throw new Error(error.message);
     }
 
-    // Authentication successful
-    const authenticatedUser = credentials.user;
-    setUser(authenticatedUser);
+    if (data.user) {
+      await loadUserProfile(data.user);
 
-    // Save session to localStorage
-    const sessionData: SessionData = {
-      user: authenticatedUser,
-      timestamp: Date.now(),
-      expiresAt: Date.now() + SESSION_EXPIRY_MS,
-    };
-    localStorage.setItem('gpp_session', JSON.stringify(sessionData));
-
-    // Redirect to role-specific dashboard
-    navigate(`/${authenticatedUser.role}`);
+      // Redirect to role-specific dashboard
+      if (user) {
+        navigate(`/${user.role}`);
+      }
+    }
   };
 
   // Logout function
-  const logout = () => {
+  const logout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
-    localStorage.removeItem('gpp_session');
     navigate('/login');
   };
 
