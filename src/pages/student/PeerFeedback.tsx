@@ -3,7 +3,7 @@ import { Layout } from '../../components/layout/Layout';
 import { Button } from '../../components/ui/button';
 import { Label } from '../../components/ui/label';
 import { Textarea } from '../../components/ui/textarea';
-import { mockUsers } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
 import { Star } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -12,7 +12,7 @@ const groupMembers = [
 ];
 
 export function StudentPeerFeedback() {
-  const user = mockUsers.student;
+  const { user } = useAuth();
   const [evaluations, setEvaluations] = useState<Record<string, { rating: number; comment: string }>>({});
   const [submitted, setSubmitted] = useState(false);
 
@@ -61,6 +61,8 @@ export function StudentPeerFeedback() {
     if (ratings.length === 0) return 0;
     return (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1);
   };
+
+  if (!user) return null;
 
   return (
     <Layout user={user} pageTitle="Peer Feedback (5 Marks)">

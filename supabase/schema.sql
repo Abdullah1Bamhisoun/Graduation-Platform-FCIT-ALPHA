@@ -348,8 +348,13 @@ BEGIN
     NEW.email,
     COALESCE(NEW.raw_user_meta_data->>'name', 'New User'),
     COALESCE((NEW.raw_user_meta_data->>'role')::user_role, 'student')
-  );
+  )
+  ON CONFLICT (id) DO NOTHING;
   RETURN NEW;
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE LOG 'handle_new_user failed for %: %', NEW.email, SQLERRM;
+    RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -396,8 +401,8 @@ CREATE POLICY "Users can view all profiles" ON profiles
 CREATE POLICY "Users can update own profile" ON profiles
   FOR UPDATE USING (auth.uid() = id);
 
-CREATE POLICY "Admins can insert profiles" ON profiles
-  FOR INSERT WITH CHECK (get_user_role(auth.uid()) = 'admin');
+CREATE POLICY "Service role can insert profiles" ON profiles
+  FOR INSERT WITH CHECK (true);
 
 CREATE POLICY "Admins can update all profiles" ON profiles
   FOR UPDATE USING (get_user_role(auth.uid()) = 'admin');

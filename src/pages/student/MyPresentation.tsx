@@ -11,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../../components/ui/dialog';
-import { mockUsers } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
 import {
   Calendar,
   Clock,
@@ -34,7 +34,7 @@ interface PresentationSlot {
 }
 
 export function StudentMyPresentation() {
-  const user = mockUsers.student;
+  const { user } = useAuth();
   
   // Toggle this to simulate before/after publish
   const [isPublished, setIsPublished] = useState(true);
@@ -70,6 +70,8 @@ export function StudentMyPresentation() {
   const handleDownloadSchedule = () => {
     toast.success('Downloading schedule PDF...');
   };
+
+  if (!user) return null;
 
   return (
     <Layout user={user} pageTitle="My Presentation">

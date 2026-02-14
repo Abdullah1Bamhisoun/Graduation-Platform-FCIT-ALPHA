@@ -5,17 +5,28 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Textarea } from '../../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { mockUsers, mockGroupGrades } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
+import { getAllGroupGrades } from '../../services/grades';
 import { GroupGrade } from '../../types';
 import { Save, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { useEffect } from 'react';
 
 export function SupervisorGradingAssessment() {
-  const user = mockUsers.supervisor;
+  const { user } = useAuth();
   const [selectedGroup, setSelectedGroup] = useState<string>('');
-  const [grades, setGrades] = useState<GroupGrade[]>(mockGroupGrades);
+  const [grades, setGrades] = useState<GroupGrade[]>([]);
   const [editingGroup, setEditingGroup] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+    getAllGroupGrades().then(setGrades).finally(() => setLoading(false));
+  }, [user]);
+
+  if (!user) return null;
+  if (loading) return <Layout user={user} pageTitle="Supervisor Assessment"><div className="p-6">Loading...</div></Layout>;
 
   const supervisorGroups = grades.filter(g => g.supervisorName === user.name);
   const selectedGrade = grades.find(g => g.groupId === selectedGroup);

@@ -1,16 +1,17 @@
 import { Layout } from '../../components/layout/Layout';
-import { mockUsers, mockAnnouncements } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
+import { getAllAnnouncements } from '../../services/announcements';
 import { Bell, Plus, Edit, Trash2, Calendar as CalendarIcon } from 'lucide-react';
 import { Card } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Textarea } from '../../components/ui/textarea';
 import { Checkbox } from '../../components/ui/checkbox';
 import { toast } from 'sonner';
-import { UserRole } from '../../types';
+import { UserRole, Announcement } from '../../types';
 
 interface AnnouncementForm {
   title: string;
@@ -19,8 +20,8 @@ interface AnnouncementForm {
 }
 
 export function AnnouncementsManager() {
-  const user = mockUsers.admin;
-  const [announcements, setAnnouncements] = useState(mockAnnouncements);
+  const { user } = useAuth();
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<AnnouncementForm>({
@@ -28,6 +29,12 @@ export function AnnouncementsManager() {
     content: '',
     targetRoles: ['student'],
   });
+
+  useEffect(() => {
+    getAllAnnouncements().then(setAnnouncements);
+  }, []);
+
+  if (!user) return null;
 
   const handleOpenDialog = (announcementId?: string) => {
     if (announcementId) {

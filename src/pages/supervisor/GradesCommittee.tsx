@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../../components/ui/dialog';
-import { mockUsers } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
 import {
   Search,
   FileText,
@@ -136,7 +136,7 @@ const mockAssignedSessions: AssignedSession[] = [
 ];
 
 export function SupervisorGradesCommittee() {
-  const user = mockUsers.supervisor;
+  const { user } = useAuth();
   
   const [mainTab, setMainTab] = useState<'groups' | 'availability'>('groups');
   const [isGrading, setIsGrading] = useState(false);
@@ -338,6 +338,8 @@ export function SupervisorGradesCommittee() {
   const getSlotCountForDay = (day: string) => {
     return availabilityBlocks.filter(block => block.day === day).length;
   };
+
+  if (!user) return null;
 
   // If in grading mode, show grading interface
   if (isGrading && selectedGroupForGrading) {
@@ -866,7 +868,7 @@ export function SupervisorGradesCommittee() {
                     </div>
 
                     {/* Time Slots */}
-                    {timeSlots.map((time, timeIdx) => (
+                    {timeSlots.map((time) => (
                       <div key={time} className="grid grid-cols-6 gap-2 mb-1">
                         <div className="text-sm text-[var(--color-text-600)] py-3 flex items-center">
                           {time}

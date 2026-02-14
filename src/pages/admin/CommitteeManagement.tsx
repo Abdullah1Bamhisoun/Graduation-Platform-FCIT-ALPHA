@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
+import { useAuth } from '../../lib/AuthContext';
+import { getPresentationSchedules, getStudentPresentationSelections } from '../../services/presentations';
 import { Button } from '../../components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { Label } from '../../components/ui/label';
-import { mockUsers, mockPresentationSchedules, mockStudentPresentationSelections } from '../../lib/mock-data';
-import { PresentationSchedule } from '../../types';
+import { PresentationSchedule, StudentPresentationSelection } from '../../types';
 import { Plus, X, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -21,12 +22,25 @@ const availableSupervisors = [
 ];
 
 export function AdminCommitteeManagement() {
-  const user = mockUsers.admin;
-  const [schedules, setSchedules] = useState<PresentationSchedule[]>(mockPresentationSchedules);
+  const { user } = useAuth();
+  const [schedules, setSchedules] = useState<PresentationSchedule[]>([]);
+  const [selections, setSelections] = useState<StudentPresentationSelection[]>([]);
   const [selectedDay, setSelectedDay] = useState<string>('all');
   const [showAddMemberDialog, setShowAddMemberDialog] = useState(false);
   const [selectedSchedule, setSelectedSchedule] = useState<string | null>(null);
   const [selectedSupervisor, setSelectedSupervisor] = useState<string>('');
+
+  useEffect(() => {
+    Promise.all([
+      getPresentationSchedules(),
+      getStudentPresentationSelections(),
+    ]).then(([scheds, sels]) => {
+      setSchedules(scheds);
+      setSelections(sels);
+    });
+  }, []);
+
+  if (!user) return null;
 
   // Get unique days from schedules
   const availableDays = ['all', ...Array.from(new Set(schedules.map(s => s.day)))];
@@ -34,7 +48,7 @@ export function AdminCommitteeManagement() {
   // Combine confirmed schedules and student selections
   const allTimeSlots = [
     ...schedules,
-    ...mockStudentPresentationSelections
+    ...selections
       .filter(s => s.selectedDay && s.selectedTimeSlot)
       .map(s => ({
         groupId: s.groupId,

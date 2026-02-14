@@ -14,16 +14,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../../components/ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '../../components/ui/dropdown-menu';
-import { mockUsers } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
 import {
   Calendar,
-  Clock,
   Users,
   MapPin,
   Plus,
@@ -31,8 +24,6 @@ import {
   Send,
   RotateCcw,
   Sparkles,
-  Eye,
-  Edit,
   Trash2,
   GripVertical,
   AlertCircle,
@@ -41,7 +32,6 @@ import {
   Filter,
   Undo2,
   Redo2,
-  ChevronRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -108,13 +98,13 @@ const mockProjects: Project[] = [
 ];
 
 export function AdminPresentationCommittee() {
-  const user = mockUsers.admin;
-  
+  const { user } = useAuth();
+
   // State
   const [term, setTerm] = useState('2026-01');
   const [course, setCourse] = useState<'498' | '499' | 'both'>('both');
   const [weekStart, setWeekStart] = useState('2024-12-01');
-  
+
   // Planning inputs
   const [numStudents498, setNumStudents498] = useState(25);
   const [numStudents499, setNumStudents499] = useState(18);
@@ -122,12 +112,12 @@ export function AdminPresentationCommittee() {
   const [maxSessionsPerDay, setMaxSessionsPerDay] = useState(4);
   const [sessionDuration, setSessionDuration] = useState(30);
   const [bufferDuration, setBufferDuration] = useState(10);
-  
+
   // Constraints
   const [limitSessionsPerDay, setLimitSessionsPerDay] = useState(true);
   const [avoidSameCommittee, setAvoidSameCommittee] = useState(true);
   const [spreadEvenly, setSpreadEvenly] = useState(true);
-  
+
   // Schedule slots
   const [slots, setSlots] = useState<TimeSlot[]>([
     {
@@ -143,10 +133,10 @@ export function AdminPresentationCommittee() {
       course: '498',
     },
   ]);
-  
+
   const [projects, setProjects] = useState<Project[]>(mockProjects);
   const [supervisors] = useState<SupervisorAvailability[]>(mockSupervisors);
-  
+
   // UI State
   const [showSlotDialog, setShowSlotDialog] = useState(false);
   const [showAutoAssignDialog, setShowAutoAssignDialog] = useState(false);
@@ -157,10 +147,12 @@ export function AdminPresentationCommittee() {
   const [activeTab, setActiveTab] = useState('schedule');
   const [searchSupervisor, setSearchSupervisor] = useState('');
   const [filterDay, setFilterDay] = useState<string>('all');
-  
+
   // History for undo/redo
   const [history, setHistory] = useState<TimeSlot[][]>([slots]);
   const [historyIndex, setHistoryIndex] = useState(0);
+
+  if (!user) return null;
 
   // Calculations
   const requiredSlots498 = numStudents498;
@@ -335,9 +327,9 @@ export function AdminPresentationCommittee() {
     return projects.filter(p => p.status === 'unassigned' && (course === 'both' || p.course === course));
   };
 
-  const filteredSupervisors = supervisors.filter(s => 
+  const filteredSupervisors = supervisors.filter(s =>
     s.name.toLowerCase().includes(searchSupervisor.toLowerCase()) &&
-    (filterDay === 'all' || s[filterDay.toLowerCase() as keyof SupervisorAvailability] > 0)
+    (filterDay === 'all' || (s[filterDay.toLowerCase() as keyof SupervisorAvailability] as number) > 0)
   );
 
   return (

@@ -1,7 +1,7 @@
 import { Layout } from '../../components/layout/Layout';
 import { DashboardCard } from '../../features/dashboard/components/DashboardCard';
 import { Button } from '../../components/ui/button';
-import { mockUsers } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
 import { Users, Clock, CheckCircle, AlertTriangle, Calendar, FileText } from 'lucide-react';
 import { useState } from 'react';
 
@@ -91,12 +91,14 @@ const mockGroups: Group[] = [
 ];
 
 export function SupervisorMyGroups() {
-  const user = mockUsers.supervisor;
+  const { user } = useAuth();
   const [selectedCourse, setSelectedCourse] = useState<string>('all');
 
-  const filteredGroups = selectedCourse === 'all' 
-    ? mockGroups 
+  const filteredGroups = selectedCourse === 'all'
+    ? mockGroups
     : mockGroups.filter(g => g.course === selectedCourse);
+
+  if (!user) return null;
 
   const getStatusColor = (status: string) => {
     switch (status) {

@@ -1,33 +1,21 @@
 import { useState } from 'react';
 import { Layout } from '../../components/layout/Layout';
-import { StatusBadge } from '../../features/submissions/components/StatusBadge';
 import { Button } from '../../components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
-import { Textarea } from '../../components/ui/textarea';
 import { Label } from '../../components/ui/label';
 import { Input } from '../../components/ui/input';
-import { RadioGroup, RadioGroupItem } from '../../components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogDescription, 
-  DialogFooter, 
-  DialogHeader, 
-  DialogTitle 
-} from '../../components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu';
-import { mockUsers, mockGroupGrades } from '../../lib/mock-data';
-import { SubmissionStatus } from '../../types';
-import { 
-  Save, 
-  CheckCircle, 
-  Clock, 
+import { useAuth } from '../../lib/AuthContext';
+import {
+  Save,
+  CheckCircle,
+  Clock,
   FileText,
   Download,
   Eye,
@@ -113,10 +101,9 @@ const mockGroups: Group[] = [
 
 export function AdminGradesDeliverables() {
   const navigate = useNavigate();
-  const user = mockUsers.admin;
+  const { user } = useAuth();
   const [selectedGroup, setSelectedGroup] = useState<string>('');
   const [activeTab, setActiveTab] = useState('overview');
-  const [showGradeDialog, setShowGradeDialog] = useState(false);
   const [editingSection, setEditingSection] = useState<string | null>(null);
 
   // Admin grades (15 marks total)
@@ -169,6 +156,8 @@ export function AdminGradesDeliverables() {
       details: 'Final presentation graded: 35/40',
     },
   ]);
+
+  if (!user) return null;
 
   const currentGroup = mockGroups.find(g => g.id === selectedGroup);
 

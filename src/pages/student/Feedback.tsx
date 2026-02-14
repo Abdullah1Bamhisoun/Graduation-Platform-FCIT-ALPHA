@@ -1,16 +1,30 @@
 import { Layout } from '../../components/layout/Layout';
 import { StatusBadge } from '../../features/submissions/components/StatusBadge';
-import { mockUsers, mockSubmissions, mockMilestones } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
+import { getSubmissionsForStudent } from '../../services/submissions';
 import { BarChart3, Info } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '../../components/ui/button';
 import { X } from 'lucide-react';
+import type { Submission } from '../../types';
 
 export function StudentFeedback() {
-  const user = mockUsers.student;
+  const { user } = useAuth();
   const [showGradeCalc, setShowGradeCalc] = useState(false);
-  
-  const submissionsWithFeedback = mockSubmissions.filter(s => s.feedback);
+  const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+    getSubmissionsForStudent(user.id)
+      .then(setSubmissions)
+      .finally(() => setLoading(false));
+  }, [user]);
+
+  if (!user) return null;
+  if (loading) return <Layout user={user} pageTitle="Feedback & Grades"><div className="p-6">Loading...</div></Layout>;
+
+  const submissionsWithFeedback = submissions.filter(s => s.feedback);
 
   return (
     <Layout user={user} pageTitle="Feedback & Grades">
@@ -22,8 +36,7 @@ export function StudentFeedback() {
 
       <div className="space-y-6">
         {submissionsWithFeedback.map((submission) => {
-          const milestone = mockMilestones.find(m => m.id === submission.milestoneId);
-          if (!submission.feedback || !milestone) return null;
+          if (!submission.feedback) return null;
 
           return (
             <div key={submission.id} className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] shadow-sm">

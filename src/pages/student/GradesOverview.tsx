@@ -1,11 +1,37 @@
 import { Layout } from '../../components/layout/Layout';
-import { mockUsers, mockStudentGrades, mockGroupGrades } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
+import { getStudentGrade, getGroupGrade } from '../../services/grades';
+import { getGroupForStudent } from '../../services/groups';
 import { CheckCircle, Clock, XCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import type { StudentGrade, GroupGrade } from '../../types';
 
 export function StudentGradesOverview() {
-  const user = mockUsers.student;
-  const studentGrade = mockStudentGrades.find(g => g.studentId === user.studentId);
-  const groupGrade = mockGroupGrades.find(g => g.groupId === studentGrade?.groupId);
+  const { user } = useAuth();
+  const [studentGrade, setStudentGrade] = useState<StudentGrade | null>(null);
+  const [groupGrade, setGroupGrade] = useState<GroupGrade | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      try {
+        const group = await getGroupForStudent(user.id);
+        const courseCode = 'CPIS-498'; // Default course
+        const [sg, gg] = await Promise.all([
+          getStudentGrade(user.id, courseCode),
+          group ? getGroupGrade(group.id, courseCode) : null,
+        ]);
+        setStudentGrade(sg);
+        setGroupGrade(gg);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [user]);
+
+  if (!user) return null;
+  if (loading) return <Layout user={user} pageTitle="My Grades"><div className="p-6">Loading...</div></Layout>;
 
   if (!studentGrade || !groupGrade) {
     return (

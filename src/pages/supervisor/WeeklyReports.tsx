@@ -5,23 +5,38 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Textarea } from '../../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { mockUsers, mockWeeklyReports } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
+import { getGroupsForSupervisor } from '../../services/groups';
+import { getWeeklyReportsByGroup } from '../../services/weekly-reports';
 import { Plus, Eye, X } from 'lucide-react';
 import { WeeklyReport } from '../../types';
 import { toast } from 'sonner';
-
-// Mock groups data
-const mockGroups = [
-  { id: '13_498_2026_01_M', name: 'Group 13 - Smart Parking System', course: 'CPIS-498' as const, students: ['Abdullah Bamhisoun', 'Abdulrahman Solymani'] },
-  { id: '14_498_2026_01_M', name: 'Group 14 - E-Learning Platform', course: 'CPIS-498' as const, students: ['Faisal Al-Ghamdi', 'Khalid Al-Shahrani'] },
-  { id: '15_498_2026_01_M', name: 'Group 15 - Healthcare App', course: 'CPIS-498' as const, students: ['Turki Al-Mutairi', 'Saad Al-Dosari'] },
-];
+import { useEffect } from 'react';
 
 export function SupervisorWeeklyReports() {
-  const user = mockUsers.supervisor;
+  const { user } = useAuth();
   const [selectedGroup, setSelectedGroup] = useState<string>('');
   const [selectedReport, setSelectedReport] = useState<WeeklyReport | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
+  const [groups, setGroups] = useState<{ id: string; name: string; course: string; students: string[] }[]>([]);
+  const [reports, setReports] = useState<WeeklyReport[]>([]);
+
+  useEffect(() => {
+    if (!user) return;
+    getGroupsForSupervisor(user.id).then((data) => {
+      setGroups(data.map(g => ({
+        id: g.id,
+        name: `Group ${g.groupCode} - ${g.projectName}`,
+        course: g.courseCode as 'CPIS-498' | 'CPIS-499',
+        students: g.members.map(m => m.name),
+      })));
+    });
+  }, [user]);
+
+  useEffect(() => {
+    if (!selectedGroup) { setReports([]); return; }
+    getWeeklyReportsByGroup(selectedGroup).then(setReports);
+  }, [selectedGroup]);
   const [formData, setFormData] = useState({
     weekNumber: '',
     course: 'CPIS-498' as 'CPIS-498' | 'CPIS-499',
@@ -31,14 +46,16 @@ export function SupervisorWeeklyReports() {
     supervisorComments: '',
   });
 
+  if (!user) return null;
+
   // Get current group
-  const currentGroup = mockGroups.find(g => g.id === selectedGroup);
-  
+  const currentGroup = groups.find(g => g.id === selectedGroup);
+
   // Generate 14 weeks
   const weeks = Array.from({ length: 14 }, (_, i) => i + 1);
-  
+
   // Get reports for selected group
-  const groupReports = selectedGroup ? mockWeeklyReports.filter(r => r.groupId === selectedGroup) : [];
+  const groupReports = reports;
   
   // Find report for each week
   const getReportForWeek = (weekNum: number) => {
@@ -103,7 +120,7 @@ export function SupervisorWeeklyReports() {
               <SelectValue placeholder="Choose a group to view/submit reports" />
             </SelectTrigger>
             <SelectContent>
-              {mockGroups.map((group) => (
+              {groups.map((group) => (
                 <SelectItem key={group.id} value={group.id}>
                   {group.name} ({group.course})
                 </SelectItem>

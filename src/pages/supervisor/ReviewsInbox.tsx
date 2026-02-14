@@ -5,29 +5,51 @@ import { Button } from '../../components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Label } from '../../components/ui/label';
-import { mockUsers, mockSubmissions, mockWeeklyReports } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
+import { getSubmissionsForSupervisor } from '../../services/submissions';
+import { getWeeklyReportsForSupervisor } from '../../services/weekly-reports';
+import { getGroupsForSupervisor } from '../../services/groups';
 import { useNavigate } from 'react-router-dom';
 import { Filter, FileText, Clock } from 'lucide-react';
-
-// Mock groups data
-const mockGroups = [
-  { id: '13_498_2026_01_M', name: 'Group 13 - Smart Parking System', course: 'CPIS-498' as const, students: ['Abdullah Bamhisoun', 'Abdulrahman Solymani'] },
-  { id: '14_498_2026_01_M', name: 'Group 14 - E-Learning Platform', course: 'CPIS-498' as const, students: ['Ahmed Ali', 'Mohammed Hassan'] },
-  { id: '15_498_2026_01_M', name: 'Group 15 - Healthcare App', course: 'CPIS-498' as const, students: ['Sara Ibrahim', 'Fatima Omar'] },
-];
+import { useEffect } from 'react';
+import type { Submission, WeeklyReport } from '../../types';
 
 export function SupervisorReviewsInbox() {
   const navigate = useNavigate();
-  const user = mockUsers.supervisor;
+  const { user } = useAuth();
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [selectedGroup, setSelectedGroup] = useState<string>('');
+  const [allSubmissions, setAllSubmissions] = useState<Submission[]>([]);
+  const [allWeeklyReports, setAllWeeklyReports] = useState<WeeklyReport[]>([]);
+  const [groups, setGroups] = useState<{ id: string; name: string; course: string; students: string[] }[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const currentGroup = mockGroups.find(g => g.id === selectedGroup);
+  useEffect(() => {
+    if (!user) return;
+    Promise.all([
+      getSubmissionsForSupervisor(user.id),
+      getWeeklyReportsForSupervisor(user.id),
+      getGroupsForSupervisor(user.id),
+    ]).then(([subs, reports, grps]) => {
+      setAllSubmissions(subs);
+      setAllWeeklyReports(reports);
+      setGroups(grps.map(g => ({
+        id: g.id,
+        name: `Group ${g.groupCode} - ${g.projectName}`,
+        course: g.courseCode as 'CPIS-498' | 'CPIS-499',
+        students: g.members.map(m => m.name),
+      })));
+    }).finally(() => setLoading(false));
+  }, [user]);
 
-  const submissions = mockSubmissions.filter(s => {
+  if (!user) return null;
+  if (loading) return <Layout user={user} pageTitle="Reviews Inbox"><div className="p-6">Loading...</div></Layout>;
+
+  const currentGroup = groups.find(g => g.id === selectedGroup);
+
+  const submissions = allSubmissions.filter(s => {
     const matchesStatus = filterStatus === 'all' || s.status === filterStatus;
-    const matchesGroup = !selectedGroup || s.groupId === selectedGroup;
-    return matchesStatus && matchesGroup;
+    return matchesStatus;
   });
 
   return (
@@ -47,7 +69,7 @@ export function SupervisorReviewsInbox() {
               <SelectValue placeholder="Choose a group to review" />
             </SelectTrigger>
             <SelectContent>
-              {mockGroups.map((group) => (
+              {groups.map((group) => (
                 <SelectItem key={group.id} value={group.id}>
                   {group.name}
                 </SelectItem>
@@ -65,7 +87,7 @@ export function SupervisorReviewsInbox() {
       <Tabs defaultValue="submissions" className="w-full">
         <TabsList className="mb-6">
           <TabsTrigger value="submissions">Submissions ({submissions.length})</TabsTrigger>
-          <TabsTrigger value="weekly-reports">Weekly Reports ({mockWeeklyReports.length})</TabsTrigger>
+          <TabsTrigger value="weekly-reports">Weekly Reports ({allWeeklyReports.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="submissions">
@@ -163,7 +185,7 @@ export function SupervisorReviewsInbox() {
             </div>
 
             <div className="divide-y divide-[var(--color-border)]">
-              {mockWeeklyReports.map((report) => (
+              {allWeeklyReports.map((report) => (
                 <div
                   key={report.id}
                   className="grid grid-cols-12 gap-4 p-4 hover:bg-[var(--color-surface-alt)] transition-colors"

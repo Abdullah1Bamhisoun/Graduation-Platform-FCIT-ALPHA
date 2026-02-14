@@ -23,7 +23,7 @@ import {
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../components/ui/tooltip';
-import { mockUsers } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
 import { SubmissionStatus } from '../../types';
 import { 
   Save, 
@@ -167,7 +167,7 @@ const initialChapterSubmissions: ChapterSubmission[] = [
 
 export function SupervisorMyGroupsAndReviews() {
   const navigate = useNavigate();
-  const user = mockUsers.supervisor;
+  const { user } = useAuth();
   const [selectedGroup, setSelectedGroup] = useState<string>('');
   const [status, setStatus] = useState<SubmissionStatus>('under-review');
   const [isIPModalOpen, setIsIPModalOpen] = useState(false);
@@ -212,6 +212,8 @@ export function SupervisorMyGroupsAndReviews() {
   ]);
 
   const currentGroup = mockGroups.find(g => g.id === selectedGroup);
+
+  if (!user) return null;
 
   // Calculate totals
   const calculateSupervisorTotal = () => {
@@ -329,29 +331,6 @@ export function SupervisorMyGroupsAndReviews() {
 
   const handleExport = (format: 'pdf' | 'csv') => {
     toast.success(`Exporting evaluation as ${format.toUpperCase()}...`);
-  };
-
-  // Get breakdown for rubric card
-  const getBreakdown = () => {
-    const breakdown: { name: string; score: number; max: number }[] = [];
-    
-    if (activeTab === 'chapters') {
-      chapterSubmissions.forEach(chapter => {
-        breakdown.push({
-          name: chapter.chapterName,
-          score: chapter.supervisorGrade || 0,
-          max: chapter.supervisorMarks
-        });
-      });
-    } else if (activeTab === 'collaboration') {
-      breakdown.push({
-        name: 'Collaboration',
-        score: parseFloat(collaborationGrade) || 0,
-        max: 0 // Collaboration is part of 20 total
-      });
-    }
-    
-    return breakdown;
   };
 
   const totalAdminMarks = calculateAdminTotal();

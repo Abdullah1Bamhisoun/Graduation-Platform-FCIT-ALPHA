@@ -4,18 +4,37 @@ import { Layout } from '../../components/layout/Layout';
 import { StatusBadge } from '../../features/submissions/components/StatusBadge';
 import { Button } from '../../components/ui/button';
 import { Textarea } from '../../components/ui/textarea';
-import { mockUsers, mockMilestones, mockSubmissions } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
+import { getMilestoneById } from '../../services/milestones';
+import { getSubmissionByMilestoneAndStudent } from '../../services/submissions';
 import { Upload, FileText, Clock, MessageSquare, Download } from 'lucide-react';
 import { toast } from 'sonner';
+import { useEffect } from 'react';
+import type { Milestone, Submission } from '../../types';
 
 export function StudentSubmissionDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const user = mockUsers.student;
-  const milestone = mockMilestones.find(m => m.id === id);
-  const submission = mockSubmissions.find(s => s.milestoneId === id);
+  const { user } = useAuth();
+  const [milestone, setMilestone] = useState<Milestone | null>(null);
+  const [submission, setSubmission] = useState<Submission | undefined>(undefined);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user || !id) return;
+    Promise.all([
+      getMilestoneById(id),
+      getSubmissionByMilestoneAndStudent(id, user.id),
+    ]).then(([m, s]) => {
+      setMilestone(m);
+      setSubmission(s ?? undefined);
+    }).finally(() => setLoading(false));
+  }, [user, id]);
   const [uploading, setUploading] = useState(false);
   const [newComment, setNewComment] = useState('');
+
+  if (!user) return null;
+  if (loading) return <Layout user={user} pageTitle="Loading..."><div className="p-6">Loading...</div></Layout>;
 
   if (!milestone) {
     return (

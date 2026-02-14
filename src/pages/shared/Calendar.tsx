@@ -1,5 +1,5 @@
 import { Layout } from '../../components/layout/Layout';
-import { mockUsers } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
@@ -24,12 +24,8 @@ const events: CalendarEvent[] = [
   { date: '2025-11-25', title: 'Supervisor Meeting', type: 'meeting', time: '2:00 PM' },
 ];
 
-interface CalendarProps {
-  userRole: 'student' | 'supervisor' | 'admin';
-}
-
-export function Calendar({ userRole }: CalendarProps) {
-  const user = mockUsers[userRole];
+export function Calendar() {
+  const { user } = useAuth();
   const [currentMonth] = useState(new Date(2025, 10, 1)); // November 2025
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>(events);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -71,13 +67,15 @@ export function Calendar({ userRole }: CalendarProps) {
   const daysInMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate();
   const firstDayOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1).getDay();
 
+  if (!user) return null;
+
   return (
     <Layout user={user} pageTitle="Calendar">
       <div className="mb-6 flex items-center justify-between">
         <p className="text-[var(--color-text-600)]">
           View important dates, deadlines, and events
         </p>
-        {userRole === 'admin' && (
+        {user.role === 'admin' && (
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
               <Button variant="primary">

@@ -38,7 +38,6 @@ import { ImportantFilesManager } from './pages/admin/ImportantFilesManager';
 import { AdminUserManagement } from './pages/admin/UserManagement';
 import { AdminWeeklyReports } from './pages/admin/WeeklyReports';
 import { AdminGradesDeliverables } from './pages/admin/GradesDeliverables';
-import { AdminPresentationAndCommittee } from './pages/admin/PresentationAndCommittee';
 import { AdminPresentationCommittee } from './pages/admin/PresentationCommittee';
 
 // Shared Pages
@@ -67,9 +66,9 @@ export default function App() {
           <Route path="/student/peer-feedback" element={<ProtectedRoute allowedRoles={['student']}><StudentPeerFeedback /></ProtectedRoute>} />
           <Route path="/student/presentation-selection" element={<ProtectedRoute allowedRoles={['student']}><StudentPresentationSelection /></ProtectedRoute>} />
           <Route path="/student/my-presentation" element={<ProtectedRoute allowedRoles={['student']}><StudentMyPresentation /></ProtectedRoute>} />
-          <Route path="/student/announcements" element={<ProtectedRoute allowedRoles={['student']}><Announcements userRole="student" /></ProtectedRoute>} />
-          <Route path="/student/calendar" element={<ProtectedRoute allowedRoles={['student']}><Calendar userRole="student" /></ProtectedRoute>} />
-          <Route path="/student/important-files" element={<ProtectedRoute allowedRoles={['student']}><ImportantFiles userRole="student" /></ProtectedRoute>} />
+          <Route path="/student/announcements" element={<ProtectedRoute allowedRoles={['student']}><Announcements /></ProtectedRoute>} />
+          <Route path="/student/calendar" element={<ProtectedRoute allowedRoles={['student']}><Calendar /></ProtectedRoute>} />
+          <Route path="/student/important-files" element={<ProtectedRoute allowedRoles={['student']}><ImportantFiles /></ProtectedRoute>} />
 
           {/* Supervisor Routes */}
           <Route path="/supervisor" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorDashboard /></ProtectedRoute>} />
@@ -79,9 +78,9 @@ export default function App() {
           <Route path="/supervisor/grading" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorGradingAssessment /></ProtectedRoute>} />
           <Route path="/supervisor/committee" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorGradesCommittee /></ProtectedRoute>} />
           <Route path="/supervisor/weekly-report/:id" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorMyGroupsAndReviews /></ProtectedRoute>} />
-          <Route path="/supervisor/schedule" element={<ProtectedRoute allowedRoles={['supervisor']}><Calendar userRole="supervisor" /></ProtectedRoute>} />
-          <Route path="/supervisor/announcements" element={<ProtectedRoute allowedRoles={['supervisor']}><Announcements userRole="supervisor" /></ProtectedRoute>} />
-          <Route path="/supervisor/important-files" element={<ProtectedRoute allowedRoles={['supervisor']}><ImportantFiles userRole="supervisor" /></ProtectedRoute>} />
+          <Route path="/supervisor/schedule" element={<ProtectedRoute allowedRoles={['supervisor']}><Calendar /></ProtectedRoute>} />
+          <Route path="/supervisor/announcements" element={<ProtectedRoute allowedRoles={['supervisor']}><Announcements /></ProtectedRoute>} />
+          <Route path="/supervisor/important-files" element={<ProtectedRoute allowedRoles={['supervisor']}><ImportantFiles /></ProtectedRoute>} />
           <Route path="/supervisor/evaluation" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorEvaluation /></ProtectedRoute>} />
           <Route path="/supervisor/my-availability" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorMyAvailability /></ProtectedRoute>} />
           <Route path="/supervisor/grading-evaluation" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorGradingEvaluation /></ProtectedRoute>} />
@@ -95,13 +94,13 @@ export default function App() {
           <Route path="/admin/announcements" element={<ProtectedRoute allowedRoles={['admin']}><AnnouncementsManager /></ProtectedRoute>} />
           <Route path="/admin/exports" element={<ProtectedRoute allowedRoles={['admin']}><AdminExportsAudit /></ProtectedRoute>} />
           <Route path="/admin/users" element={<ProtectedRoute allowedRoles={['admin']}><AdminUserManagement /></ProtectedRoute>} />
-          <Route path="/admin/calendar" element={<ProtectedRoute allowedRoles={['admin']}><Calendar userRole="admin" /></ProtectedRoute>} />
+          <Route path="/admin/calendar" element={<ProtectedRoute allowedRoles={['admin']}><Calendar /></ProtectedRoute>} />
           <Route path="/admin/important-files" element={<ProtectedRoute allowedRoles={['admin']}><ImportantFilesManager /></ProtectedRoute>} />
 
           {/* Settings Routes by Role */}
-          <Route path="/student/settings" element={<ProtectedRoute allowedRoles={['student']}><Settings userRole="student" /></ProtectedRoute>} />
-          <Route path="/supervisor/settings" element={<ProtectedRoute allowedRoles={['supervisor']}><Settings userRole="supervisor" /></ProtectedRoute>} />
-          <Route path="/admin/settings" element={<ProtectedRoute allowedRoles={['admin']}><Settings userRole="admin" /></ProtectedRoute>} />
+          <Route path="/student/settings" element={<ProtectedRoute allowedRoles={['student']}><Settings /></ProtectedRoute>} />
+          <Route path="/supervisor/settings" element={<ProtectedRoute allowedRoles={['supervisor']}><Settings /></ProtectedRoute>} />
+          <Route path="/admin/settings" element={<ProtectedRoute allowedRoles={['admin']}><Settings /></ProtectedRoute>} />
           <Route path="/settings" element={<Navigate to="/login" replace />} />
 
           {/* Catch-all route for unmatched paths */}

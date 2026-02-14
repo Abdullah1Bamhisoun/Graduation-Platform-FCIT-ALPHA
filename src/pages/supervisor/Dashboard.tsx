@@ -3,21 +3,37 @@ import { DashboardCard } from '../../features/dashboard/components/DashboardCard
 import { MetricCard } from '../../features/dashboard/components/MetricCard';
 import { StatusBadge } from '../../features/submissions/components/StatusBadge';
 import { Button } from '../../components/ui/button';
-import { mockSubmissions, mockWeeklyReports } from '../../lib/mock-data';
-import { ClipboardList, Users, Calendar, Clock, FileText, AlertCircle } from 'lucide-react';
+import { getSubmissionsForSupervisor } from '../../services/submissions';
+import { getWeeklyReportsForSupervisor } from '../../services/weekly-reports';
+import { ClipboardList, Users, Calendar, Clock, FileText } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../lib/AuthContext';
+import { useState, useEffect } from 'react';
+import type { Submission, WeeklyReport } from '../../types';
 
 export function SupervisorDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [weeklyReports, setWeeklyReports] = useState<WeeklyReport[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  if (!user) {
-    return null;
-  }
+  useEffect(() => {
+    if (!user) return;
+    Promise.all([
+      getSubmissionsForSupervisor(user.id),
+      getWeeklyReportsForSupervisor(user.id),
+    ]).then(([subs, reports]) => {
+      setSubmissions(subs);
+      setWeeklyReports(reports);
+    }).finally(() => setLoading(false));
+  }, [user]);
 
-  const pendingReviews = mockSubmissions.filter(s => s.status === 'submitted' || s.status === 'under-review');
-  const weeklyReportsToReview = mockWeeklyReports.filter(r => r.status === 'submitted');
+  if (!user) return null;
+  if (loading) return <Layout user={user} pageTitle="Supervisor Dashboard"><div className="p-6">Loading...</div></Layout>;
+
+  const pendingReviews = submissions.filter(s => s.status === 'submitted' || s.status === 'under-review');
+  const weeklyReportsToReview = weeklyReports.filter(r => r.status === 'submitted');
   
   return (
     <Layout user={user} pageTitle="Supervisor Dashboard">
@@ -144,7 +160,7 @@ export function SupervisorDashboard() {
           }
         >
           <div className="space-y-3">
-            {mockWeeklyReports.map((report) => (
+            {weeklyReports.map((report) => (
               <div
                 key={report.id}
                 className="p-4 rounded-lg !bg-white dark:bg-gray-800 border-[1.5px] border-[var(--color-border)] hover:border-[var(--color-primary-600)] cursor-pointer transition-colors"

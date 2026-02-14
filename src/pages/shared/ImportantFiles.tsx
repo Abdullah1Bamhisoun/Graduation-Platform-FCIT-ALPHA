@@ -1,12 +1,8 @@
 import { Layout } from '../../components/layout/Layout';
-import { mockUsers } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
 import { FileText, Download, File } from 'lucide-react';
 import { Card } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
-
-interface ImportantFilesProps {
-  userRole: 'student' | 'supervisor' | 'admin';
-}
 
 interface FileItem {
   id: string;
@@ -36,8 +32,8 @@ const importantFiles: FileItem[] = [
   },
 ];
 
-export function ImportantFiles({ userRole }: ImportantFilesProps) {
-  const user = mockUsers[userRole];
+export function ImportantFiles() {
+  const { user } = useAuth();
 
   const getFileIcon = (type: string) => {
     switch (type) {
@@ -56,6 +52,8 @@ export function ImportantFiles({ userRole }: ImportantFilesProps) {
     // In a real application, this would trigger the actual download
     console.log(`Downloading: ${file.name}`);
   };
+
+  if (!user) return null;
 
   return (
     <Layout user={user} pageTitle="Important Files">

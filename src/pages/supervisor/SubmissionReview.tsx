@@ -7,16 +7,32 @@ import { Input } from '../../components/ui/input';
 import { Textarea } from '../../components/ui/textarea';
 import { Label } from '../../components/ui/label';
 import { Switch } from '../../components/ui/switch';
-import { mockUsers, mockSubmissions, mockMilestones } from '../../lib/mock-data';
+import { getSubmissionById } from '../../services/submissions';
+import { getMilestoneById } from '../../services/milestones';
+import { useAuth } from '../../lib/AuthContext';
 import { FileText, ChevronLeft, Check, AlertCircle, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { useEffect } from 'react';
+import type { Submission, Milestone } from '../../types';
 
 export function SupervisorSubmissionReview() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const user = mockUsers.supervisor;
-  const submission = mockSubmissions.find(s => s.id === id);
-  const milestone = submission && mockMilestones.find(m => m.id === submission.milestoneId);
+  const { user } = useAuth();
+  const [submission, setSubmission] = useState<Submission | null>(null);
+  const [milestone, setMilestone] = useState<Milestone | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!id) return;
+    getSubmissionById(id).then(async (sub) => {
+      setSubmission(sub);
+      if (sub) {
+        const m = await getMilestoneById(sub.milestoneId);
+        setMilestone(m);
+      }
+    }).finally(() => setLoading(false));
+  }, [id]);
   
   const [rubricScores, setRubricScores] = useState<Record<string, { score: number; comment: string }>>(
     submission?.feedback?.rubric.reduce((acc, r) => ({
@@ -28,6 +44,9 @@ export function SupervisorSubmissionReview() {
   const [sendNotification, setSendNotification] = useState(true);
   const [showRequestChangesModal, setShowRequestChangesModal] = useState(false);
   const [changesMessage, setChangesMessage] = useState('');
+
+  if (!user) return null;
+  if (loading) return <Layout user={user} pageTitle="Review Submission"><div className="p-6">Loading...</div></Layout>;
 
   if (!submission || !milestone) {
     return (

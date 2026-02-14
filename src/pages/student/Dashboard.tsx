@@ -3,29 +3,45 @@ import { DashboardCard } from '../../features/dashboard/components/DashboardCard
 import { MetricCard } from '../../features/dashboard/components/MetricCard';
 import { StatusBadge } from '../../features/submissions/components/StatusBadge';
 import { Button } from '../../components/ui/button';
-import { mockMilestones, mockNotifications } from '../../lib/mock-data';
+import { getMilestonesByStudentWithStatus } from '../../services/milestones';
+import { getNotificationsForUser } from '../../services/notifications';
 import { Calendar, AlertCircle, CheckCircle, Clock, FileText, Upload } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../lib/AuthContext';
+import { useState, useEffect } from 'react';
+import type { Milestone, Notification } from '../../types';
 
 export function StudentDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [milestones, setMilestones] = useState<Milestone[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  if (!user) {
-    return null;
-  }
+  useEffect(() => {
+    if (!user) return;
+    Promise.all([
+      getMilestonesByStudentWithStatus(user.id),
+      getNotificationsForUser(user.id),
+    ]).then(([m, n]) => {
+      setMilestones(m);
+      setNotifications(n);
+    }).finally(() => setLoading(false));
+  }, [user]);
 
-  const upcomingDeadlines = mockMilestones
+  if (!user) return null;
+  if (loading) return <Layout user={user} pageTitle="Dashboard"><div className="p-6">Loading...</div></Layout>;
+
+  const upcomingDeadlines = milestones
     .filter(m => ['submitted', 'draft', 'changes-requested'].includes(m.status))
     .slice(0, 4);
 
-  const pendingActions = mockMilestones.filter(m => m.status === 'changes-requested');
-  const approvedCount = mockMilestones.filter(m => m.status === 'approved').length;
-  const totalMilestones = mockMilestones.length;
+  const pendingActions = milestones.filter(m => m.status === 'changes-requested');
+  const approvedCount = milestones.filter(m => m.status === 'approved').length;
+  const totalMilestones = milestones.length;
 
   return (
-    <Layout user={user} pageTitle="Dashboard" unreadCount={mockNotifications.filter(n => !n.read).length}>
+    <Layout user={user} pageTitle="Dashboard" unreadCount={notifications.filter(n => !n.read).length}>
       {/* Metrics */}
       <div className="grid grid-cols-4 gap-6 mb-8">
         <MetricCard
@@ -144,7 +160,7 @@ export function StudentDashboard() {
             </div>
 
             <div className="mt-6 space-y-2">
-              {mockMilestones.slice(0, 5).map((milestone) => (
+              {milestones.slice(0, 5).map((milestone) => (
                 <div
                   key={milestone.id}
                   className="flex items-center justify-between py-2 cursor-pointer hover:bg-[var(--color-surface-alt)] rounded px-2"

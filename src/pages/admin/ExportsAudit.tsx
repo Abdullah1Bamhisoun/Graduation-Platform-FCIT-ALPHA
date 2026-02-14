@@ -1,18 +1,27 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
+import { useAuth } from '../../lib/AuthContext';
+import { getAuditLog } from '../../services/audit';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
-import { mockUsers, mockAuditLog } from '../../lib/mock-data';
 import { Download, FileText, BarChart3, Activity, X } from 'lucide-react';
 import { toast } from 'sonner';
+import type { AuditLogEntry } from '../../types';
 
 export function AdminExportsAudit() {
-  const user = mockUsers.admin;
+  const { user } = useAuth();
+  const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportType, setExportType] = useState<'grades' | 'submissions' | 'activity' | null>(null);
   const [dateRange, setDateRange] = useState({ from: '', to: '' });
+
+  useEffect(() => {
+    getAuditLog().then(setAuditLog);
+  }, []);
+
+  if (!user) return null;
 
   const handleExport = () => {
     toast.success('Export started. Download will be ready shortly.');
@@ -175,7 +184,7 @@ export function AdminExportsAudit() {
             </div>
 
             <div className="divide-y divide-[var(--color-border)]">
-              {mockAuditLog.map((entry) => (
+              {auditLog.map((entry) => (
                 <div
                   key={entry.id}
                   className="grid grid-cols-12 gap-4 p-4 hover:bg-[var(--color-surface-alt)] transition-colors"

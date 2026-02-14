@@ -1,5 +1,5 @@
 import { useLocation, Link } from 'react-router-dom';
-import { Home, FileText, Calendar, Bell, Settings, Users, BarChart3, CheckSquare, ClipboardList, FolderOpen } from 'lucide-react';
+import { Home, FileText, Calendar, Bell, Settings, Users, BarChart3, CheckSquare, FolderOpen } from 'lucide-react';
 import { UserRole } from '../../types';
 import gppLogo from '/gpp-logo.png';
 

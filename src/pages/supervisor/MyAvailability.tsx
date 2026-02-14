@@ -5,12 +5,15 @@ import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Switch } from '../../components/ui/switch';
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '../../components/ui/popover';
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../../components/ui/dialog';
 import { Input } from '../../components/ui/input';
-import { mockUsers } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
 import {
   Calendar,
   Clock,
@@ -19,7 +22,6 @@ import {
   Trash2,
   Save,
   AlertCircle,
-  CheckCircle,
   Info,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -58,7 +60,7 @@ const mockAssignedSessions: AssignedSession[] = [
 ];
 
 export function SupervisorMyAvailability() {
-  const user = mockUsers.supervisor;
+  const { user } = useAuth();
   
   const [term, setTerm] = useState('2026-01');
   const [course, setCourse] = useState<'498' | '499' | 'both'>('both');
@@ -91,6 +93,8 @@ export function SupervisorMyAvailability() {
   const [assignedSessions] = useState<AssignedSession[]>(mockAssignedSessions);
   const [editingBlock, setEditingBlock] = useState<AvailabilityBlock | null>(null);
   const [showEditPopover, setShowEditPopover] = useState(false);
+
+  if (!user) return null;
 
   // Calculate slots per day
   const getSlotsForDay = (day: typeof DAYS[number]) => {
@@ -185,9 +189,6 @@ export function SupervisorMyAvailability() {
     });
   };
 
-  const isTimeInBlock = (day: typeof DAYS[number], time: string) => {
-    return getBlocksForDayTime(day, time).length > 0;
-  };
 
   // Check conflicts
   const getConflictsForDay = (day: typeof DAYS[number]) => {

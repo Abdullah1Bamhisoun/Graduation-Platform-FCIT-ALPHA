@@ -19,24 +19,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
 
-  // Load session and set up auth state listener
+  // Load session on mount
   useEffect(() => {
-    // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
-        loadUserProfile(session.user);
+        loadUserProfile(session.user).then((profile) => {
+          if (profile) {
+            setUser(profile);
+          }
+          setIsLoading(false);
+        });
       } else {
         setIsLoading(false);
       }
     });
 
-    // Listen for auth changes
+    // Listen for sign out only (sign in is handled by login function)
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) {
-        await loadUserProfile(session.user);
-      } else if (event === 'SIGNED_OUT') {
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') {
         setUser(null);
       }
     });
@@ -45,55 +47,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Load user profile from profiles table
-  const loadUserProfile = async (authUser: SupabaseUser) => {
-    try {
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', authUser.id)
-        .single();
+  const loadUserProfile = async (authUser: SupabaseUser): Promise<User | null> => {
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', authUser.id)
+      .single();
 
-      if (error) throw error;
-
-      if (profile) {
-        const userData: User = {
-          id: profile.id,
-          name: profile.name,
-          email: profile.email,
-          role: profile.role as UserRole,
-          studentId: profile.student_id,
-          employeeNumber: profile.employee_number,
-          avatarUrl: profile.avatar_url,
-        };
-        setUser(userData);
-      }
-    } catch (error) {
-      console.error('Error loading user profile:', error);
-    } finally {
-      setIsLoading(false);
+    if (error) {
+      console.error('Failed to load profile:', error.message);
+      throw new Error('Failed to load user profile. Please contact an administrator.');
     }
-  };
 
-  // Validate email format
-  const validateEmail = (email: string): boolean => {
-    const kauEmailRegex = /^[\w.-]+@(stu\.)?kau\.edu\.sa$/;
-    return kauEmailRegex.test(email);
-  };
+    if (!profile) {
+      throw new Error('User profile not found. Please contact an administrator.');
+    }
 
-  // Validate password
-  const validatePassword = (password: string): boolean => {
-    return password.length >= 8;
+    return {
+      id: profile.id,
+      name: profile.name,
+      email: profile.email,
+      role: profile.role as UserRole,
+      studentId: profile.student_id,
+      employeeNumber: profile.employee_number,
+      avatarUrl: profile.avatar_url,
+    };
   };
 
   // Login function
   const login = async (email: string, password: string): Promise<void> => {
     // Validate email format
-    if (!validateEmail(email)) {
+    const kauEmailRegex = /^[\w.-]+@(stu\.)?kau\.edu\.sa$/;
+    if (!kauEmailRegex.test(email)) {
       throw new Error('Please enter a valid KAU email address');
     }
 
-    // Validate password
-    if (!validatePassword(password)) {
+    if (password.length < 8) {
       throw new Error('Password must be at least 8 characters');
     }
 
@@ -110,14 +99,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error(error.message);
     }
 
-    if (data.user) {
-      await loadUserProfile(data.user);
-
-      // Redirect to role-specific dashboard
-      if (user) {
-        navigate(`/${user.role}`);
-      }
+    if (!data.user) {
+      throw new Error('Login failed. Please try again.');
     }
+
+    // Load the user profile
+    const profile = await loadUserProfile(data.user);
+    if (!profile) {
+      throw new Error('User profile not found. Please contact an administrator.');
+    }
+    setUser(profile);
+
+    // Redirect to role-specific dashboard
+    navigate(`/${profile.role}`);
   };
 
   // Logout function

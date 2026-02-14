@@ -1,5 +1,4 @@
 import { toast } from 'sonner';
-import { CheckCircle, AlertCircle, Info, XCircle } from 'lucide-react';
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info';
 

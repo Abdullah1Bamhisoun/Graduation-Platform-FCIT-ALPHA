@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../../components/ui/dialog';
-import { mockUsers } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
 import {
   Save,
   AlertCircle,
@@ -23,7 +23,6 @@ import {
   XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useNavigate } from 'react-router-dom';
 
 interface Group {
   id: string;
@@ -60,9 +59,8 @@ const mockGroups: Group[] = [
 ];
 
 export function SupervisorGradingEvaluation() {
-  const navigate = useNavigate();
-  const user = mockUsers.supervisor;
-  
+  const { user } = useAuth();
+
   const [selectedGroup, setSelectedGroup] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'chapters' | 'committee'>('chapters');
   const [status, setStatus] = useState<'draft' | 'submitted'>('draft');
@@ -101,6 +99,8 @@ export function SupervisorGradingEvaluation() {
   const [showSubmitModal, setShowSubmitModal] = useState(false);
 
   const currentGroup = mockGroups.find(g => g.id === selectedGroup);
+
+  if (!user) return null;
 
   // Calculate totals
   const calculateChapterTotal = () => {

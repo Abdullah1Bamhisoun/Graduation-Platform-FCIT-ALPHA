@@ -1,19 +1,27 @@
 import { Layout } from '../../components/layout/Layout';
-import { mockUsers, mockAnnouncements } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
+import { getAnnouncementsForRole } from '../../services/announcements';
 import { Bell, Calendar as CalendarIcon } from 'lucide-react';
 import { Card } from '../../components/ui/card';
+import { useState, useEffect } from 'react';
+import type { Announcement } from '../../types';
 
-interface AnnouncementsProps {
-  userRole: 'student' | 'supervisor' | 'admin';
-}
+export function Announcements() {
+  const { user } = useAuth();
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [loading, setLoading] = useState(true);
 
-export function Announcements({ userRole }: AnnouncementsProps) {
-  const user = mockUsers[userRole];
+  useEffect(() => {
+    if (!user) return;
+    getAnnouncementsForRole(user.role)
+      .then(setAnnouncements)
+      .finally(() => setLoading(false));
+  }, [user]);
 
-  // Filter announcements based on user role
-  const filteredAnnouncements = mockAnnouncements.filter(announcement =>
-    announcement.targetRoles.includes(userRole)
-  );
+  const filteredAnnouncements = announcements;
+
+  if (!user) return null;
+  if (loading) return <Layout user={user} pageTitle="Announcements"><div className="p-6">Loading announcements...</div></Layout>;
 
   return (
     <Layout user={user} pageTitle="Announcements">

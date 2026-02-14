@@ -1,6 +1,5 @@
 import { Layout } from '../../components/layout/Layout';
-import { User } from '../../types';
-import { mockUsers } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
 import { Card } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -11,12 +10,8 @@ import { Bell, Lock, User as UserIcon, Mail, Building } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
-interface SettingsProps {
-  userRole: 'student' | 'supervisor' | 'admin';
-}
-
-export function Settings({ userRole }: SettingsProps) {
-  const user = mockUsers[userRole];
+export function Settings() {
+  const { user } = useAuth();
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [pushNotifications, setPushNotifications] = useState(true);
   const [weeklyDigest, setWeeklyDigest] = useState(false);
@@ -33,8 +28,10 @@ export function Settings({ userRole }: SettingsProps) {
     toast.success('Password change email sent to your address');
   };
 
+  if (!user) return null;
+
   return (
-    <Layout user={user} pageTitle="Settings" unreadCount={2}>
+    <Layout user={user} pageTitle="Settings" unreadCount={0}>
       <div className="space-y-6">
         {/* Profile Settings */}
         <Card className="p-6">

@@ -1,23 +1,25 @@
 import { useState } from 'react';
-import { Layout } from '../components/Layout';
+import { Layout } from '../components/layout/Layout';
 import { Button } from '../components/ui/button';
-import { 
-  LikertScaleRow, 
-  TotalsChip, 
-  RubricSummaryCard, 
+import {
+  LikertScaleRow,
+  TotalsChip,
+  RubricSummaryCard,
   ConfirmGradeModal,
   GradingToasts,
-  showGradingToast 
-} from '../components/grading';
-import { mockUsers } from '../lib/mock-data';
+  showGradingToast
+} from '../features/evaluations/components/grading';
+import { useAuth } from '../lib/AuthContext';
 
 export function ComponentShowcase() {
-  const user = mockUsers.admin;
+  const { user } = useAuth();
   const [chapter1Score, setChapter1Score] = useState<number | null>(4);
   const [chapter2Score, setChapter2Score] = useState<number | null>(null);
   const [chapter3Score, setChapter3Score] = useState<number | null>(3);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [modalVariant, setModalVariant] = useState<'default' | 'warning' | 'success' | 'info'>('default');
+
+  if (!user) return null;
 
   const rubricBreakdown = [
     { name: 'Chapter 1', score: 4, max: 5, color: 'from-blue-600 to-blue-500' },

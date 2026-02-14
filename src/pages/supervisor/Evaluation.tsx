@@ -21,7 +21,7 @@ import {
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../components/ui/tooltip';
-import { mockUsers } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
 import { SubmissionStatus } from '../../types';
 import { 
   Save, 
@@ -77,7 +77,7 @@ interface AuditEntry {
 
 export function SupervisorEvaluation() {
   const navigate = useNavigate();
-  const user = mockUsers.supervisor;
+  const { user } = useAuth();
   const [status, setStatus] = useState<SubmissionStatus>('under-review');
   const [isIPModalOpen, setIsIPModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('cpis498');
@@ -144,6 +144,8 @@ export function SupervisorEvaluation() {
       details: 'Requested improvements on related work section',
     },
   ]);
+
+  if (!user) return null;
 
   // Mock group data
   const groupData = {

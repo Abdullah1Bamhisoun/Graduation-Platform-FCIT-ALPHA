@@ -4,26 +4,42 @@ import { Button } from '../../components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { Textarea } from '../../components/ui/textarea';
 import { Label } from '../../components/ui/label';
-import { mockUsers, mockWeeklyReports } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
+import { getWeeklyReportsByGroup } from '../../services/weekly-reports';
+import { getGroupForStudent } from '../../services/groups';
 import { Eye, Plus } from 'lucide-react';
 import { WeeklyReport } from '../../types';
 import { toast } from 'sonner';
+import { useEffect } from 'react';
 
 export function StudentWeeklyReports() {
-  const user = mockUsers.student;
+  const { user } = useAuth();
   const [selectedReport, setSelectedReport] = useState<WeeklyReport | null>(null);
   const [showAddReportDialog, setShowAddReportDialog] = useState(false);
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
   const [progress, setProgress] = useState('');
   const [futureWork, setFutureWork] = useState('');
   const [discussionPoints, setDiscussionPoints] = useState('');
-  const groupId = '13_498_2026_01_M';
+  const [groupReports, setGroupReports] = useState<WeeklyReport[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      try {
+        const group = await getGroupForStudent(user.id);
+        if (group) {
+          const reports = await getWeeklyReportsByGroup(group.id);
+          setGroupReports(reports);
+        }
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [user]);
 
   // Generate 14 weeks
   const weeks = Array.from({ length: 14 }, (_, i) => i + 1);
-  
-  // Get reports for this group
-  const groupReports = mockWeeklyReports.filter(r => r.groupId === groupId);
   
   // Find report for each week
   const getReportForWeek = (weekNum: number) => {
@@ -81,6 +97,9 @@ export function StudentWeeklyReports() {
         return status;
     }
   };
+
+  if (!user) return null;
+  if (loading) return <Layout user={user} pageTitle="Weekly Reports"><div className="p-6">Loading...</div></Layout>;
 
   return (
     <Layout user={user} pageTitle="Weekly Reports">

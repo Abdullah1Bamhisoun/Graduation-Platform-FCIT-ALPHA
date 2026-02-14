@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
+import { useAuth } from '../../lib/AuthContext';
+import { getAllWeeklyReports } from '../../services/weekly-reports';
 import { Button } from '../../components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { mockUsers, mockWeeklyReports } from '../../lib/mock-data';
 import { Eye, ChevronDown, ChevronRight } from 'lucide-react';
 import { WeeklyReport } from '../../types';
 
@@ -35,17 +35,23 @@ const mockSupervisors = [
 ];
 
 export function AdminWeeklyReports() {
-  const user = mockUsers.admin;
-  const [selectedSupervisor, setSelectedSupervisor] = useState<string>('');
+  const { user } = useAuth();
+  const [allReports, setAllReports] = useState<WeeklyReport[]>([]);
   const [expandedSupervisors, setExpandedSupervisors] = useState<Set<string>>(new Set());
   const [selectedGroup, setSelectedGroup] = useState<string>('');
   const [selectedReport, setSelectedReport] = useState<WeeklyReport | null>(null);
 
+  useEffect(() => {
+    getAllWeeklyReports().then(setAllReports);
+  }, []);
+
+  if (!user) return null;
+
   // Generate 14 weeks
   const weeks = Array.from({ length: 14 }, (_, i) => i + 1);
-  
+
   // Get reports for selected group
-  const groupReports = selectedGroup ? mockWeeklyReports.filter(r => r.groupId === selectedGroup) : [];
+  const groupReports = selectedGroup ? allReports.filter(r => r.groupId === selectedGroup) : [];
   
   // Find report for each week
   const getReportForWeek = (weekNum: number) => {

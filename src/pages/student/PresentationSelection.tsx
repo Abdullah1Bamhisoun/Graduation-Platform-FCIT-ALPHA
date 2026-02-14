@@ -4,10 +4,12 @@ import { Button } from '../../components/ui/button';
 import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../../components/ui/dialog';
-import { mockUsers, mockStudentPresentationSelections } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
+import { getStudentPresentationSelections } from '../../services/presentations';
 import { StudentPresentationSelection as StudentPresentationSelectionType } from '../../types';
 import { Save, X, Calendar, Clock } from 'lucide-react';
 import { toast } from 'sonner';
+import { useEffect } from 'react';
 
 const AVAILABLE_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Sunday'];
 const TIME_SLOTS = [
@@ -24,14 +26,24 @@ const TIME_SLOTS = [
 ];
 
 export function StudentPresentationSelection() {
-  const user = mockUsers.student;
-  const [selections, setSelections] = useState<StudentPresentationSelectionType[]>(mockStudentPresentationSelections);
+  const { user } = useAuth();
+  const [selections, setSelections] = useState<StudentPresentationSelectionType[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getStudentPresentationSelections()
+      .then(setSelections)
+      .finally(() => setLoading(false));
+  }, []);
   const [showSelectionDialog, setShowSelectionDialog] = useState(false);
   const [selectedDay, setSelectedDay] = useState<string>('');
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<string>('');
 
+  if (!user) return null;
+  if (loading) return <Layout user={user} pageTitle="Presentation Time Selection"><div className="p-6">Loading...</div></Layout>;
+
   // Find student's group
-  const myGroup = selections.find(s => s.students.some(st => st.id === user.studentId));
+  const myGroup = selections.find(s => s.students.some(st => st.id === user.id || st.id === user.studentId));
 
   const handleSelectSlot = () => {
     if (!selectedDay || !selectedTimeSlot) {

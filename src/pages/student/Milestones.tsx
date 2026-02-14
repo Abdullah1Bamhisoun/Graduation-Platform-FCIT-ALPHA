@@ -2,18 +2,32 @@ import { useState } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { StatusBadge } from '../../features/submissions/components/StatusBadge';
 import { Button } from '../../components/ui/button';
-import { mockUsers, mockMilestones } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
+import { getMilestonesByStudentWithStatus } from '../../services/milestones';
 import { useNavigate } from 'react-router-dom';
 import { Calendar, FileText, X } from 'lucide-react';
 import { Milestone } from '../../types';
+import { useEffect } from 'react';
 
 export function StudentMilestones() {
   const navigate = useNavigate();
-  const user = mockUsers.student;
+  const { user } = useAuth();
   const [selectedMilestone, setSelectedMilestone] = useState<Milestone | null>(null);
+  const [milestones, setMilestones] = useState<Milestone[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+    getMilestonesByStudentWithStatus(user.id)
+      .then(setMilestones)
+      .finally(() => setLoading(false));
+  }, [user]);
+
+  if (!user) return null;
+  if (loading) return <Layout user={user} pageTitle="Chapter Submissions"><div className="p-6">Loading...</div></Layout>;
 
   // Filter out weekly reports - only show chapter submissions
-  const chapterMilestones = mockMilestones.filter(m => m.type !== 'weekly-report');
+  const chapterMilestones = milestones.filter(m => m.type !== 'weekly-report');
 
   return (
     <Layout user={user} pageTitle="Chapter Submissions">

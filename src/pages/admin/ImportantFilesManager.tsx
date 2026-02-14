@@ -1,5 +1,5 @@
 import { Layout } from '../../components/layout/Layout';
-import { mockUsers } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
 import { FileText, Download, File, Plus, Edit, Trash2 } from 'lucide-react';
 import { Card } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
@@ -47,7 +47,7 @@ const initialFiles: FileItem[] = [
 ];
 
 export function ImportantFilesManager() {
-  const user = mockUsers.admin;
+  const { user } = useAuth();
   const [files, setFiles] = useState<FileItem[]>(initialFiles);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -57,6 +57,8 @@ export function ImportantFilesManager() {
     size: '',
     type: 'pdf',
   });
+
+  if (!user) return null;
 
   const getFileIcon = (type: string) => {
     switch (type) {

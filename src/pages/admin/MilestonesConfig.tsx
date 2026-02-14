@@ -1,19 +1,30 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
+import { useAuth } from '../../lib/AuthContext';
+import { getMilestoneConfigs } from '../../services/milestones';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Switch } from '../../components/ui/switch';
-import { mockUsers, mockMilestoneConfigs } from '../../lib/mock-data';
 import { Settings, Plus, Edit2, Save, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { MilestoneConfig } from '../../types';
 
 export function AdminMilestonesConfig() {
-  const user = mockUsers.admin;
+  const { user } = useAuth();
   const [selectedCourse, setSelectedCourse] = useState<'CPIS-498' | 'CPIS-499'>('CPIS-498');
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [configs, setConfigs] = useState(mockMilestoneConfigs);
+  const [configs, setConfigs] = useState<MilestoneConfig[]>([]);
+  const [initialConfigs, setInitialConfigs] = useState<MilestoneConfig[]>([]);
+
+  useEffect(() => {
+    getMilestoneConfigs().then((data) => {
+      setConfigs(data);
+      setInitialConfigs(data);
+    });
+  }, []);
+
+  if (!user) return null;
 
   const filteredConfigs = configs.filter(c => c.course === selectedCourse);
 
@@ -24,7 +35,7 @@ export function AdminMilestonesConfig() {
 
   const handleCancel = () => {
     setEditingId(null);
-    setConfigs(mockMilestoneConfigs);
+    setConfigs(initialConfigs);
   };
 
   const handleAddMilestone = () => {

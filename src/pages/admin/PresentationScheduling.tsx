@@ -1,12 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
-import { mockUsers, mockStudentPresentationSelections } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
+import { getStudentPresentationSelections } from '../../services/presentations';
 import { StudentPresentationSelection } from '../../types';
-import { Calendar, Clock, CheckCircle, XCircle } from 'lucide-react';
+import { Calendar, CheckCircle, XCircle } from 'lucide-react';
 
 export function AdminPresentationScheduling() {
-  const user = mockUsers.admin;
-  const [selections] = useState<StudentPresentationSelection[]>(mockStudentPresentationSelections);
+  const { user } = useAuth();
+  const [selections, setSelections] = useState<StudentPresentationSelection[]>([]);
+
+  useEffect(() => {
+    getStudentPresentationSelections().then(setSelections);
+  }, []);
+
+  if (!user) return null;
 
   const pendingSelections = selections.filter(s => s.selectedDay);
   const notSelectedYet = selections.filter(s => !s.selectedDay);

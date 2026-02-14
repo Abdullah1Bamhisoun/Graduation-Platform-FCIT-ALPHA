@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
-import { mockUsers } from '../../lib/mock-data';
+import { useAuth } from '../../lib/AuthContext';
 import { Button } from '../../components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { Input } from '../../components/ui/input';
@@ -9,8 +9,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { toast } from 'sonner';
 import { Plus, Pencil, Trash2, Search, CheckCircle, XCircle, Eye, Clock } from 'lucide-react';
 import { getPendingRegistrations, approveRegistration, rejectRegistration, subscribe, type PendingRegistration } from '../../lib/pending-registrations';
-import { addApprovedUser } from '../../lib/AuthContext';
-import { UserRole } from '../../types';
 
 interface User {
   id: string;
@@ -58,7 +56,7 @@ const mockUsersList: User[] = [
 ];
 
 export function AdminUserManagement() {
-  const user = mockUsers.admin;
+  const { user } = useAuth();
   const [users, setUsers] = useState<User[]>(mockUsersList);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterRole, setFilterRole] = useState<string>('all');
@@ -73,16 +71,19 @@ export function AdminUserManagement() {
   });
 
   // Pending registrations state
-  const [pendingRegs, setPendingRegs] = useState<PendingRegistration[]>(getPendingRegistrations());
+  const [pendingRegs, setPendingRegs] = useState<PendingRegistration[]>([]);
   const [viewingReg, setViewingReg] = useState<PendingRegistration | null>(null);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
 
-  // Subscribe to registration store changes
+  // Load pending registrations and subscribe to changes
   useEffect(() => {
+    getPendingRegistrations().then(setPendingRegs);
     return subscribe(() => {
-      setPendingRegs(getPendingRegistrations());
+      getPendingRegistrations().then(setPendingRegs);
     });
   }, []);
+
+  if (!user) return null;
 
   const handleApprove = (reg: PendingRegistration) => {
     const approved = approveRegistration(reg.id);
@@ -99,16 +100,6 @@ export function AdminUserManagement() {
       status: 'active',
     };
     setUsers((prev) => [...prev, newUser]);
-
-    // Add credentials so they can log in
-    addApprovedUser(reg.email, reg.password, {
-      id: newUser.id,
-      name: reg.name,
-      email: reg.email,
-      role: reg.accountType as UserRole,
-      studentId: reg.studentId,
-      employeeNumber: reg.employeeNumber,
-    });
 
     toast.success(`${reg.name} has been approved and can now log in`);
     setIsViewDialogOpen(false);

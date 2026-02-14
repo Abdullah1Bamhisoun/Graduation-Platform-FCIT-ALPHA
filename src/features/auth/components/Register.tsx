@@ -76,14 +76,6 @@ const mockGroupIds = [
   '28_499_2026_02_M',
 ];
 
-const mockSupervisors = [
-  { value: 'sup-1', label: 'Dr. Ahmed Al-Harbi' },
-  { value: 'sup-2', label: 'Dr. Fatimah Al-Zahrani' },
-  { value: 'sup-3', label: 'Dr. Mohammed Al-Ghamdi' },
-  { value: 'sup-4', label: 'Dr. Sara Al-Otaibi' },
-  { value: 'sup-5', label: 'Dr. Khalid Al-Mutairi' },
-];
-
 export function Register() {
   const navigate = useNavigate();
   const [accountType, setAccountType] = useState<AccountType>('student');
