@@ -7,7 +7,8 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { toast } from 'sonner';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { getMilestones } from '../../services/milestones';
 
 interface CalendarEvent {
   date: string;
@@ -17,17 +18,24 @@ interface CalendarEvent {
   location?: string;
 }
 
-const events: CalendarEvent[] = [
-  { date: '2025-11-10', title: 'Final Report Due', type: 'deadline' },
-  { date: '2025-11-15', title: 'Project Demos', type: 'demo', time: '10:00 AM', location: 'Building 51, Lab 201' },
-  { date: '2025-11-20', title: 'Poster Presentations', type: 'presentation', time: '9:00 AM', location: 'Building 51, Hall A' },
-  { date: '2025-11-25', title: 'Supervisor Meeting', type: 'meeting', time: '2:00 PM' },
-];
-
 export function Calendar() {
   const { user } = useAuth();
-  const [currentMonth] = useState(new Date(2025, 10, 1)); // November 2025
-  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>(events);
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+
+  useEffect(() => {
+    getMilestones().then(milestones => {
+      const events: CalendarEvent[] = milestones.map(m => ({
+        date: m.dueDate.slice(0, 10),
+        title: m.name,
+        type: 'deadline' as const,
+      }));
+      setCalendarEvents(events);
+    });
+  }, []);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
@@ -173,10 +181,10 @@ export function Calendar() {
               {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
             </h2>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))}>
                 <ChevronLeft className="w-4 h-4" />
               </Button>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))}>
                 <ChevronRight className="w-4 h-4" />
               </Button>
             </div>
@@ -197,9 +205,10 @@ export function Calendar() {
               ))}
               {Array.from({ length: daysInMonth }, (_, i) => {
                 const day = i + 1;
-                const date = `2025-11-${day.toString().padStart(2, '0')}`;
+                const date = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                 const dayEvents = calendarEvents.filter(e => e.date === date);
-                const isToday = day === 3; // Nov 3, 2025
+                const today = new Date();
+                const isToday = day === today.getDate() && currentMonth.getMonth() === today.getMonth() && currentMonth.getFullYear() === today.getFullYear();
 
                 return (
                   <div

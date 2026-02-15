@@ -2,47 +2,33 @@ import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
 import { getAllWeeklyReports } from '../../services/weekly-reports';
+import { getProfilesByRole } from '../../services/profiles';
+import { getAllGroups } from '../../services/groups';
+import type { GroupData } from '../../services/groups';
 import { Button } from '../../components/ui/button';
 import { Eye, ChevronDown, ChevronRight } from 'lucide-react';
 import { WeeklyReport } from '../../types';
-
-// Mock supervisors data
-const mockSupervisors = [
-  { 
-    id: 'sup-001', 
-    name: 'Dr. Hasan Labani',
-    groups: [
-      { id: '13_498_2026_01_M', name: 'Group 13 - Smart Parking System', course: 'CPIS-498' },
-      { id: '14_498_2026_01_M', name: 'Group 14 - E-Learning Platform', course: 'CPIS-498' },
-    ]
-  },
-  { 
-    id: 'sup-002', 
-    name: 'Dr. Ahmed Al-Ghamdi',
-    groups: [
-      { id: '15_498_2026_01_M', name: 'Group 15 - Healthcare App', course: 'CPIS-498' },
-      { id: '16_498_2026_01_M', name: 'Group 16 - IoT Security System', course: 'CPIS-498' },
-    ]
-  },
-  { 
-    id: 'sup-003', 
-    name: 'Dr. Fatima Al-Zahrani',
-    groups: [
-      { id: '17_498_2026_01_M', name: 'Group 17 - Mobile Banking App', course: 'CPIS-498' },
-      { id: '18_498_2026_01_M', name: 'Group 18 - AI Chatbot', course: 'CPIS-498' },
-    ]
-  },
-];
+import type { User } from '../../types';
 
 export function AdminWeeklyReports() {
   const { user } = useAuth();
   const [allReports, setAllReports] = useState<WeeklyReport[]>([]);
+  const [supervisorProfiles, setSupervisorProfiles] = useState<User[]>([]);
+  const [allGroups, setAllGroups] = useState<GroupData[]>([]);
   const [expandedSupervisors, setExpandedSupervisors] = useState<Set<string>>(new Set());
   const [selectedGroup, setSelectedGroup] = useState<string>('');
   const [selectedReport, setSelectedReport] = useState<WeeklyReport | null>(null);
 
   useEffect(() => {
-    getAllWeeklyReports().then(setAllReports);
+    Promise.all([
+      getAllWeeklyReports(),
+      getProfilesByRole('supervisor'),
+      getAllGroups(),
+    ]).then(([reports, sups, groups]) => {
+      setAllReports(reports);
+      setSupervisorProfiles(sups);
+      setAllGroups(groups);
+    });
   }, []);
 
   if (!user) return null;
@@ -98,16 +84,14 @@ export function AdminWeeklyReports() {
     }
   };
 
-  // Get current group info
-  const getCurrentGroup = () => {
-    for (const supervisor of mockSupervisors) {
-      const group = supervisor.groups.find(g => g.id === selectedGroup);
-      if (group) return group;
-    }
-    return null;
-  };
+  // Build tree: each supervisor with their groups
+  const supervisorTree = supervisorProfiles.map(sup => ({
+    id: sup.id,
+    name: sup.name,
+    groups: allGroups.filter(g => g.supervisorId === sup.id),
+  }));
 
-  const currentGroup = getCurrentGroup();
+  const currentGroup = allGroups.find(g => g.id === selectedGroup) ?? null;
 
   return (
     <Layout user={user} pageTitle="Weekly Reports - All Groups">
@@ -125,7 +109,10 @@ export function AdminWeeklyReports() {
               <h3 className="text-[var(--color-text-900)]">Supervisors & Groups</h3>
             </div>
             <div className="divide-y divide-[var(--color-border)]">
-              {mockSupervisors.map((supervisor) => (
+              {supervisorTree.length === 0 && (
+                <p className="p-4 text-[var(--color-text-600)] text-sm">No supervisors found</p>
+              )}
+              {supervisorTree.map((supervisor) => (
                 <div key={supervisor.id}>
                   <div
                     className="p-4 flex items-center justify-between cursor-pointer hover:bg-[var(--color-surface-alt)] transition-colors"
@@ -140,6 +127,9 @@ export function AdminWeeklyReports() {
                   </div>
                   {expandedSupervisors.has(supervisor.id) && (
                     <div className="bg-[var(--color-surface-alt)] divide-y divide-[var(--color-border)]">
+                      {supervisor.groups.length === 0 && (
+                        <p className="p-3 pl-8 text-[var(--color-text-600)] text-xs">No groups assigned</p>
+                      )}
                       {supervisor.groups.map((group) => (
                         <div
                           key={group.id}
@@ -148,8 +138,8 @@ export function AdminWeeklyReports() {
                           }`}
                           onClick={() => setSelectedGroup(group.id)}
                         >
-                          <div className="text-[var(--color-text-900)]">{group.name.split(' - ')[0]}</div>
-                          <div className="text-[var(--color-text-600)] text-xs mt-1">{group.course}</div>
+                          <div className="text-[var(--color-text-900)]">{group.groupCode}</div>
+                          <div className="text-[var(--color-text-600)] text-xs mt-1">{group.courseCode}</div>
                         </div>
                       ))}
                     </div>
@@ -165,7 +155,7 @@ export function AdminWeeklyReports() {
           {selectedGroup ? (
             <>
               <div className="mb-4">
-                <h2 className="text-[var(--color-text-900)] mb-1">{currentGroup?.name}</h2>
+                <h2 className="text-[var(--color-text-900)] mb-1">{currentGroup ? `${currentGroup.groupCode} — ${currentGroup.projectName}` : ''}</h2>
                 <p className="text-[var(--color-text-600)]">View weekly progress reports</p>
               </div>
 
@@ -246,7 +236,7 @@ export function AdminWeeklyReports() {
               <div className="sticky top-0 bg-[var(--color-surface-white)] border-b border-[var(--color-border)] p-6">
                 <h2 className="text-[var(--color-text-900)] mb-2">Week {selectedReport.weekNumber} Progress Report</h2>
                 <p className="text-[var(--color-text-600)]">
-                  Report details for {currentGroup?.name}
+                  Report details for {currentGroup ? `${currentGroup.groupCode} — ${currentGroup.projectName}` : ''}
                 </p>
               </div>
 

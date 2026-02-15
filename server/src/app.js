@@ -7,6 +7,7 @@ const { errorHandler } = require('./middleware/error.middleware');
 // Route imports
 const authRoutes = require('./routes/auth.routes');
 const usersRoutes = require('./routes/users.routes');
+const groupsRoutes = require('./routes/groups.routes');
 const projectsRoutes = require('./routes/projects.routes');
 const submissionsRoutes = require('./routes/submissions.routes');
 const milestonesRoutes = require('./routes/milestones.routes');
@@ -25,6 +26,7 @@ app.use(express.json());
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
+app.use('/api/groups', groupsRoutes);
 app.use('/api/projects', projectsRoutes);
 app.use('/api/submissions', submissionsRoutes);
 app.use('/api/milestones', milestonesRoutes);

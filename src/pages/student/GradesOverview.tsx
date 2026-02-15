@@ -10,6 +10,7 @@ export function StudentGradesOverview() {
   const { user } = useAuth();
   const [studentGrade, setStudentGrade] = useState<StudentGrade | null>(null);
   const [groupGrade, setGroupGrade] = useState<GroupGrade | null>(null);
+  const [courseCode, setCourseCode] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -17,7 +18,10 @@ export function StudentGradesOverview() {
     (async () => {
       try {
         const group = await getGroupForStudent(user.id);
-        const courseCode = 'CPIS-498'; // Default course
+        // Derive course code from the group's actual courseCode, falling back to a sensible default
+        const resolvedCourseCode = group?.courseCode || 'CPIS-498';
+        setCourseCode(resolvedCourseCode);
+        const courseCode = resolvedCourseCode;
         const [sg, gg] = await Promise.all([
           getStudentGrade(user.id, courseCode),
           group ? getGroupGrade(group.id, courseCode) : null,
@@ -89,7 +93,7 @@ export function StudentGradesOverview() {
     (studentGrade.peerFeedback.score || 0);
 
   return (
-    <Layout user={user} pageTitle="My Grades - CPIS-498">
+    <Layout user={user} pageTitle={`My Grades${courseCode ? ` — ${courseCode}` : ''}`}>
       <div className="mb-6">
         <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
           <div className="flex items-center justify-between">

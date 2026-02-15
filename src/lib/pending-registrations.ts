@@ -7,6 +7,7 @@ export interface PendingRegistration {
   email: string;
   password: string;
   department: string;
+  gender?: string;
   status: 'pending' | 'approved' | 'rejected';
   submittedAt: string;
 
@@ -87,6 +88,7 @@ export async function addRegistration(
       email: reg.email,
       password_hash: reg.password, // TODO: Hash this on backend
       department: reg.department,
+      gender: reg.gender || null,
       student_id: reg.studentId,
       course: reg.course,
       term: reg.term,
@@ -101,9 +103,13 @@ export async function addRegistration(
     if (error) throw error;
 
     notify();
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error adding registration:', error);
-    throw new Error('Failed to submit registration. Please try again.');
+    const msg: string = error?.message || error?.details || '';
+    if (msg.includes('pending_registrations_email_key') || msg.includes('duplicate key')) {
+      throw new Error('A registration request with this email already exists. Please contact the admin or use a different email.');
+    }
+    throw new Error(msg || 'Failed to submit registration. Please try again.');
   }
 }
 
@@ -122,7 +128,7 @@ export async function approveRegistration(id: string): Promise<PendingRegistrati
 
     // Call backend API to create the user in Supabase Auth
     // This requires the backend to use the service_role key
-    const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/auth/approve-registration`, {
+    const response = await fetch('/api/auth/approve-registration', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -170,6 +176,7 @@ function mapDatabaseToRegistration(data: any): PendingRegistration {
     email: data.email,
     password: '', // Don't expose the password hash
     department: data.department,
+    gender: data.gender,
     status: data.status,
     submittedAt: data.submitted_at,
     studentId: data.student_id,

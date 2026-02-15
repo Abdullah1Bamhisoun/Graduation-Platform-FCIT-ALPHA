@@ -5,6 +5,9 @@ import { StatusBadge } from '../../features/submissions/components/StatusBadge';
 import { Button } from '../../components/ui/button';
 import { getMilestonesByStudentWithStatus } from '../../services/milestones';
 import { getNotificationsForUser } from '../../services/notifications';
+import { getUpcomingEvents } from '../../services/dashboard';
+import { getGroupForStudent, type GroupData } from '../../services/groups';
+import type { UpcomingEvent } from '../../services/dashboard';
 import { Calendar, AlertCircle, CheckCircle, Clock, FileText, Upload } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../lib/AuthContext';
@@ -16,6 +19,8 @@ export function StudentDashboard() {
   const { user } = useAuth();
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
+  const [group, setGroup] = useState<GroupData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -23,9 +28,13 @@ export function StudentDashboard() {
     Promise.all([
       getMilestonesByStudentWithStatus(user.id),
       getNotificationsForUser(user.id),
-    ]).then(([m, n]) => {
+      getUpcomingEvents(1),
+      getGroupForStudent(user.id),
+    ]).then(([m, n, events, g]) => {
       setMilestones(m);
       setNotifications(n);
+      setUpcomingEvents(events);
+      setGroup(g);
     }).finally(() => setLoading(false));
   }, [user]);
 
@@ -39,9 +48,61 @@ export function StudentDashboard() {
   const pendingActions = milestones.filter(m => m.status === 'changes-requested');
   const approvedCount = milestones.filter(m => m.status === 'approved').length;
   const totalMilestones = milestones.length;
+  const unreadFeedback = notifications.filter(n => !n.read && n.type === 'feedback').length;
+
+  const nextEvent = upcomingEvents[0];
+  const eventTextColor: Record<string, string> = {
+    blue: 'text-blue-600 dark:text-blue-400',
+    purple: 'text-purple-600 dark:text-purple-400',
+    green: 'text-green-600 dark:text-green-400',
+    amber: 'text-amber-600 dark:text-amber-400',
+  };
+  const eventBorderColor: Record<string, string> = {
+    blue: 'border-blue-500 dark:border-blue-900/50',
+    purple: 'border-purple-500 dark:border-purple-900/50',
+    green: 'border-green-500 dark:border-green-900/50',
+    amber: 'border-amber-500 dark:border-amber-900/50',
+  };
 
   return (
     <Layout user={user} pageTitle="Dashboard" unreadCount={notifications.filter(n => !n.read).length}>
+      {/* Group Info Header */}
+      {group && (
+        <div className="!bg-white rounded-xl border border-[var(--color-border)] shadow-sm p-4 mb-6 grid grid-cols-3 gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+              <FileText className="w-5 h-5 text-blue-600" />
+            </div>
+            <div>
+              <p className="text-xs text-[var(--color-text-600)]">Group</p>
+              <p className="font-semibold text-[var(--color-text-900)]">
+                {group.groupNumber ? `Group ${group.groupNumber}` : group.groupCode}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-purple-100 flex items-center justify-center flex-shrink-0">
+              <CheckCircle className="w-5 h-5 text-purple-600" />
+            </div>
+            <div>
+              <p className="text-xs text-[var(--color-text-600)]">Project</p>
+              <p className="font-semibold text-[var(--color-text-900)] truncate">{group.projectName || '—'}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
+              <Calendar className="w-5 h-5 text-green-600" />
+            </div>
+            <div>
+              <p className="text-xs text-[var(--color-text-600)]">Supervisor</p>
+              <p className="font-semibold text-[var(--color-text-900)]">
+                {group.supervisorName || 'Not assigned yet'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Metrics */}
       <div className="grid grid-cols-4 gap-6 mb-8">
         <MetricCard
@@ -64,7 +125,7 @@ export function StudentDashboard() {
         />
         <MetricCard
           label="Unread Feedback"
-          value="1"
+          value={unreadFeedback}
           icon={FileText}
           color="primary"
         />
@@ -149,13 +210,13 @@ export function StudentDashboard() {
             <div className="flex items-center justify-between mb-2">
               <span className="text-[var(--color-text-600)]">Overall Progress</span>
               <span className="text-[var(--color-text-900)]">
-                {Math.round((approvedCount / totalMilestones) * 100)}%
+                {totalMilestones > 0 ? Math.round((approvedCount / totalMilestones) * 100) : 0}%
               </span>
             </div>
             <div className="w-full !bg-white dark:bg-gray-800 border-[1.5px] border-[var(--color-border)] rounded-full h-2.5">
               <div
                 className="bg-[var(--color-primary-600)] h-full rounded-full"
-                style={{ width: `${(approvedCount / totalMilestones) * 100}%` }}
+                style={{ width: `${totalMilestones > 0 ? (approvedCount / totalMilestones) * 100 : 0}%` }}
               ></div>
             </div>
 
@@ -212,11 +273,13 @@ export function StudentDashboard() {
             </Button>
           </div>
 
-          <div className="mt-6 p-4 !bg-white dark:bg-gray-800 rounded-lg border-[1.5px] border-blue-500 dark:border-blue-900/50 hover:bg-blue-50/30 transition-colors">
-            <h3 className="text-[var(--color-text-900)] mb-2">Upcoming Event</h3>
-            <p className="text-[var(--color-text-600)] mb-1">Poster Presentation</p>
-            <p className="text-blue-600 dark:text-blue-400">Nov 20, 2025 • Building 51, Hall A</p>
-          </div>
+          {nextEvent && (
+            <div className={`mt-6 p-4 !bg-white dark:bg-gray-800 rounded-lg border-[1.5px] ${eventBorderColor[nextEvent.color]} hover:opacity-90 transition-colors`}>
+              <h3 className="text-[var(--color-text-900)] mb-2">Upcoming Event</h3>
+              <p className="text-[var(--color-text-600)] mb-1">{nextEvent.title}</p>
+              <p className={eventTextColor[nextEvent.color]}>{nextEvent.date} • {nextEvent.detail}</p>
+            </div>
+          )}
         </DashboardCard>
       </div>
     </Layout>

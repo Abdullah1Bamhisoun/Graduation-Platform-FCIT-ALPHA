@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { Button } from '../../components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
@@ -27,21 +27,11 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
-
-interface Group {
-  id: string;
-  groupNumber: number;
-  course: string;
-  year: number;
-  term: string;
-  section: string;
-  students: {
-    id: string;
-    name: string;
-    email: string;
-  }[];
-  projectTitle: string;
-}
+import { getAllGroups } from '../../services/groups';
+import { getGroupGrade } from '../../services/grades';
+import { getAuditLog } from '../../services/audit';
+import type { GroupData } from '../../services/groups';
+import type { AuditLogEntry } from '../../types';
 
 interface AdminGradeData {
   chapter1: number;
@@ -62,104 +52,76 @@ interface SupervisorGradeData {
   collaboration: number;
 }
 
-interface AuditEntry {
-  id: string;
-  timestamp: string;
-  actor: string;
-  action: string;
-  details: string;
-}
-
-const mockGroups: Group[] = [
-  {
-    id: '13_498_2026_01_M',
-    groupNumber: 13,
-    course: 'CPIS-498',
-    year: 2026,
-    term: '01',
-    section: 'M',
-    students: [
-      { id: '2236500', name: 'Abdullah Bamhisoun', email: 'abdullah.b@stu.kau.edu.sa' },
-      { id: '2236501', name: 'Abdulrahman Solymani', email: 'abdulrahman.s@stu.kau.edu.sa' },
-    ],
-    projectTitle: 'Graduation Project Platform',
-  },
-  {
-    id: '07_498_2026_01_M',
-    groupNumber: 7,
-    course: 'CPIS-498',
-    year: 2026,
-    term: '01',
-    section: 'M',
-    students: [
-      { id: '2236789', name: 'Bandar Al-Juhani', email: 'bandar.j@stu.kau.edu.sa' },
-      { id: '2236790', name: 'Rayan Al-Malki', email: 'rayan.m@stu.kau.edu.sa' },
-    ],
-    projectTitle: 'Smart Healthcare System',
-  },
-];
-
 export function AdminGradesDeliverables() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [groups, setGroups] = useState<GroupData[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<string>('');
   const [activeTab, setActiveTab] = useState('overview');
   const [editingSection, setEditingSection] = useState<string | null>(null);
 
   // Admin grades (15 marks total)
   const [adminGrades, setAdminGrades] = useState<AdminGradeData>({
-    chapter1: 5,
-    chapter2: 1,
-    chapter3: 0,
-    chapter4: 3,
-    finalReport: 3,
-    revisedFinalReport: 3,
+    chapter1: 0, chapter2: 0, chapter3: 0,
+    chapter4: 0, finalReport: 0, revisedFinalReport: 0,
   });
 
   // Supervisor grades (20 marks total) - Read only for admin
-  const [supervisorGrades] = useState<SupervisorGradeData>({
-    chapter1: 5,
-    chapter2: 2.5,
-    chapter3: 0,
-    chapter4: 2.5,
-    finalReport: 2.5,
-    revisedFinalReport: 2.5,
-    collaboration: 0, // Part of 20 total
+  const [supervisorGrades, setSupervisorGrades] = useState<SupervisorGradeData>({
+    chapter1: 0, chapter2: 0, chapter3: 0,
+    chapter4: 0, finalReport: 0, revisedFinalReport: 0, collaboration: 0,
   });
 
   // Other grades
-  const [peerFeedbackGrade] = useState<number>(4); // 5 marks total
-  const [committeeGrade] = useState<number>(35); // 40 marks total
-  const [weeklyReportGrade] = useState<number>(18); // 20 marks total
+  const [peerFeedbackGrade, setPeerFeedbackGrade] = useState<number>(0);
+  const [committeeGrade, setCommitteeGrade] = useState<number>(0);
+  const [weeklyReportGrade, setWeeklyReportGrade] = useState<number>(0);
 
   // Audit history
-  const [auditHistory] = useState<AuditEntry[]>([
-    {
-      id: '1',
-      timestamp: '2024-11-25T10:30:00',
-      actor: 'Admin - Dr. Faisal Ahmed',
-      action: 'Updated Admin Grades',
-      details: 'Chapter 1 admin grade set to 5/5',
-    },
-    {
-      id: '2',
-      timestamp: '2024-11-26T14:15:00',
-      actor: 'Supervisor - Dr. Ahmad AlKhatib',
-      action: 'Submitted Supervisor Grades',
-      details: 'Chapter grading completed: 15.5/20',
-    },
-    {
-      id: '3',
-      timestamp: '2024-11-27T09:00:00',
-      actor: 'Committee',
-      action: 'Committee Evaluation',
-      details: 'Final presentation graded: 35/40',
-    },
-  ]);
+  const [auditHistory, setAuditHistory] = useState<AuditLogEntry[]>([]);
+
+  useEffect(() => {
+    getAllGroups().then(setGroups);
+    getAuditLog().then(entries => setAuditHistory(entries.slice(0, 5)));
+  }, []);
+
+  useEffect(() => {
+    if (!selectedGroup) return;
+    const group = groups.find(g => g.id === selectedGroup);
+    if (!group) return;
+    getGroupGrade(selectedGroup, group.courseCode).then(grade => {
+      if (!grade) return;
+      setAdminGrades({
+        chapter1: grade.deliverables.chapter1?.score ?? 0,
+        chapter2: grade.deliverables.chapter2?.score ?? 0,
+        chapter3: grade.deliverables.chapter3?.score ?? 0,
+        chapter4: grade.deliverables.chapter4?.score ?? 0,
+        finalReport: grade.deliverables.finalReport?.score ?? 0,
+        revisedFinalReport: grade.deliverables.revisedFinalReport?.score ?? 0,
+      });
+      setSupervisorGrades({
+        chapter1: grade.deliverables.chapter1?.score ?? 0,
+        chapter2: grade.deliverables.chapter2?.score ?? 0,
+        chapter3: grade.deliverables.chapter3?.score ?? 0,
+        chapter4: grade.deliverables.chapter4?.score ?? 0,
+        finalReport: grade.deliverables.finalReport?.score ?? 0,
+        revisedFinalReport: grade.deliverables.revisedFinalReport?.score ?? 0,
+        collaboration: 0,
+      });
+      setWeeklyReportGrade(grade.weeklyProgress.score ?? 0);
+      // Compute peer/committee from supervisorAssessment averages
+      const assessments = Object.values(grade.supervisorAssessment);
+      const supervisorAvg = assessments.length > 0
+        ? assessments.reduce((s, a) => s + (a.score ?? 0), 0) / assessments.length
+        : 0;
+      setCommitteeGrade(Math.round(supervisorAvg * 2)); // approximate 40-mark scale
+      setPeerFeedbackGrade(0); // peer evaluations not aggregated here
+    });
+  }, [selectedGroup, groups]);
 
   if (!user) return null;
 
-  const currentGroup = mockGroups.find(g => g.id === selectedGroup);
+  const currentGroup = groups.find(g => g.id === selectedGroup);
 
   // Calculate totals
   const calculateAdminTotal = () => {
@@ -241,9 +203,9 @@ export function AdminGradesDeliverables() {
                 <SelectValue placeholder="Choose a group..." />
               </SelectTrigger>
               <SelectContent>
-                {mockGroups.map((group) => (
+                {groups.map((group) => (
                   <SelectItem key={group.id} value={group.id}>
-                    Group {group.groupNumber} - {group.projectTitle}
+                    {group.groupCode} - {group.projectName}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -261,21 +223,17 @@ export function AdminGradesDeliverables() {
               <div className="flex items-start justify-between mb-4">
                 <div>
                   <h1 className="text-[var(--color-text-900)] mb-2">
-                    Complete Grading – Group {currentGroup.groupNumber}
+                    Complete Grading – {currentGroup.groupCode}
                   </h1>
-                  <p className="text-[var(--color-text-600)]">{currentGroup.projectTitle}</p>
+                  <p className="text-[var(--color-text-600)]">{currentGroup.projectName}</p>
                   <div className="flex flex-wrap gap-x-6 gap-y-2 text-[var(--color-text-600)] mt-2">
                     <div className="flex items-center gap-2">
                       <span>Students:</span>
-                      <span className="text-[var(--color-text-900)]">{currentGroup.students.map(s => s.name).join(', ')}</span>
+                      <span className="text-[var(--color-text-900)]">{currentGroup.members.map(m => m.name).join(', ')}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span>Course:</span>
-                      <span className="text-[var(--color-text-900)]">{currentGroup.course}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span>Year:</span>
-                      <span className="text-[var(--color-text-900)]">{currentGroup.year}</span>
+                      <span className="text-[var(--color-text-900)]">{currentGroup.courseCode}</span>
                     </div>
                   </div>
                 </div>
@@ -767,7 +725,7 @@ export function AdminGradesDeliverables() {
                               {new Date(entry.timestamp).toLocaleString()}
                             </span>
                           </div>
-                          <p className="text-[var(--color-text-600)] mb-1">{entry.details}</p>
+                          <p className="text-[var(--color-text-600)] mb-1">{entry.entity}{entry.context ? ` — ${entry.context}` : ''}</p>
                           <p className="text-[var(--color-text-600)]">by {entry.actor}</p>
                         </div>
                         <button className="text-[var(--color-primary-600)] hover:text-[var(--color-primary-700)] flex items-center gap-1">

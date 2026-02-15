@@ -1,5 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
+import { getProfilesByRole } from '../../services/profiles';
+import { getAllGroups } from '../../services/groups';
+import { getAuditLog } from '../../services/audit';
+import type { AuditLogEntry } from '../../types';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
@@ -83,19 +87,6 @@ const TIME_SLOTS = [
   { start: '12:30 pm', end: '01:00 pm' },
 ];
 
-const mockSupervisors: SupervisorAvailability[] = [
-  { id: '1', name: 'Dr. Ahmad AlKhatib', sun: 3, mon: 4, tue: 3, wed: 4, thu: 2, total: 16, status: 'ready' },
-  { id: '2', name: 'Dr. Sarah Ahmed', sun: 2, mon: 3, tue: 4, wed: 3, thu: 3, total: 15, status: 'ready' },
-  { id: '3', name: 'Dr. Mohammed Ali', sun: 0, mon: 0, tue: 0, wed: 0, thu: 0, total: 0, status: 'none' },
-  { id: '4', name: 'Dr. Fatima Hassan', sun: 4, mon: 4, tue: 4, wed: 4, thu: 4, total: 20, status: 'ready' },
-];
-
-const mockProjects: Project[] = [
-  { id: 'G13', name: 'Graduation Project Platform', groupId: '13_498_2026_01_M', course: '498', preferredDay: 'Mon', status: 'unassigned' },
-  { id: 'G07', name: 'Smart Healthcare System', groupId: '07_498_2026_01_M', course: '498', preferredDay: 'Tue', status: 'unassigned' },
-  { id: 'G05', name: 'AI Tutor Application', groupId: '05_499_2026_01_M', course: '499', status: 'unassigned' },
-  { id: 'G12', name: 'E-Commerce Platform', groupId: '12_498_2026_01_M', course: '498', status: 'unassigned' },
-];
 
 export function AdminPresentationCommittee() {
   const { user } = useAuth();
@@ -103,12 +94,12 @@ export function AdminPresentationCommittee() {
   // State
   const [term, setTerm] = useState('2026-01');
   const [course, setCourse] = useState<'498' | '499' | 'both'>('both');
-  const [weekStart, setWeekStart] = useState('2024-12-01');
+  const [weekStart, setWeekStart] = useState(() => new Date().toISOString().slice(0, 10));
 
-  // Planning inputs
-  const [numStudents498, setNumStudents498] = useState(25);
-  const [numStudents499, setNumStudents499] = useState(18);
-  const [numSupervisors, setNumSupervisors] = useState(4);
+  // Planning inputs (will be populated from DB)
+  const [numStudents498, setNumStudents498] = useState(0);
+  const [numStudents499, setNumStudents499] = useState(0);
+  const [numSupervisors, setNumSupervisors] = useState(0);
   const [maxSessionsPerDay, setMaxSessionsPerDay] = useState(4);
   const [sessionDuration, setSessionDuration] = useState(30);
   const [bufferDuration, setBufferDuration] = useState(10);
@@ -118,24 +109,40 @@ export function AdminPresentationCommittee() {
   const [avoidSameCommittee, setAvoidSameCommittee] = useState(true);
   const [spreadEvenly, setSpreadEvenly] = useState(true);
 
-  // Schedule slots
-  const [slots, setSlots] = useState<TimeSlot[]>([
-    {
-      id: 'slot1',
-      day: 'Mon',
-      startTime: '09:00',
-      endTime: '09:30',
-      room: 'Room A-101',
-      supervisor: 'Dr. Ahmad AlKhatib',
-      status: 'assigned',
-      projectName: 'Graduation Project Platform',
-      projectId: 'G13',
-      course: '498',
-    },
-  ]);
+  // Schedule slots (start empty)
+  const [slots, setSlots] = useState<TimeSlot[]>([]);
 
-  const [projects, setProjects] = useState<Project[]>(mockProjects);
-  const [supervisors] = useState<SupervisorAvailability[]>(mockSupervisors);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [supervisors, setSupervisors] = useState<SupervisorAvailability[]>([]);
+  const [changesLog, setChangesLog] = useState<AuditLogEntry[]>([]);
+
+  useEffect(() => {
+    Promise.all([
+      getProfilesByRole('supervisor'),
+      getAllGroups(),
+      getAuditLog(),
+    ]).then(([sups, groups, auditEntries]) => {
+      setSupervisors(sups.map(s => ({
+        id: s.id,
+        name: s.name,
+        sun: 0, mon: 0, tue: 0, wed: 0, thu: 0, total: 0,
+        status: 'none' as const,
+      })));
+      setProjects(groups.map(g => ({
+        id: g.id,
+        name: g.projectName,
+        groupId: g.groupCode,
+        course: (g.courseCode.includes('499') ? '499' : '498') as '498' | '499',
+        status: 'unassigned' as const,
+      })));
+      setChangesLog(auditEntries.slice(0, 20));
+      const count498 = groups.filter(g => g.courseCode.includes('498')).length;
+      const count499 = groups.filter(g => g.courseCode.includes('499')).length;
+      setNumStudents498(count498);
+      setNumStudents499(count499);
+      setNumSupervisors(sups.length);
+    });
+  }, []);
 
   // UI State
   const [showSlotDialog, setShowSlotDialog] = useState(false);
@@ -149,7 +156,7 @@ export function AdminPresentationCommittee() {
   const [filterDay, setFilterDay] = useState<string>('all');
 
   // History for undo/redo
-  const [history, setHistory] = useState<TimeSlot[][]>([slots]);
+  const [history, setHistory] = useState<TimeSlot[][]>([[]]);
   const [historyIndex, setHistoryIndex] = useState(0);
 
   if (!user) return null;
@@ -796,21 +803,25 @@ export function AdminPresentationCommittee() {
           <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-8">
             <h3 className="text-[var(--color-text-900)] mb-6">Changes Log</h3>
             <div className="space-y-4">
-              <div className="flex gap-4 pb-4 border-b border-[var(--color-border)]">
-                <div className="w-2 h-2 rounded-full bg-green-600 mt-2 flex-shrink-0"></div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[var(--color-text-900)]">Slot assigned</span>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-700">Create</span>
+              {changesLog.length > 0 ? changesLog.map((entry) => (
+                <div key={entry.id} className="flex gap-4 pb-4 border-b border-[var(--color-border)] last:border-0">
+                  <div className="w-2 h-2 rounded-full bg-blue-600 mt-2 flex-shrink-0"></div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-[var(--color-text-900)]">{entry.action}</span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">{entry.entity}</span>
+                    </div>
+                    <p className="text-[var(--color-text-600)] text-sm">{entry.context || '—'}</p>
+                    <p className="text-[var(--color-text-600)] text-xs mt-1">
+                      {entry.actor} • {new Date(entry.timestamp).toLocaleString()}
+                    </p>
                   </div>
-                  <p className="text-[var(--color-text-600)] text-sm">
-                    &quot;Graduation Project Platform&quot; assigned to Mon 09:00 • Room A-101 • Dr. Ahmad AlKhatib
-                  </p>
-                  <p className="text-[var(--color-text-600)] text-xs mt-1">
-                    Admin - Dr. Faisal Ahmed • Dec 1, 2024 at 10:30 AM
-                  </p>
                 </div>
-              </div>
+              )) : (
+                <div className="text-center py-8 text-[var(--color-text-600)]">
+                  <p>No changes logged yet</p>
+                </div>
+              )}
             </div>
           </div>
         </TabsContent>

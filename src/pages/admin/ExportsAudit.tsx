@@ -119,30 +119,9 @@ export function AdminExportsAudit() {
             <div className="p-6 border-b border-[var(--color-border)]">
               <h2 className="text-[var(--color-text-900)]">Recent Exports</h2>
             </div>
-            <div className="divide-y divide-[var(--color-border)]">
-              {[
-                { name: 'CPIS-498_Grades_Fall2025.xlsx', date: '2025-11-01', size: '245 KB', type: 'Grades' },
-                { name: 'Submissions_Report_Oct2025.csv', date: '2025-10-28', size: '1.2 MB', type: 'Submissions' },
-                { name: 'Activity_Log_Oct2025.xlsx', date: '2025-10-15', size: '856 KB', type: 'Activity' },
-              ].map((file, index) => (
-                <div key={index} className="p-6 flex items-center justify-between hover:bg-[var(--color-surface-alt)] transition-colors">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-[var(--color-primary-100)] flex items-center justify-center">
-                      <FileText className="w-5 h-5 text-[var(--color-primary-600)]" />
-                    </div>
-                    <div>
-                      <h3 className="text-[var(--color-text-900)] mb-1">{file.name}</h3>
-                      <p className="text-[var(--color-text-600)]">
-                        {file.type} • {file.size} • {new Date(file.date).toLocaleDateString()}
-                      </p>
-                    </div>
-                  </div>
-                  <Button variant="outline" size="sm">
-                    <Download className="w-4 h-4 mr-2" />
-                    Download
-                  </Button>
-                </div>
-              ))}
+            <div className="p-8 text-center text-[var(--color-text-600)]">
+              <FileText className="w-10 h-10 mx-auto mb-3 opacity-40" />
+              <p>No recent exports</p>
             </div>
           </div>
         </TabsContent>

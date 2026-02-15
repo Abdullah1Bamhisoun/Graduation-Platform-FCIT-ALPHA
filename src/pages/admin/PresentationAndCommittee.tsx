@@ -2,30 +2,22 @@ import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
 import { getPresentationSchedules, getStudentPresentationSelections } from '../../services/presentations';
+import { getProfilesByRole } from '../../services/profiles';
 import { Button } from '../../components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { Label } from '../../components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { StudentPresentationSelection, PresentationSchedule } from '../../types';
+import type { User } from '../../types';
 import { Calendar, CheckCircle, XCircle, Plus, X, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
-
-// Mock supervisor list
-const availableSupervisors = [
-  'Dr. Wafi Bedwai',
-  'Dr. Sultan Al-Qarni',
-  'Dr. Fouad Alallah',
-  'Dr. Mohammed Al-Rasheed',
-  'Dr. Khalid Abdullah',
-  'Dr. Fahad Al-Bakr',
-  'Dr. Omar Al-Zahrani',
-];
 
 export function AdminPresentationAndCommittee() {
   const { user } = useAuth();
   const [selections, setSelections] = useState<StudentPresentationSelection[]>([]);
   const [schedules, setSchedules] = useState<PresentationSchedule[]>([]);
+  const [supervisorProfiles, setSupervisorProfiles] = useState<User[]>([]);
   const [selectedDay, setSelectedDay] = useState<string>('all');
   const [showAddMemberDialog, setShowAddMemberDialog] = useState(false);
   const [selectedSchedule, setSelectedSchedule] = useState<string | null>(null);
@@ -35,9 +27,11 @@ export function AdminPresentationAndCommittee() {
     Promise.all([
       getPresentationSchedules(),
       getStudentPresentationSelections(),
-    ]).then(([scheds, sels]) => {
+      getProfilesByRole('supervisor'),
+    ]).then(([scheds, sels, sups]) => {
       setSchedules(scheds);
       setSelections(sels);
+      setSupervisorProfiles(sups);
     });
   }, []);
 
@@ -464,9 +458,9 @@ export function AdminPresentationAndCommittee() {
                       <SelectValue placeholder="Choose a supervisor" />
                     </SelectTrigger>
                     <SelectContent>
-                      {availableSupervisors.map((supervisor) => (
-                        <SelectItem key={supervisor} value={supervisor}>
-                          {supervisor}
+                      {supervisorProfiles.map((supervisor) => (
+                        <SelectItem key={supervisor.id} value={supervisor.name}>
+                          {supervisor.name}
                         </SelectItem>
                       ))}
                     </SelectContent>

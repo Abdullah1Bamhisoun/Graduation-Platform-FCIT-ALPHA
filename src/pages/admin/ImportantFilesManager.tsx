@@ -27,28 +27,9 @@ interface FileForm {
   type: 'pdf' | 'zip' | 'doc';
 }
 
-const initialFiles: FileItem[] = [
-  {
-    id: 'cpis-498-499-manual',
-    name: 'CPIS-498 and CPIS-499 Manual',
-    description: 'Complete manual and guidelines for CPIS-498 and CPIS-499 graduation projects',
-    size: '2.4 MB',
-    type: 'pdf',
-    uploadedAt: '2025-09-01T10:00:00',
-  },
-  {
-    id: 'report-template',
-    name: 'CPIS498 Report Template LaTeX',
-    description: 'LaTeX template for formatting your graduation project report',
-    size: '156 KB',
-    type: 'zip',
-    uploadedAt: '2025-09-01T10:00:00',
-  },
-];
-
 export function ImportantFilesManager() {
   const { user } = useAuth();
-  const [files, setFiles] = useState<FileItem[]>(initialFiles);
+  const [files, setFiles] = useState<FileItem[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<FileForm>({

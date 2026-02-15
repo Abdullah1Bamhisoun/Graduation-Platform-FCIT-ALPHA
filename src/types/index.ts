@@ -13,6 +13,8 @@ export interface User {
   studentId?: string;
   employeeNumber?: string;
   avatarUrl?: string;
+  department?: string;
+  gender?: string;
 }
 
 // Milestone types

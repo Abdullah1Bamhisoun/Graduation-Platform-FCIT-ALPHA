@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { Button } from '../../components/ui/button';
 import { Label } from '../../components/ui/label';
@@ -6,15 +6,50 @@ import { Textarea } from '../../components/ui/textarea';
 import { useAuth } from '../../lib/AuthContext';
 import { Star } from 'lucide-react';
 import { toast } from 'sonner';
+import { getGroupForStudent } from '../../services/groups';
+import { createPeerEvaluation } from '../../services/grades';
+import { supabase } from '../../lib/supabase';
 
-const groupMembers = [
-  { id: '2236501', name: 'Abdulrahman Solymani' },
-];
+interface GroupMember { id: string; name: string; studentId?: string; }
 
 export function StudentPeerFeedback() {
   const { user } = useAuth();
+  const [groupMembers, setGroupMembers] = useState<GroupMember[]>([]);
+  const [groupId, setGroupId] = useState<string | null>(null);
+  const [courseCode, setCourseCode] = useState<string>('CPIS-498');
+  const [loadingMembers, setLoadingMembers] = useState(true);
   const [evaluations, setEvaluations] = useState<Record<string, { rating: number; comment: string }>>({});
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      try {
+        const group = await getGroupForStudent(user.id);
+        if (group) {
+          setGroupId(group.id);
+          setCourseCode(group.courseCode || 'CPIS-498');
+          const peers = group.members.filter((m) => m.id !== user.id);
+          setGroupMembers(peers);
+
+          // Check if this student already submitted peer evaluations for this group
+          const { data: existing } = await supabase
+            .from('peer_evaluations')
+            .select('id')
+            .eq('evaluator_id', user.id)
+            .eq('group_id', group.id)
+            .limit(1);
+
+          if (existing && existing.length > 0) {
+            setSubmitted(true);
+          }
+        }
+      } finally {
+        setLoadingMembers(false);
+      }
+    })();
+  }, [user]);
 
   const handleRatingChange = (studentId: string, rating: number) => {
     setEvaluations({
@@ -36,17 +71,34 @@ export function StudentPeerFeedback() {
     });
   };
 
-  const handleSubmit = () => {
-    // Validate all members are rated
+  const handleSubmit = async () => {
     const allRated = groupMembers.every(member => evaluations[member.id]?.rating > 0);
-    
     if (!allRated) {
       toast.error('Please rate all group members before submitting');
       return;
     }
+    if (!groupId || !user) return;
 
-    setSubmitted(true);
-    toast.success('Peer feedback submitted successfully!');
+    setSubmitting(true);
+    try {
+      for (const member of groupMembers) {
+        const ev = evaluations[member.id];
+        await createPeerEvaluation({
+          studentId: member.id,
+          evaluatorId: user.id,
+          groupId,
+          courseCode,
+          score: ev.rating,
+          comment: ev.comment || undefined,
+        });
+      }
+      setSubmitted(true);
+      toast.success('Peer feedback submitted successfully!');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to submit peer feedback. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const getRatingColor = (rating: number) => {
@@ -63,6 +115,7 @@ export function StudentPeerFeedback() {
   };
 
   if (!user) return null;
+  if (loadingMembers) return <Layout user={user} pageTitle="Peer Feedback (5 Marks)"><div className="p-6">Loading...</div></Layout>;
 
   return (
     <Layout user={user} pageTitle="Peer Feedback (5 Marks)">
@@ -76,6 +129,12 @@ export function StudentPeerFeedback() {
           </p>
         </div>
       </div>
+
+      {groupMembers.length === 0 && !submitted && (
+        <div className="text-center py-12 text-[var(--color-text-600)]">
+          <p>No group members to evaluate. You must be assigned to a group first.</p>
+        </div>
+      )}
 
       {submitted ? (
         <div className="bg-green-50 border border-green-200 rounded-xl p-8 text-center">
@@ -95,7 +154,7 @@ export function StudentPeerFeedback() {
             <div key={member.id} className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] shadow-sm">
               <div className="p-6 border-b border-[var(--color-border)]">
                 <h3 className="text-[var(--color-text-900)] mb-1">{member.name}</h3>
-                <p className="text-[var(--color-text-600)]">Student ID: {member.id}</p>
+                <p className="text-[var(--color-text-600)]">Student ID: {member.studentId || member.id}</p>
               </div>
 
               <div className="p-6 space-y-6">
@@ -183,10 +242,10 @@ export function StudentPeerFeedback() {
           <div className="flex justify-end">
             <Button
               onClick={handleSubmit}
+              disabled={submitting || Object.keys(evaluations).filter(id => evaluations[id]?.rating > 0).length !== groupMembers.length}
               className="bg-[#10B981] text-white hover:bg-[#0ea572]"
-              disabled={Object.keys(evaluations).filter(id => evaluations[id]?.rating > 0).length !== groupMembers.length}
             >
-              Submit Peer Feedback
+              {submitting ? 'Submitting…' : 'Submit Peer Feedback'}
             </Button>
           </div>
         </div>

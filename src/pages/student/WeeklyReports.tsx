@@ -1,16 +1,15 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { Button } from '../../components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { Textarea } from '../../components/ui/textarea';
 import { Label } from '../../components/ui/label';
 import { useAuth } from '../../lib/AuthContext';
-import { getWeeklyReportsByGroup } from '../../services/weekly-reports';
+import { getWeeklyReportsByGroup, submitStudentWeeklyReport } from '../../services/weekly-reports';
 import { getGroupForStudent } from '../../services/groups';
 import { Eye, Plus } from 'lucide-react';
 import { WeeklyReport } from '../../types';
 import { toast } from 'sonner';
-import { useEffect } from 'react';
 
 export function StudentWeeklyReports() {
   const { user } = useAuth();
@@ -21,7 +20,9 @@ export function StudentWeeklyReports() {
   const [futureWork, setFutureWork] = useState('');
   const [discussionPoints, setDiscussionPoints] = useState('');
   const [groupReports, setGroupReports] = useState<WeeklyReport[]>([]);
+  const [groupId, setGroupId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -29,6 +30,7 @@ export function StudentWeeklyReports() {
       try {
         const group = await getGroupForStudent(user.id);
         if (group) {
+          setGroupId(group.id);
           const reports = await getWeeklyReportsByGroup(group.id);
           setGroupReports(reports);
         }
@@ -54,18 +56,39 @@ export function StudentWeeklyReports() {
     setShowAddReportDialog(true);
   };
 
-  const handleSubmitReport = () => {
+  const handleSubmitReport = async () => {
     if (!progress || !futureWork || !discussionPoints) {
       toast.error('Please fill in all fields');
       return;
     }
-    
-    toast.success(`Week ${selectedWeek} report submitted successfully`);
-    setShowAddReportDialog(false);
-    setProgress('');
-    setFutureWork('');
-    setDiscussionPoints('');
-    setSelectedWeek(null);
+    if (!groupId || !selectedWeek) {
+      toast.error('Group not found. Please contact support.');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await submitStudentWeeklyReport({
+        groupId,
+        weekNumber: selectedWeek,
+        progress,
+        futureWork,
+        discussionPoints,
+      });
+      // Refresh the report list
+      const reports = await getWeeklyReportsByGroup(groupId);
+      setGroupReports(reports);
+      toast.success(`Week ${selectedWeek} report submitted successfully`);
+      setShowAddReportDialog(false);
+      setProgress('');
+      setFutureWork('');
+      setDiscussionPoints('');
+      setSelectedWeek(null);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to submit report. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const getProgressStatusColor = (status: string) => {
@@ -135,14 +158,14 @@ export function StudentWeeklyReports() {
                   Week {weekNum}
                 </div>
                 
-                {report && weekNum !== 9 ? (
+                {report ? (
                   <>
                     <div className={`inline-block px-3 py-1 rounded-full border text-xs mb-3 ${getProgressStatusColor(report.progressStatus)}`}>
                       {getProgressStatusText(report.progressStatus)}
                     </div>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
+                    <Button
+                      variant="outline"
+                      size="sm"
                       className="w-full"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -153,10 +176,10 @@ export function StudentWeeklyReports() {
                       View Report
                     </Button>
                   </>
-                ) : weekNum === 9 ? (
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
+                ) : !isDisabled ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
                     className="w-full"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -312,11 +335,12 @@ export function StudentWeeklyReports() {
               <Button variant="outline" onClick={() => setShowAddReportDialog(false)}>
                 Cancel
               </Button>
-              <Button 
+              <Button
                 onClick={handleSubmitReport}
+                disabled={submitting}
                 className="bg-[#10B981] text-[rgb(0,0,0)] hover:bg-[#0ea572]"
               >
-                Submit Report
+                {submitting ? 'Submitting…' : 'Submit Report'}
               </Button>
             </div>
           </div>

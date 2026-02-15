@@ -85,6 +85,34 @@ export async function getAllWeeklyReports(): Promise<WeeklyReport[]> {
   }
 }
 
+/**
+ * Student submits their own weekly progress note (stored as a weekly_report row
+ * with status 'submitted' so the supervisor can later review it).
+ */
+export async function submitStudentWeeklyReport(report: {
+  groupId: string;
+  weekNumber: number;
+  progress: string;
+  futureWork: string;
+  discussionPoints: string;
+}): Promise<void> {
+  const { error } = await supabase.from('weekly_reports').insert({
+    group_id: report.groupId,
+    week_number: report.weekNumber,
+    date_range: '',
+    all_members_attended: true,
+    supervisor_comments: [
+      `Progress: ${report.progress}`,
+      `Future Work: ${report.futureWork}`,
+      `Discussion Points: ${report.discussionPoints}`,
+    ].join('\n\n'),
+    progress_status: 'good',
+    status: 'submitted',
+  });
+
+  if (error) throw error;
+}
+
 export async function createWeeklyReport(report: {
   groupId: string;
   weekNumber: number;

@@ -10,6 +10,8 @@ function mapDbProfile(data: any): User {
     studentId: data.student_id ?? undefined,
     employeeNumber: data.employee_number ?? undefined,
     avatarUrl: data.avatar_url ?? undefined,
+    department: data.department ?? undefined,
+    gender: data.gender ?? undefined,
   };
 }
 

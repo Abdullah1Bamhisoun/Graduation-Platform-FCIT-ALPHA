@@ -29,6 +29,22 @@ async function approveRegistration(req, res) {
       });
     }
 
+    // Server-side email validation by role
+    const email = registration.email.toLowerCase();
+    if (registration.account_type === 'student') {
+      if (!email.endsWith('@stu.kau.edu.sa')) {
+        return res.status(400).json({
+          error: 'Student email must end with @stu.kau.edu.sa'
+        });
+      }
+    } else if (registration.account_type === 'supervisor') {
+      if (!email.endsWith('@kau.edu.sa') || email.endsWith('@stu.kau.edu.sa')) {
+        return res.status(400).json({
+          error: 'Supervisor email must end with @kau.edu.sa'
+        });
+      }
+    }
+
     // Create user in Supabase Auth
     const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email: registration.email,
@@ -48,21 +64,102 @@ async function approveRegistration(req, res) {
       });
     }
 
-    // Update the profile with additional details
+    // Upsert the profile — creates it if no DB trigger does so automatically
     const { error: profileError } = await supabaseAdmin
       .from('profiles')
-      .update({
+      .upsert({
+        id: authUser.user.id,
+        email: registration.email,
         name: registration.name,
         role: registration.account_type === 'student' ? 'student' : 'supervisor',
-        student_id: registration.student_id,
-        employee_number: registration.employee_number,
-        department: registration.department,
-      })
-      .eq('id', authUser.user.id);
+        student_id: registration.student_id || null,
+        employee_number: registration.employee_number || null,
+        department: registration.department || null,
+      });
 
     if (profileError) {
-      console.error('Error updating profile:', profileError);
-      // Don't fail the request, profile will be auto-created by trigger
+      console.error('Error upserting profile:', profileError);
+      // Still proceed — auth user was created successfully
+    }
+
+    // ── Group assignment (students only) ──────────────────────────────────────
+    if (registration.account_type === 'student') {
+      const userId = authUser.user.id;
+      const dept = registration.department || '';
+      const courseNum = (registration.course || '').split('-').pop() || ''; // 'CPCS-498' → '498'
+      const gender = registration.gender || 'male';
+      const termMap = { First: '01', Second: '02', Summer: '03' };
+      const termCode = termMap[registration.term] || '01';
+      const year = new Date().getFullYear().toString();
+      const genderCode = gender === 'female' ? 'F' : 'M';
+
+      if (registration.project_name) {
+        // ── HAS IDEA: auto-create a new group ──────────────────────────────
+        // Find the highest existing group_number for this dept+course+gender combo
+        const { data: existingGroups, error: numError } = await supabaseAdmin
+          .from('groups')
+          .select('group_number')
+          .eq('department', dept)
+          .eq('course_number', courseNum)
+          .eq('gender', gender)
+          .order('group_number', { ascending: false })
+          .limit(1);
+
+        if (!numError) {
+          const lastNum = existingGroups?.[0]?.group_number ?? 0;
+          if (lastNum >= 50) {
+            // Still approve the user but log the overflow
+            console.warn(`Group limit reached for ${dept}/${courseNum}/${gender}`);
+          } else {
+            const nextNum = lastNum + 1;
+            const groupCode = `${dept}_${String(nextNum).padStart(2, '0')}_${courseNum}_${year}_${termCode}_${genderCode}`;
+
+            const { data: newGroup, error: groupError } = await supabaseAdmin
+              .from('groups')
+              .insert({
+                group_code: groupCode,
+                group_number: nextNum,
+                department: dept,
+                course_number: courseNum,
+                gender,
+                project_name: registration.project_name,
+                project_description: registration.project_idea || '',
+                is_locked: true,
+                status: 'pending',
+              })
+              .select('id')
+              .single();
+
+            if (groupError) {
+              console.error('Error creating group:', groupError);
+            } else {
+              await supabaseAdmin.from('group_members').insert({
+                group_id: newGroup.id,
+                student_id: userId,
+              });
+            }
+          }
+        }
+      } else if (registration.group_id) {
+        // ── NO IDEA: join an existing group ───────────────────────────────
+        const { data: group } = await supabaseAdmin
+          .from('groups')
+          .select('id, gender, members:group_members(student_id)')
+          .eq('id', registration.group_id)
+          .single();
+
+        if (group) {
+          const memberCount = (group.members || []).length;
+          if (memberCount < 3) {
+            await supabaseAdmin.from('group_members').insert({
+              group_id: registration.group_id,
+              student_id: userId,
+            });
+          } else {
+            console.warn(`Group ${registration.group_id} is full — student ${userId} not added`);
+          }
+        }
+      }
     }
 
     // Update registration status
