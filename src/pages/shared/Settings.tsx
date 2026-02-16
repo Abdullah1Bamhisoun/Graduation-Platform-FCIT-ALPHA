@@ -7,14 +7,22 @@ import { Label } from '../../components/ui/label';
 import { Switch } from '../../components/ui/switch';
 import { Separator } from '../../components/ui/separator';
 import { Bell, Lock, User as UserIcon, Mail, Building } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
+import { getGroupForStudent, type GroupData } from '../../services/groups';
 
 export function Settings() {
   const { user } = useAuth();
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [pushNotifications, setPushNotifications] = useState(true);
   const [weeklyDigest, setWeeklyDigest] = useState(false);
+  const [group, setGroup] = useState<GroupData | null>(null);
+
+  useEffect(() => {
+    if (user?.role === 'student') {
+      getGroupForStudent(user.id).then(setGroup);
+    }
+  }, [user]);
 
   const handleSaveProfile = () => {
     toast.success('Profile settings saved successfully');
@@ -222,8 +230,10 @@ export function Settings() {
                 <Input
                   id="projectTitle"
                   type="text"
-                  defaultValue="Graduation Project Platform"
-                  className="mt-1.5"
+                  value={group?.projectName ?? ''}
+                  disabled
+                  className="mt-1.5 bg-[var(--color-surface-alt)]"
+                  placeholder={group === null ? 'Loading...' : 'No project assigned'}
                 />
               </div>
 
@@ -232,9 +242,10 @@ export function Settings() {
                 <Input
                   id="supervisor"
                   type="text"
-                  value="Dr. Hasan Labani"
+                  value={group?.supervisorName ?? ''}
                   disabled
                   className="mt-1.5 bg-[var(--color-surface-alt)]"
+                  placeholder={group === null ? 'Loading...' : 'Not assigned yet'}
                 />
               </div>
 
@@ -243,16 +254,11 @@ export function Settings() {
                 <Input
                   id="course"
                   type="text"
-                  value="CPIS-499"
+                  value={group?.courseNumber ? `CPCS-${group.courseNumber}` : ''}
                   disabled
                   className="mt-1.5 bg-[var(--color-surface-alt)]"
+                  placeholder={group === null ? 'Loading...' : '—'}
                 />
-              </div>
-
-              <div className="pt-2">
-                <Button onClick={handleSaveProfile}>
-                  Save Changes
-                </Button>
               </div>
             </div>
           </Card>

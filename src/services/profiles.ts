@@ -1,30 +1,19 @@
 import { supabase } from '../lib/supabase';
 import type { User, UserRole } from '../types';
 
-function mapDbProfile(data: any): User {
-  return {
-    id: data.id,
-    name: data.name,
-    email: data.email,
-    role: data.role as UserRole,
-    studentId: data.student_id ?? undefined,
-    employeeNumber: data.employee_number ?? undefined,
-    avatarUrl: data.avatar_url ?? undefined,
-    department: data.department ?? undefined,
-    gender: data.gender ?? undefined,
-  };
+async function getAdminToken(): Promise<string> {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ?? '';
 }
 
 export async function getProfilesByRole(role: UserRole): Promise<User[]> {
   try {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('role', role)
-      .order('name');
-
-    if (error) throw error;
-    return (data || []).map(mapDbProfile);
+    const token = await getAdminToken();
+    const res = await fetch(`/api/users?role=${encodeURIComponent(role)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
   } catch (error) {
     console.error('Error fetching profiles:', error);
     return [];

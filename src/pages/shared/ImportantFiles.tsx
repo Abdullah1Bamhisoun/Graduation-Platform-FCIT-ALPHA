@@ -3,6 +3,7 @@ import { useAuth } from '../../lib/AuthContext';
 import { FileText, Download, File } from 'lucide-react';
 import { Card } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
+import { useState, useEffect } from 'react';
 
 interface FileItem {
   id: string;
@@ -10,30 +11,22 @@ interface FileItem {
   description: string;
   size: string;
   type: 'pdf' | 'zip' | 'doc';
+  fileUrl: string | null;
   uploadedAt: string;
 }
 
-const importantFiles: FileItem[] = [
-  {
-    id: 'cpis-498-499-manual',
-    name: 'CPIS-498 and CPIS-499 Manual',
-    description: 'Complete manual and guidelines for CPIS-498 and CPIS-499 graduation projects',
-    size: '2.4 MB',
-    type: 'pdf',
-    uploadedAt: '2025-09-01T10:00:00',
-  },
-  {
-    id: 'report-template',
-    name: 'CPIS498 Report Template LaTeX',
-    description: 'LaTeX template for formatting your graduation project report',
-    size: '156 KB',
-    type: 'zip',
-    uploadedAt: '2025-09-01T10:00:00',
-  },
-];
-
 export function ImportantFiles() {
   const { user } = useAuth();
+  const [files, setFiles] = useState<FileItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/important-files')
+      .then((r) => r.json())
+      .then((data) => setFiles(Array.isArray(data) ? data : []))
+      .catch(() => setFiles([]))
+      .finally(() => setLoading(false));
+  }, []);
 
   const getFileIcon = (type: string) => {
     switch (type) {
@@ -49,8 +42,9 @@ export function ImportantFiles() {
   };
 
   const handleDownload = (file: FileItem) => {
-    // In a real application, this would trigger the actual download
-    console.log(`Downloading: ${file.name}`);
+    if (file.fileUrl) {
+      window.open(file.fileUrl, '_blank');
+    }
   };
 
   if (!user) return null;
@@ -64,42 +58,62 @@ export function ImportantFiles() {
       </div>
 
       <div className="grid gap-4">
-        {importantFiles.map((file) => (
-          <Card key={file.id} className="p-6">
-            <div className="flex items-start gap-4">
-              <div className="p-3 bg-[var(--color-surface-alt)] rounded-lg">
-                {getFileIcon(file.type)}
-              </div>
-              <div className="flex-1">
-                <h2 className="text-[var(--color-text-900)] mb-2">
-                  {file.name}
-                </h2>
-                <p className="text-[var(--color-text-600)] mb-4">
-                  {file.description}
-                </p>
-                <div className="flex items-center gap-4 text-[var(--color-text-600)]">
-                  <span className="uppercase">{file.type}</span>
-                  <span>•</span>
-                  <span>{file.size}</span>
-                  <span>•</span>
-                  <span>
-                    Added {new Date(file.uploadedAt).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    })}
-                  </span>
+        {loading ? (
+          <Card className="p-12">
+            <div className="text-center text-[var(--color-text-600)]">Loading files...</div>
+          </Card>
+        ) : files.length > 0 ? (
+          files.map((file) => (
+            <Card key={file.id} className="p-6">
+              <div className="flex items-start gap-4">
+                <div className="p-3 bg-[var(--color-surface-alt)] rounded-lg">
+                  {getFileIcon(file.type)}
                 </div>
+                <div className="flex-1">
+                  <h2 className="text-[var(--color-text-900)] mb-2">
+                    {file.name}
+                  </h2>
+                  <p className="text-[var(--color-text-600)] mb-4">
+                    {file.description}
+                  </p>
+                  <div className="flex items-center gap-4 text-[var(--color-text-600)]">
+                    <span className="uppercase">{file.type}</span>
+                    {file.size && (
+                      <>
+                        <span>•</span>
+                        <span>{file.size}</span>
+                      </>
+                    )}
+                    <span>•</span>
+                    <span>
+                      Added {new Date(file.uploadedAt).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                      })}
+                    </span>
+                  </div>
+                </div>
+                {file.fileUrl && (
+                  <Button onClick={() => handleDownload(file)}>
+                    <Download className="w-4 h-4 mr-2" />
+                    Download
+                  </Button>
+                )}
               </div>
-              <Button
-                onClick={() => handleDownload(file)}
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Download
-              </Button>
+            </Card>
+          ))
+        ) : (
+          <Card className="p-12">
+            <div className="text-center">
+              <File className="w-16 h-16 mx-auto mb-4 text-[var(--color-text-400)]" />
+              <h3 className="text-[var(--color-text-900)] mb-2">No files available</h3>
+              <p className="text-[var(--color-text-600)]">
+                Check back later or contact your supervisor for resources.
+              </p>
             </div>
           </Card>
-        ))}
+        )}
       </div>
 
       <div className="mt-8 p-6 !bg-white border border-blue-500 border-[1.5px] rounded-lg">

@@ -65,7 +65,11 @@ async function fetchAllGroupsFromApi(): Promise<GroupData[]> {
   const response = await fetch('/api/groups', {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!response.ok) throw new Error('Failed to fetch groups');
+  if (!response.ok) {
+    const text = await response.text();
+    console.error('getAllGroups API error', response.status, text);
+    throw new Error(`Failed to fetch groups (${response.status})`);
+  }
   const data = await response.json();
   return (data as any[]).map((g) => mapDbGroup({ ...g, group_code: g.groupCode, group_number: g.groupNumber, project_name: g.projectName, project_description: g.projectDescription, supervisor_id: g.supervisorId, is_locked: g.isLocked, course_number: g.courseNumber }));
 }
@@ -95,6 +99,7 @@ export async function getGroupsForSupervisor(supervisorId: string): Promise<Grou
 
 export async function getGroupForStudent(studentId: string): Promise<GroupData | null> {
   try {
+    // Step 1: find the group this student belongs to
     const { data: membership, error: memError } = await supabase
       .from('group_members')
       .select('group_id')
@@ -105,14 +110,49 @@ export async function getGroupForStudent(studentId: string): Promise<GroupData |
     if (memError) throw memError;
     if (!membership) return null;
 
-    const { data, error } = await supabase
+    const groupId = membership.group_id;
+
+    // Step 2: fetch the group row (flat, no FK joins for members)
+    const { data: groupRow, error: groupError } = await supabase
       .from('groups')
-      .select(GROUP_SELECT)
-      .eq('id', membership.group_id)
+      .select('id, group_code, group_number, department, gender, course_number, project_name, project_description, is_locked, status, created_at, supervisor_id')
+      .eq('id', groupId)
       .single();
 
-    if (error) throw error;
-    return data ? mapDbGroup(data) : null;
+    if (groupError) throw groupError;
+    if (!groupRow) return null;
+
+    // Step 3: fetch all members of this group
+    const { data: memberRows } = await supabase
+      .from('group_members')
+      .select('student_id')
+      .eq('group_id', groupId);
+
+    const memberIds = (memberRows || []).map((m: any) => m.student_id);
+    const profileIds = [...new Set([...memberIds, groupRow.supervisor_id].filter(Boolean))];
+
+    // Step 4: batch-fetch profiles
+    let profileMap: Record<string, { id: string; name: string; student_id?: string }> = {};
+    if (profileIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, name, student_id')
+        .in('id', profileIds);
+      for (const p of (profiles || [])) {
+        profileMap[p.id] = p;
+      }
+    }
+
+    const supervisor = groupRow.supervisor_id ? profileMap[groupRow.supervisor_id] : null;
+
+    return mapDbGroup({
+      ...groupRow,
+      supervisor: supervisor ? { id: supervisor.id, name: supervisor.name } : null,
+      members: memberIds.map((id: string) => ({
+        student_id: id,
+        student: profileMap[id] ? { id, name: profileMap[id].name, student_id: profileMap[id].student_id } : null,
+      })),
+    });
   } catch (error) {
     console.error('Error fetching student group:', error);
     return null;
@@ -213,5 +253,40 @@ export async function updateGroupStatus(
   if (!response.ok) {
     const err = await response.json().catch(() => ({ error: 'Request failed' }));
     throw new Error(err.error || 'Failed to update group status');
+  }
+}
+
+async function getAdminToken() {
+  const session = await import('../lib/supabase').then((m) => m.supabase.auth.getSession());
+  return session.data.session?.access_token;
+}
+
+/** Admin deletes a group and all its members */
+export async function deleteGroup(groupId: string): Promise<void> {
+  const token = await getAdminToken();
+  const response = await fetch(`/api/groups/${groupId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(err.error || 'Failed to delete group');
+  }
+}
+
+/** Admin updates group project name, removes members, and/or adds members */
+export async function updateGroup(
+  groupId: string,
+  changes: { projectName?: string; removeMemberIds?: string[]; addMemberIds?: string[]; removeSupervisor?: boolean }
+): Promise<void> {
+  const token = await getAdminToken();
+  const response = await fetch(`/api/groups/${groupId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(changes),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(err.error || 'Failed to update group');
   }
 }

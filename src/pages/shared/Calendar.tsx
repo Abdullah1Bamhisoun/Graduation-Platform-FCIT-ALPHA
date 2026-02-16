@@ -1,6 +1,6 @@
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { Input } from '../../components/ui/input';
@@ -8,15 +8,8 @@ import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { toast } from 'sonner';
 import { useState, useEffect } from 'react';
-import { getMilestones } from '../../services/milestones';
-
-interface CalendarEvent {
-  date: string;
-  title: string;
-  type: 'deadline' | 'demo' | 'presentation' | 'meeting';
-  time?: string;
-  location?: string;
-}
+import { getCalendarEvents, createCalendarEvent, deleteCalendarEvent } from '../../services/calendarEvents';
+import type { CalendarEvent } from '../../services/calendarEvents';
 
 export function Calendar() {
   const { user } = useAuth();
@@ -27,14 +20,7 @@ export function Calendar() {
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
 
   useEffect(() => {
-    getMilestones().then(milestones => {
-      const events: CalendarEvent[] = milestones.map(m => ({
-        date: m.dueDate.slice(0, 10),
-        title: m.name,
-        type: 'deadline' as const,
-      }));
-      setCalendarEvents(events);
-    });
+    getCalendarEvents().then(setCalendarEvents);
   }, []);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [formData, setFormData] = useState({
@@ -52,24 +38,40 @@ export function Calendar() {
     meeting: '!bg-white text-green-700 border-green-500 border-[1.5px]',
   };
 
-  const handleAddEvent = () => {
+  const handleDeleteEvent = async (id: string) => {
+    try {
+      await deleteCalendarEvent(id);
+      setCalendarEvents((prev) => prev.filter((e) => e.id !== id));
+      toast.success('Event deleted');
+    } catch {
+      toast.error('Failed to delete event');
+    }
+  };
+
+  const handleAddEvent = async () => {
     if (!formData.title || !formData.date) {
       toast.error('Please fill in title and date');
       return;
     }
 
-    const newEvent: CalendarEvent = {
-      title: formData.title,
-      date: formData.date,
-      type: formData.type,
-      time: formData.time || undefined,
-      location: formData.location || undefined,
-    };
-
-    setCalendarEvents([...calendarEvents, newEvent]);
-    toast.success('Event added successfully');
-    setIsDialogOpen(false);
-    setFormData({ title: '', date: '', type: 'deadline', time: '', location: '' });
+    try {
+      const id = await createCalendarEvent({
+        title: formData.title,
+        date: formData.date,
+        type: formData.type,
+        time: formData.time || undefined,
+        location: formData.location || undefined,
+      });
+      setCalendarEvents((prev) => [
+        ...prev,
+        { id, title: formData.title, date: formData.date, type: formData.type, time: formData.time || undefined, location: formData.location || undefined },
+      ]);
+      toast.success('Event added successfully');
+      setIsDialogOpen(false);
+      setFormData({ title: '', date: '', type: 'deadline', time: '', location: '' });
+    } catch {
+      toast.error('Failed to add event');
+    }
   };
 
   const daysInMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate();
@@ -245,9 +247,20 @@ export function Calendar() {
               </h2>
             </div>
             <div className="p-6 space-y-4">
-              {calendarEvents.map((event, index) => (
-                <div key={index} className={`p-4 border rounded-lg ${eventTypeColors[event.type]}`}>
-                  <h3 className="mb-1">{event.title}</h3>
+              {calendarEvents.map((event) => (
+                <div key={event.id} className={`p-4 border rounded-lg ${eventTypeColors[event.type]}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className="mb-1">{event.title}</h3>
+                    {user.role === 'admin' && (
+                      <button
+                        onClick={() => handleDeleteEvent(event.id)}
+                        className="flex-shrink-0 p-1 rounded hover:bg-red-100 text-red-500 hover:text-red-700 transition-colors"
+                        title="Delete event"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                   <p className="mb-1">
                     {new Date(event.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                   </p>

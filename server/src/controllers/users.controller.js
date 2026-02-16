@@ -1,6 +1,39 @@
 const { supabaseAdmin } = require('../config/supabase');
 
 /**
+ * GET /api/users?role=student|supervisor|admin
+ * Admin only — list profiles, optionally filtered by role
+ */
+async function listUsers(req, res) {
+  try {
+    const { role } = req.query;
+    let query = supabaseAdmin
+      .from('profiles')
+      .select('id, name, email, role, student_id, employee_number, department, gender')
+      .order('name');
+
+    if (role) query = query.eq('role', role);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    res.json((data || []).map((p) => ({
+      id: p.id,
+      name: p.name,
+      email: p.email,
+      role: p.role,
+      studentId: p.student_id ?? undefined,
+      employeeNumber: p.employee_number ?? undefined,
+      department: p.department ?? undefined,
+      gender: p.gender ?? undefined,
+    })));
+  } catch (error) {
+    console.error('Error listing users:', error);
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
+}
+
+/**
  * DELETE /api/users/:id
  * Admin only — permanently delete a user (auth + profile)
  */
@@ -16,7 +49,7 @@ async function deleteUser(req, res) {
     // Verify the target user exists
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('id, name, role')
+      .select('id, name, role, email')
       .eq('id', id)
       .single();
 
@@ -31,13 +64,18 @@ async function deleteUser(req, res) {
     // Also delete profile row directly in case there is no cascade
     await supabaseAdmin.from('profiles').delete().eq('id', id);
 
+    // Remove pending_registrations record so the email can be re-used
+    await supabaseAdmin.from('pending_registrations').delete().eq('email', profile.email);
+
     // Audit log (non-fatal)
-    await supabaseAdmin.from('audit_log').insert({
-      actor_id: req.user.id,
-      action: 'DELETE_USER',
-      entity: 'profile',
-      context: { deletedUserId: id, deletedUserName: profile.name, role: profile.role },
-    }).catch(() => {});
+    try {
+      await supabaseAdmin.from('audit_log').insert({
+        actor_id: req.user.id,
+        action: 'DELETE_USER',
+        entity: 'profile',
+        context: { deletedUserId: id, deletedUserName: profile.name, role: profile.role },
+      });
+    } catch { /* non-fatal */ }
 
     res.json({ success: true, message: `User ${profile.name} deleted successfully` });
   } catch (error) {
@@ -46,4 +84,4 @@ async function deleteUser(req, res) {
   }
 }
 
-module.exports = { deleteUser };
+module.exports = { listUsers, deleteUser };

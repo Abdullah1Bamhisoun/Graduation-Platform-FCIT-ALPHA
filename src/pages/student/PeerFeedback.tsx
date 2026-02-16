@@ -223,14 +223,14 @@ export function StudentPeerFeedback() {
             <h3 className="text-[var(--color-text-900)] mb-4">Evaluation Summary</h3>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[var(--color-text-600)] mb-2">Average Rating Given</p>
+                <p className="text-[var(--color-text-900)] mb-2">Average Rating Given</p>
                 <div className="flex items-center gap-2">
                   <Star className="w-6 h-6 fill-yellow-400 text-yellow-400" />
                   <span className="text-2xl text-[var(--color-text-900)]">{calculateAverageContribution()}</span>
                 </div>
               </div>
               <div>
-                <p className="text-[var(--color-text-600)] mb-2">Members Evaluated</p>
+                <p className="text-[var(--color-text-900)] mb-2">Members Evaluated</p>
                 <div className="text-2xl text-[var(--color-text-900)]">
                   {Object.keys(evaluations).filter(id => evaluations[id]?.rating > 0).length} / {groupMembers.length}
                 </div>
@@ -243,7 +243,7 @@ export function StudentPeerFeedback() {
             <Button
               onClick={handleSubmit}
               disabled={submitting || Object.keys(evaluations).filter(id => evaluations[id]?.rating > 0).length !== groupMembers.length}
-              className="bg-[#10B981] text-white hover:bg-[#0ea572]"
+              className="bg-[#10B981] text-black hover:bg-[#0ea572]"
             >
               {submitting ? 'Submitting…' : 'Submit Peer Feedback'}
             </Button>

@@ -8,6 +8,8 @@ router.get('/available', controller.getAvailableGroups);
 
 // Admin routes
 router.get('/', authenticate, requireAdmin, controller.getAllGroups);
+router.patch('/:id', authenticate, requireAdmin, controller.updateGroup);
+router.delete('/:id', authenticate, requireAdmin, controller.deleteGroup);
 router.post('/:id/assign-supervisor', authenticate, requireAdmin, controller.assignSupervisor);
 router.patch('/:id/status', authenticate, requireAdmin, controller.updateGroupStatus);
 

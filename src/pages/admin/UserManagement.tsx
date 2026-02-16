@@ -7,10 +7,10 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { toast } from 'sonner';
-import { Search, CheckCircle, XCircle, Eye, Clock, Users, UserCheck, Trash2 } from 'lucide-react';
+import { Search, CheckCircle, XCircle, Eye, Clock, Users, UserCheck, Trash2, Pencil } from 'lucide-react';
 import { getPendingRegistrations, approveRegistration, rejectRegistration, subscribe, type PendingRegistration } from '../../lib/pending-registrations';
 import { getProfilesByRole } from '../../services/profiles';
-import { getAllGroups, assignSupervisor, updateGroupStatus, type GroupData } from '../../services/groups';
+import { getAllGroups, assignSupervisor, updateGroupStatus, deleteGroup, updateGroup, type GroupData } from '../../services/groups';
 import type { User as ProfileUser } from '../../types';
 
 // ── Local types ───────────────────────────────────────────────────────────────
@@ -56,6 +56,8 @@ export function AdminUserManagement() {
   const [filterRole, setFilterRole] = useState('all');
   const [filterDept, setFilterDept] = useState('all');
   const [filterGender, setFilterGender] = useState('all');
+  const [filterSemester, setFilterSemester] = useState('all');
+  const [filterCourse, setFilterCourse] = useState('all');
 
   // ── Groups ────────────────────────────────────────────────────────────────
   const [groups, setGroups] = useState<GroupData[]>([]);
@@ -64,6 +66,8 @@ export function AdminUserManagement() {
   const [groupFilterDept, setGroupFilterDept] = useState('all');
   const [groupFilterStatus, setGroupFilterStatus] = useState('all');
   const [groupFilterGender, setGroupFilterGender] = useState('all');
+  const [groupFilterSemester, setGroupFilterSemester] = useState('all');
+  const [groupFilterCourse, setGroupFilterCourse] = useState('all');
   const [assigningGroup, setAssigningGroup] = useState<GroupData | null>(null);
   const [selectedSupervisorId, setSelectedSupervisorId] = useState('');
 
@@ -71,6 +75,18 @@ export function AdminUserManagement() {
   const [deletingUser, setDeletingUser] = useState<User | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  // ── Delete Group ──────────────────────────────────────────────────────────
+  const [deletingGroup, setDeletingGroup] = useState<GroupData | null>(null);
+  const [isDeletingGroup, setIsDeletingGroup] = useState(false);
+
+  // ── Edit Group ────────────────────────────────────────────────────────────
+  const [editingGroup, setEditingGroup] = useState<GroupData | null>(null);
+  const [editProjectName, setEditProjectName] = useState('');
+  const [removingMemberIds, setRemovingMemberIds] = useState<string[]>([]);
+  const [addingMemberIds, setAddingMemberIds] = useState<string[]>([]);
+  const [removeSupervisor, setRemoveSupervisor] = useState(false);
+  const [isSavingGroup, setIsSavingGroup] = useState(false);
 
   // ── Pending Registrations ─────────────────────────────────────────────────
   const [pendingRegs, setPendingRegs] = useState<PendingRegistration[]>([]);
@@ -140,8 +156,11 @@ export function AdminUserManagement() {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to delete user');
+      const text = await res.text();
+      let json: { error?: string } = {};
+      try { json = JSON.parse(text); } catch { /* non-JSON response */ }
+      if (!res.ok) throw new Error(json.error || `Server error (${res.status})`);
+
       toast.success(`${deletingUser.name} has been deleted`);
       setIsDeleteDialogOpen(false);
       setDeletingUser(null);
@@ -150,6 +169,44 @@ export function AdminUserManagement() {
       toast.error(err instanceof Error ? err.message : 'Failed to delete user');
     } finally {
       setDeleting(false);
+    }
+  };
+
+  // ── Handlers: delete group ────────────────────────────────────────────────
+  const handleDeleteGroup = async () => {
+    if (!deletingGroup) return;
+    setIsDeletingGroup(true);
+    try {
+      await deleteGroup(deletingGroup.id);
+      toast.success(`Group ${deletingGroup.groupCode} deleted`);
+      setDeletingGroup(null);
+      reloadGroups();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete group');
+    } finally {
+      setIsDeletingGroup(false);
+    }
+  };
+
+  // ── Handlers: edit group ──────────────────────────────────────────────────
+  const handleSaveGroup = async () => {
+    if (!editingGroup) return;
+    setIsSavingGroup(true);
+    try {
+      await updateGroup(editingGroup.id, {
+        projectName: editProjectName,
+        removeMemberIds: removingMemberIds,
+        addMemberIds: addingMemberIds,
+        removeSupervisor,
+      });
+      toast.success('Group updated');
+      setEditingGroup(null);
+      setRemoveSupervisor(false);
+      reloadGroups();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update group');
+    } finally {
+      setIsSavingGroup(false);
     }
   };
 
@@ -177,6 +234,21 @@ export function AdminUserManagement() {
     }
   };
 
+  // ── Helpers ── extracted from group code {dept}_{num}_{courseNum}_{year}_{termCode}_{genderCode}
+  const getGroupSemester = (code: string) => code.split('_')[4] ?? '';
+  const getGroupCourse = (code: string) => code.split('_')[2] ?? '';
+  // Map studentId → semester / course via groups state
+  const studentSemesterMap = new Map<string, string>();
+  const studentCourseMap = new Map<string, string>();
+  groups.forEach((g) => {
+    const sem = getGroupSemester(g.groupCode);
+    const course = getGroupCourse(g.groupCode);
+    g.members.forEach((m) => {
+      studentSemesterMap.set(m.id, sem);
+      studentCourseMap.set(m.id, course);
+    });
+  });
+
   // ── Filtered data ─────────────────────────────────────────────────────────
   const filteredUsers = users.filter((u) => {
     const q = searchQuery.toLowerCase();
@@ -188,7 +260,9 @@ export function AdminUserManagement() {
     const matchesRole = filterRole === 'all' || u.role === filterRole;
     const matchesDept = filterDept === 'all' || (u.department ?? '') === filterDept;
     const matchesGender = filterGender === 'all' || (u.gender ?? '') === filterGender;
-    return matchesSearch && matchesRole && matchesDept && matchesGender;
+    const matchesSemester = filterSemester === 'all' || studentSemesterMap.get(u.id) === filterSemester;
+    const matchesCourse = filterCourse === 'all' || studentCourseMap.get(u.id) === filterCourse;
+    return matchesSearch && matchesRole && matchesDept && matchesGender && matchesSemester && matchesCourse;
   });
 
   const filteredGroups = groups.filter((g) => {
@@ -201,7 +275,9 @@ export function AdminUserManagement() {
     const matchesDept = groupFilterDept === 'all' || g.department === groupFilterDept;
     const matchesStatus = groupFilterStatus === 'all' || g.status === groupFilterStatus;
     const matchesGender = groupFilterGender === 'all' || (g.gender ?? '') === groupFilterGender;
-    return matchesSearch && matchesDept && matchesStatus && matchesGender;
+    const matchesSemester = groupFilterSemester === 'all' || getGroupSemester(g.groupCode) === groupFilterSemester;
+    const matchesCourse = groupFilterCourse === 'all' || getGroupCourse(g.groupCode) === groupFilterCourse;
+    return matchesSearch && matchesDept && matchesStatus && matchesGender && matchesSemester && matchesCourse;
   });
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -352,6 +428,23 @@ export function AdminUserManagement() {
                 <SelectItem value="female">Female</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={filterSemester} onValueChange={setFilterSemester}>
+              <SelectTrigger className="w-[150px]"><SelectValue placeholder="Semester" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Semesters</SelectItem>
+                <SelectItem value="01">First Semester</SelectItem>
+                <SelectItem value="02">Second Semester</SelectItem>
+                <SelectItem value="03">Summer</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={filterCourse} onValueChange={setFilterCourse}>
+              <SelectTrigger className="w-[130px]"><SelectValue placeholder="Course" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Courses</SelectItem>
+                <SelectItem value="498">GP 498</SelectItem>
+                <SelectItem value="499">GP 499</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="!bg-white rounded-xl border border-[var(--color-border)] shadow-sm">
@@ -392,7 +485,7 @@ export function AdminUserManagement() {
                         {u.status}
                       </span>
                     </div>
-                    <div className="col-span-1 flex justify-end">
+                    <div className="col-span-1 flex">
                       {u.id !== user?.id && (
                         <button
                           title="Delete user"
@@ -447,16 +540,34 @@ export function AdminUserManagement() {
                 <SelectItem value="female">Female</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={groupFilterSemester} onValueChange={setGroupFilterSemester}>
+              <SelectTrigger className="w-[160px]"><SelectValue placeholder="Semester" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Semesters</SelectItem>
+                <SelectItem value="01">First Semester</SelectItem>
+                <SelectItem value="02">Second Semester</SelectItem>
+                <SelectItem value="03">Summer</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={groupFilterCourse} onValueChange={setGroupFilterCourse}>
+              <SelectTrigger className="w-[130px]"><SelectValue placeholder="Course" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Courses</SelectItem>
+                <SelectItem value="498">GP 498</SelectItem>
+                <SelectItem value="499">GP 499</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="!bg-white rounded-xl border border-[var(--color-border)] shadow-sm">
             {/* Header */}
             <div className="grid grid-cols-12 gap-3 p-4 border-b border-[var(--color-border)] text-sm font-medium text-[var(--color-text-600)]">
               <div className="col-span-1">#</div>
+              <div className="col-span-1">Group ID</div>
               <div className="col-span-1">Dept</div>
-              <div className="col-span-1">Gender</div>
-              <div className="col-span-3">Project Name</div>
+              <div className="col-span-1">Project Name</div>
               <div className="col-span-1">Members</div>
+              <div className="col-span-2">Students</div>
               <div className="col-span-2">Supervisor</div>
               <div className="col-span-1">Status</div>
               <div className="col-span-2">Actions</div>
@@ -470,9 +581,11 @@ export function AdminUserManagement() {
                     <div className="col-span-1 font-semibold text-[var(--color-text-900)]">
                       {g.groupNumber ?? '—'}
                     </div>
+                    <div className="col-span-1 text-xs text-[var(--color-text-600)] font-mono truncate" title={g.groupCode}>
+                      {g.groupCode || '—'}
+                    </div>
                     <div className="col-span-1 text-sm text-[var(--color-text-600)]">{g.department || '—'}</div>
-                    <div className="col-span-1 text-sm text-[var(--color-text-600)] capitalize">{g.gender || '—'}</div>
-                    <div className="col-span-3">
+                    <div className="col-span-1">
                       <p className="text-sm font-medium text-[var(--color-text-900)] truncate">{g.projectName || '—'}</p>
                     </div>
                     <div className="col-span-1 text-sm text-center">
@@ -483,17 +596,34 @@ export function AdminUserManagement() {
                       </span>
                     </div>
                     <div className="col-span-2 text-sm">
+                      {g.members.length > 0 ? (
+                        <div className="space-y-0.5">
+                          {g.members.map((m) => (
+                            <p key={m.id} className="text-xs text-[var(--color-text-900)] truncate">{m.name || '—'}</p>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-[var(--color-text-400)] text-xs">No members</span>
+                      )}
+                    </div>
+                    <div className="col-span-2 text-sm">
                       {g.supervisorName ? (
-                        <span className="text-[var(--color-text-900)]">{g.supervisorName}</span>
-                      ) : g.status === 'approved' ? (
+                        <div className="flex items-center gap-1">
+                          <span className="text-[var(--color-text-900)] truncate">{g.supervisorName}</span>
+                          <button
+                            className="text-xs text-[var(--color-text-600)] hover:text-[var(--color-primary-600)] hover:underline flex-shrink-0"
+                            onClick={() => { setAssigningGroup(g); setSelectedSupervisorId(''); }}
+                          >
+                            Change
+                          </button>
+                        </div>
+                      ) : (
                         <button
                           className="text-[var(--color-primary-600)] hover:underline text-xs"
                           onClick={() => { setAssigningGroup(g); setSelectedSupervisorId(''); }}
                         >
-                          + Assign Supervisor
+                          + Assign
                         </button>
-                      ) : (
-                        <span className="text-[var(--color-text-600)]">—</span>
                       )}
                     </div>
                     <div className="col-span-1">
@@ -501,7 +631,7 @@ export function AdminUserManagement() {
                         {g.status}
                       </span>
                     </div>
-                    <div className="col-span-2 flex gap-1.5">
+                    <div className="col-span-2 flex items-center gap-1 flex-wrap">
                       {g.status === 'pending' && (
                         <>
                           <Button size="sm" variant="primary" onClick={() => handleGroupStatus(g.id, 'approved')}>
@@ -512,14 +642,25 @@ export function AdminUserManagement() {
                           </Button>
                         </>
                       )}
-                      {g.status === 'approved' && g.supervisorName && (
-                        <button
-                          className="text-xs text-[var(--color-text-600)] hover:text-[var(--color-primary-600)] hover:underline"
-                          onClick={() => { setAssigningGroup(g); setSelectedSupervisorId(''); }}
-                        >
-                          Change
-                        </button>
-                      )}
+                      <button
+                        title="Edit group"
+                        className="p-1.5 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
+                        onClick={() => {
+                          setEditingGroup(g);
+                          setEditProjectName(g.projectName || '');
+                          setRemovingMemberIds([]);
+                          setAddingMemberIds([]);
+                        }}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        title="Delete group"
+                        className="p-1.5 rounded hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors"
+                        onClick={() => setDeletingGroup(g)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                 ))
@@ -620,6 +761,170 @@ export function AdminUserManagement() {
             <Button variant="outline" onClick={() => setAssigningGroup(null)}>Cancel</Button>
             <Button variant="primary" disabled={!selectedSupervisorId} onClick={handleAssignSupervisor}>
               Assign
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Delete Group Confirmation Dialog ── */}
+      <Dialog open={!!deletingGroup} onOpenChange={(open) => { if (!open) setDeletingGroup(null); }}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Delete Group</DialogTitle>
+            <DialogDescription>This will permanently delete the group and remove all its members. This cannot be undone.</DialogDescription>
+          </DialogHeader>
+          {deletingGroup && (
+            <div className="py-4">
+              <p className="text-[var(--color-text-900)]">
+                Delete <strong>{deletingGroup.groupCode}</strong>?
+              </p>
+              <p className="text-sm text-[var(--color-text-600)] mt-1">
+                {deletingGroup.projectName || 'No project name'} · {deletingGroup.membersCount} member{deletingGroup.membersCount !== 1 ? 's' : ''}
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeletingGroup(null)}>Cancel</Button>
+            <Button variant="destructive" disabled={isDeletingGroup} onClick={handleDeleteGroup}>
+              {isDeletingGroup ? 'Deleting…' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit Group Dialog ── */}
+      <Dialog open={!!editingGroup} onOpenChange={(open) => { if (!open) { setEditingGroup(null); setAddingMemberIds([]); setRemovingMemberIds([]); setRemoveSupervisor(false); } }}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle>Edit Group</DialogTitle>
+            <DialogDescription>{editingGroup?.groupCode}</DialogDescription>
+          </DialogHeader>
+          {editingGroup && (
+            <div className="py-4 space-y-4">
+              <div>
+                <Label>Project Name</Label>
+                <Input
+                  className="mt-1"
+                  value={editProjectName}
+                  onChange={(e) => setEditProjectName(e.target.value)}
+                />
+              </div>
+
+              {/* Supervisor */}
+              {(editingGroup.supervisorName || editingGroup.supervisorId) && (
+                <div>
+                  <Label>Supervisor</Label>
+                  <div className="mt-2 flex items-center justify-between p-2 bg-[var(--color-surface-alt)] rounded-lg">
+                    <div>
+                      <p className={`text-sm font-medium ${removeSupervisor ? 'line-through text-[var(--color-text-400)]' : 'text-[var(--color-text-900)]'}`}>
+                        {editingGroup.supervisorName || '—'}
+                      </p>
+                    </div>
+                    <button
+                      className={`text-xs px-2 py-1 rounded transition-colors ${
+                        removeSupervisor
+                          ? 'bg-red-100 text-red-700'
+                          : 'hover:bg-red-50 text-gray-400 hover:text-red-600'
+                      }`}
+                      onClick={() => setRemoveSupervisor((v) => !v)}
+                    >
+                      {removeSupervisor ? 'Undo' : 'Remove'}
+                    </button>
+                  </div>
+                  {removeSupervisor && (
+                    <p className="text-xs text-red-600 mt-1">Supervisor will be unassigned</p>
+                  )}
+                </div>
+              )}
+
+              {editingGroup.members.length > 0 && (
+                <div>
+                  <Label>Members</Label>
+                  <div className="mt-2 space-y-2">
+                    {editingGroup.members.map((m) => (
+                      <div key={m.id} className="flex items-center justify-between p-2 bg-[var(--color-surface-alt)] rounded-lg">
+                        <div>
+                          <p className="text-sm font-medium text-[var(--color-text-900)]">{m.name}</p>
+                          {m.studentId && <p className="text-xs text-[var(--color-text-600)]">{m.studentId}</p>}
+                        </div>
+                        <button
+                          title="Remove member"
+                          className={`p-1 rounded transition-colors text-xs px-2 py-1 ${
+                            removingMemberIds.includes(m.id)
+                              ? 'bg-red-100 text-red-700 line-through'
+                              : 'hover:bg-red-50 text-gray-400 hover:text-red-600'
+                          }`}
+                          onClick={() =>
+                            setRemovingMemberIds((prev) =>
+                              prev.includes(m.id) ? prev.filter((id) => id !== m.id) : [...prev, m.id]
+                            )
+                          }
+                        >
+                          {removingMemberIds.includes(m.id) ? 'Undo' : 'Remove'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  {removingMemberIds.length > 0 && (
+                    <p className="text-xs text-red-600 mt-1">{removingMemberIds.length} member{removingMemberIds.length > 1 ? 's' : ''} will be removed</p>
+                  )}
+                </div>
+              )}
+
+              {/* Add student section */}
+              {(() => {
+                const currentIds = new Set([
+                  ...(editingGroup?.members.map((m) => m.id) ?? []),
+                  ...addingMemberIds,
+                ]);
+                const availableStudents = users.filter(
+                  (u) => u.role === 'student' && !currentIds.has(u.id)
+                );
+                return availableStudents.length > 0 ? (
+                  <div>
+                    <Label>Add Student</Label>
+                    <Select
+                      value=""
+                      onValueChange={(id) => setAddingMemberIds((prev) => [...prev, id])}
+                    >
+                      <SelectTrigger className="mt-1">
+                        <SelectValue placeholder="Select a student to add…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableStudents.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.name} {s.studentId ? `(${s.studentId})` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {addingMemberIds.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        {addingMemberIds.map((id) => {
+                          const s = users.find((u) => u.id === id);
+                          return s ? (
+                            <div key={id} className="flex items-center justify-between p-2 bg-green-50 border border-green-200 rounded-lg">
+                              <p className="text-sm text-green-800">{s.name}</p>
+                              <button
+                                className="text-xs text-gray-400 hover:text-red-600"
+                                onClick={() => setAddingMemberIds((prev) => prev.filter((i) => i !== id))}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ) : null;
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ) : null;
+              })()}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingGroup(null)}>Cancel</Button>
+            <Button variant="primary" disabled={isSavingGroup} onClick={handleSaveGroup}>
+              {isSavingGroup ? 'Saving…' : 'Save Changes'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -80,36 +80,34 @@ export async function addRegistration(
   reg: Omit<PendingRegistration, 'id' | 'status' | 'submittedAt'>
 ): Promise<void> {
   try {
-    // Note: Password will be stored as-is and hashed on the backend when approved
-    // This is temporary - ideally the registration should go through a backend endpoint
-    const { error } = await supabase.from('pending_registrations').insert({
-      account_type: reg.accountType,
-      name: reg.name,
-      email: reg.email,
-      password_hash: reg.password, // TODO: Hash this on backend
-      department: reg.department,
-      gender: reg.gender || null,
-      student_id: reg.studentId,
-      course: reg.course,
-      term: reg.term,
-      group_id: reg.groupId,
-      project_name: reg.projectName,
-      project_idea: reg.projectIdea,
-      teammate_submitted_idea: reg.teammateSubmittedIdea,
-      employee_number: reg.employeeNumber,
-      status: 'pending',
+    const response = await fetch('/api/auth/submit-registration', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        accountType: reg.accountType,
+        name: reg.name,
+        email: reg.email,
+        passwordHash: reg.password,
+        department: reg.department,
+        gender: reg.gender || null,
+        studentId: reg.studentId,
+        course: reg.course,
+        term: reg.term,
+        groupId: reg.groupId,
+        projectName: reg.projectName,
+        projectIdea: reg.projectIdea,
+        teammateSubmittedIdea: reg.teammateSubmittedIdea,
+        employeeNumber: reg.employeeNumber,
+      }),
     });
 
-    if (error) throw error;
+    const json = await response.json();
+    if (!response.ok) throw new Error(json.error || 'Failed to submit registration');
 
     notify();
   } catch (error: any) {
     console.error('Error adding registration:', error);
-    const msg: string = error?.message || error?.details || '';
-    if (msg.includes('pending_registrations_email_key') || msg.includes('duplicate key')) {
-      throw new Error('A registration request with this email already exists. Please contact the admin or use a different email.');
-    }
-    throw new Error(msg || 'Failed to submit registration. Please try again.');
+    throw new Error(error?.message || 'Failed to submit registration. Please try again.');
   }
 }
 

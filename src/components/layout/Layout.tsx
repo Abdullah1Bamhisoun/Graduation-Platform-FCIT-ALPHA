@@ -1,6 +1,7 @@
 import { ReactNode } from 'react';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
+import { StudentGroupBanner } from './StudentGroupBanner';
 import { User } from '../../types';
 
 interface LayoutProps {
@@ -16,11 +17,14 @@ export function Layout({ user, pageTitle, children, unreadCount }: LayoutProps) 
       <Sidebar role={user.role} />
       <Topbar user={user} pageTitle={pageTitle} unreadCount={unreadCount} />
 
-      <main className="ml-[280px] mt-16 p-8">
-        <div className="max-w-[1200px] mx-auto">
-          {children}
-        </div>
-      </main>
+      <div className="mt-16">
+        {user.role === 'student' && <StudentGroupBanner user={user} />}
+        <main className="ml-[280px] p-8">
+          <div className="max-w-[1200px] mx-auto">
+            {children}
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

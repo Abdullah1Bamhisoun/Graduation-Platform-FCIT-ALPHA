@@ -7,6 +7,7 @@ import { Textarea } from '../../components/ui/textarea';
 import { useAuth } from '../../lib/AuthContext';
 import { getMilestoneById } from '../../services/milestones';
 import { getSubmissionByMilestoneAndStudent } from '../../services/submissions';
+import { getGroupForStudent } from '../../services/groups';
 import { Upload, FileText, Clock, MessageSquare, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { useEffect } from 'react';
@@ -18,6 +19,7 @@ export function StudentSubmissionDetail() {
   const { user } = useAuth();
   const [milestone, setMilestone] = useState<Milestone | null>(null);
   const [submission, setSubmission] = useState<Submission | undefined>(undefined);
+  const [supervisorName, setSupervisorName] = useState<string>('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -25,9 +27,11 @@ export function StudentSubmissionDetail() {
     Promise.all([
       getMilestoneById(id),
       getSubmissionByMilestoneAndStudent(id, user.id),
-    ]).then(([m, s]) => {
+      getGroupForStudent(user.id),
+    ]).then(([m, s, g]) => {
       setMilestone(m);
       setSubmission(s ?? undefined);
+      setSupervisorName(g?.supervisorName ?? '');
     }).finally(() => setLoading(false));
   }, [user, id]);
   const [uploading, setUploading] = useState(false);
@@ -273,10 +277,10 @@ export function StudentSubmissionDetail() {
                 <div className="border border-[var(--color-border)] rounded-lg p-3 bg-[var(--color-surface-alt)]">
                   <div className="flex items-start gap-2 mb-2">
                     <div className="w-6 h-6 rounded-full bg-[var(--color-primary-600)] text-white flex items-center justify-center flex-shrink-0">
-                      H
+                      {supervisorName ? supervisorName[0].toUpperCase() : 'S'}
                     </div>
                     <div className="flex-1">
-                      <p className="text-[var(--color-text-900)]">Dr Hasan Labani</p>
+                      <p className="text-[var(--color-text-900)]">{supervisorName || 'Supervisor'}</p>
                       <p className="text-[var(--color-text-600)]">Supervisor</p>
                     </div>
                   </div>

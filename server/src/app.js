@@ -14,6 +14,8 @@ const milestonesRoutes = require('./routes/milestones.routes');
 const evaluationsRoutes = require('./routes/evaluations.routes');
 const announcementsRoutes = require('./routes/announcements.routes');
 const reportsRoutes = require('./routes/reports.routes');
+const importantFilesRoutes = require('./routes/importantFiles.routes');
+const calendarEventsRoutes = require('./routes/calendarEvents.routes');
 
 const app = express();
 
@@ -33,6 +35,8 @@ app.use('/api/milestones', milestonesRoutes);
 app.use('/api/evaluations', evaluationsRoutes);
 app.use('/api/announcements', announcementsRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/important-files', importantFilesRoutes);
+app.use('/api/calendar-events', calendarEventsRoutes);
 
 // Error handling
 app.use(errorHandler);

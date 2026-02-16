@@ -2,6 +2,65 @@ const { supabaseAdmin, supabase } = require('../config/supabase');
 const bcrypt = require('bcryptjs');
 
 /**
+ * POST /api/auth/submit-registration
+ * Public — insert a new pending registration, clearing any stale approved/rejected record first
+ */
+async function submitRegistration(req, res) {
+  try {
+    const {
+      accountType, name, email, passwordHash, department, gender,
+      studentId, course, term, groupId, projectName, projectIdea,
+      teammateSubmittedIdea, employeeNumber,
+    } = req.body;
+
+    if (!email || !name || !accountType) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Check if a pending registration already exists — block re-submission while waiting
+    const { data: existing } = await supabaseAdmin
+      .from('pending_registrations')
+      .select('id, status')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (existing?.status === 'pending') {
+      return res.status(409).json({ error: 'A registration request with this email is already pending. Please wait for admin approval.' });
+    }
+
+    // Remove any stale approved/rejected record so the email can be re-used
+    if (existing) {
+      await supabaseAdmin.from('pending_registrations').delete().eq('email', email);
+    }
+
+    const { error } = await supabaseAdmin.from('pending_registrations').insert({
+      account_type: accountType,
+      name,
+      email,
+      password_hash: passwordHash,
+      department: department || null,
+      gender: gender || null,
+      student_id: studentId || null,
+      course: course || null,
+      term: term || null,
+      group_id: groupId || null,
+      project_name: projectName || null,
+      project_idea: projectIdea || null,
+      teammate_submitted_idea: teammateSubmittedIdea ?? false,
+      employee_number: employeeNumber || null,
+      status: 'pending',
+    });
+
+    if (error) throw error;
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error submitting registration:', error);
+    res.status(500).json({ error: error.message || 'Failed to submit registration' });
+  }
+}
+
+/**
  * Approve a pending registration and create a Supabase Auth user
  */
 async function approveRegistration(req, res) {
@@ -75,6 +134,7 @@ async function approveRegistration(req, res) {
         student_id: registration.student_id || null,
         employee_number: registration.employee_number || null,
         department: registration.department || null,
+        gender: registration.gender || null,
       });
 
     if (profileError) {
@@ -265,6 +325,7 @@ async function rejectRegistration(req, res) {
 }
 
 module.exports = {
+  submitRegistration,
   approveRegistration,
   rejectRegistration,
 };
