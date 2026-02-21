@@ -19,8 +19,8 @@ export function Layout({ user, pageTitle, children, unreadCount }: LayoutProps) 
 
       <div className="mt-16">
         {user.activeRole === 'student' && <StudentGroupBanner user={user} />}
-        <main className="ml-[280px] p-8">
-          <div className="max-w-[1200px] mx-auto">
+        <main className="ml-[280px] py-8 px-5 w-[calc(100%-280px)]">
+          <div className="w-full max-w-full">
             {children}
           </div>
         </main>
