@@ -25,6 +25,8 @@ import {
   Info,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useLockStatus } from '../../hooks/useLockStatus';
+import { LockedBanner } from '../../components/ui/LockedBanner';
 
 interface AvailabilityBlock {
   id: string;
@@ -48,20 +50,11 @@ const TIME_SLOTS = [
   '13:00', '14:00', '15:00', '16:00', '17:00'
 ];
 
-const mockAssignedSessions: AssignedSession[] = [
-  {
-    id: '1',
-    day: 'Mon',
-    date: 'Dec 2, 2024',
-    time: '09:00 - 09:30',
-    room: 'Room A-101',
-    projectName: 'Graduation Project Platform',
-  },
-];
 
 export function SupervisorMyAvailability() {
   const { user } = useAuth();
-  
+  const { isLocked } = useLockStatus('presentations');
+
   const [term, setTerm] = useState('2026-01');
   const [course, setCourse] = useState<'498' | '499' | 'both'>('both');
   const [sessionDuration] = useState(30);
@@ -69,28 +62,9 @@ export function SupervisorMyAvailability() {
   const [maxSessionsPerDay, setMaxSessionsPerDay] = useState(4);
   const [allowBackToBack, setAllowBackToBack] = useState(false);
   
-  const [availabilityBlocks, setAvailabilityBlocks] = useState<AvailabilityBlock[]>([
-    {
-      id: 'block1',
-      day: 'Mon',
-      startTime: '09:00',
-      endTime: '11:00',
-    },
-    {
-      id: 'block2',
-      day: 'Mon',
-      startTime: '14:00',
-      endTime: '16:00',
-    },
-    {
-      id: 'block3',
-      day: 'Tue',
-      startTime: '10:00',
-      endTime: '12:00',
-    },
-  ]);
-  
-  const [assignedSessions] = useState<AssignedSession[]>(mockAssignedSessions);
+  const [availabilityBlocks, setAvailabilityBlocks] = useState<AvailabilityBlock[]>([]);
+
+  const [assignedSessions] = useState<AssignedSession[]>([]);
   const [editingBlock, setEditingBlock] = useState<AvailabilityBlock | null>(null);
   const [showEditPopover, setShowEditPopover] = useState(false);
 
@@ -201,6 +175,7 @@ export function SupervisorMyAvailability() {
 
   return (
     <Layout user={user} pageTitle="My Availability – Presentation Week">
+      {isLocked && <LockedBanner />}
       {/* Header Controls */}
       <div className="mb-6 flex flex-wrap items-center gap-4">
         <Select value={term} onValueChange={setTerm}>
@@ -422,6 +397,7 @@ export function SupervisorMyAvailability() {
               <Button
                 onClick={handleSaveAvailability}
                 className="w-full mt-6 bg-green-600 hover:bg-green-700 text-white"
+                disabled={isLocked}
               >
                 <Save className="w-4 h-4 mr-2" />
                 Save Availability
@@ -518,6 +494,7 @@ export function SupervisorMyAvailability() {
                 variant="outline"
                 onClick={() => handleDeleteBlock(editingBlock.id)}
                 className="mr-auto text-red-600 hover:bg-red-50"
+                disabled={isLocked}
               >
                 <Trash2 className="w-4 h-4 mr-2" />
                 Delete
@@ -526,7 +503,7 @@ export function SupervisorMyAvailability() {
             <Button variant="outline" onClick={() => setShowEditPopover(false)}>
               Cancel
             </Button>
-            <Button onClick={handleSaveBlock} className="bg-[var(--color-primary-600)] hover:bg-[var(--color-primary-700)] text-white">
+            <Button onClick={handleSaveBlock} className="bg-[var(--color-primary-600)] hover:bg-[var(--color-primary-700)] text-white" disabled={isLocked}>
               Save
             </Button>
           </DialogFooter>

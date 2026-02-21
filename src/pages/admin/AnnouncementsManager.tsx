@@ -12,6 +12,8 @@ import { Textarea } from '../../components/ui/textarea';
 import { Checkbox } from '../../components/ui/checkbox';
 import { toast } from 'sonner';
 import { UserRole, Announcement } from '../../types';
+import { useLockStatus } from '../../hooks/useLockStatus';
+import { LockedBanner } from '../../components/ui/LockedBanner';
 
 interface AnnouncementForm {
   title: string;
@@ -21,6 +23,7 @@ interface AnnouncementForm {
 
 export function AnnouncementsManager() {
   const { user } = useAuth();
+  const { isLocked } = useLockStatus('announcements');
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -127,6 +130,7 @@ export function AnnouncementsManager() {
 
   return (
     <Layout user={user} pageTitle="Announcements Manager">
+      {isLocked && <LockedBanner />}
       <div className="mb-6 flex items-center justify-between">
         <p className="text-[var(--color-text-600)]">
           Create and manage announcements for students and supervisors
@@ -136,6 +140,7 @@ export function AnnouncementsManager() {
             <Button
               variant="primary"
               onClick={() => handleOpenDialog()}
+              disabled={isLocked}
             >
               <Plus className="w-4 h-4 mr-2" />
               Create Announcement
@@ -274,6 +279,7 @@ export function AnnouncementsManager() {
                     variant="outline"
                     size="sm"
                     onClick={() => handleOpenDialog(announcement.id)}
+                    disabled={isLocked}
                   >
                     <Edit className="w-4 h-4" />
                   </Button>
@@ -281,6 +287,7 @@ export function AnnouncementsManager() {
                     variant="destructive"
                     size="sm"
                     onClick={() => handleDeleteAnnouncement(announcement.id)}
+                    disabled={isLocked}
                   >
                     <Trash2 className="w-4 h-4" />
                   </Button>

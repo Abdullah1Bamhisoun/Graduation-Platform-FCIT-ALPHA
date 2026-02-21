@@ -10,6 +10,8 @@ import { StudentPresentationSelection as StudentPresentationSelectionType } from
 import { Save, X, Calendar, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { useEffect } from 'react';
+import { useLockStatus } from '../../hooks/useLockStatus';
+import { LockedBanner } from '../../components/ui/LockedBanner';
 
 const AVAILABLE_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Sunday'];
 const TIME_SLOTS = [
@@ -27,6 +29,7 @@ const TIME_SLOTS = [
 
 export function StudentPresentationSelection() {
   const { user } = useAuth();
+  const { isLocked } = useLockStatus('presentations');
   const [selections, setSelections] = useState<StudentPresentationSelectionType[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -72,6 +75,7 @@ export function StudentPresentationSelection() {
 
   return (
     <Layout user={user} pageTitle="Presentation Time Selection">
+      {isLocked && <LockedBanner />}
       <div className="mb-6">
         <p className="text-[var(--color-text-600)] mb-4">
           Select your preferred presentation time slot for the final evaluation
@@ -115,9 +119,10 @@ export function StudentPresentationSelection() {
           <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-[var(--color-text-900)]">Selected Time Slot</h3>
-              <Button 
+              <Button
                 onClick={() => setShowSelectionDialog(true)}
                 className="bg-[#10B981] text-[rgb(0,0,0)] hover:bg-[#0ea572]"
+                disabled={isLocked}
               >
                 {myGroup.selectedDay ? 'Change Selection' : 'Select Time Slot'}
               </Button>

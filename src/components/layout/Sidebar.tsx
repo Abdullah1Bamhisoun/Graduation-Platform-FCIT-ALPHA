@@ -1,5 +1,8 @@
 import { useLocation, Link } from 'react-router-dom';
-import { Home, FileText, Calendar, Bell, Settings, Users, BarChart3, CheckSquare, FolderOpen } from 'lucide-react';
+import {
+  Home, FileText, Calendar, Bell, Settings,
+  Users, BarChart3, CheckSquare, FolderOpen, Lock,
+} from 'lucide-react';
 import { UserRole } from '../../types';
 import gppLogo from '/gpp-logo.png';
 
@@ -11,49 +14,65 @@ interface NavItem {
 
 const navItems: Record<UserRole, NavItem[]> = {
   student: [
-    { icon: Home, label: 'Dashboard', href: '/student' },
-    { icon: CheckSquare, label: 'Chapter Submissions', href: '/student/milestones' },
-    { icon: FileText, label: 'Weekly Reports', href: '/student/weekly-reports' },
-    { icon: BarChart3, label: 'My Grades', href: '/student/grades' },
-    { icon: Users, label: 'Peer Feedback', href: '/student/peer-feedback' },
-    { icon: Calendar, label: 'Presentation Selection', href: '/student/presentation-selection' },
-    { icon: Bell, label: 'Announcements', href: '/student/announcements' },
-    { icon: Calendar, label: 'Calendar', href: '/student/calendar' },
-    { icon: FolderOpen, label: 'Important Files', href: '/student/important-files' },
-    { icon: Settings, label: 'Settings', href: '/student/settings' },
+    { icon: Home,          label: 'Dashboard',             href: '/student' },
+    { icon: CheckSquare,   label: 'Chapter Submissions',   href: '/student/milestones' },
+    { icon: FileText,      label: 'Weekly Reports',        href: '/student/weekly-reports' },
+    { icon: BarChart3,     label: 'My Grades',             href: '/student/grades' },
+    { icon: Users,         label: 'Peer Feedback',         href: '/student/peer-feedback' },
+    { icon: Calendar,      label: 'Presentation Selection',href: '/student/presentation-selection' },
+    { icon: Bell,          label: 'Announcements',         href: '/student/announcements' },
+    { icon: Calendar,      label: 'Calendar',              href: '/student/calendar' },
+    { icon: FolderOpen,    label: 'Important Files',       href: '/student/important-files' },
+    { icon: Settings,      label: 'Settings',              href: '/student/settings' },
   ],
   supervisor: [
-    { icon: Home, label: 'Dashboard', href: '/supervisor' },
-    { icon: Users, label: 'Chapter Grading', href: '/supervisor/groups' },
-    { icon: FileText, label: 'Weekly Reports', href: '/supervisor/weekly-reports' },
-    { icon: BarChart3, label: 'Committee Evaluation', href: '/supervisor/committee' },
-    { icon: Calendar, label: 'Calendar', href: '/supervisor/schedule' },
-    { icon: Bell, label: 'Announcements', href: '/supervisor/announcements' },
-    { icon: FolderOpen, label: 'Important Files', href: '/supervisor/important-files' },
-    { icon: Settings, label: 'Settings', href: '/supervisor/settings' },
+    { icon: Home,          label: 'Dashboard',             href: '/supervisor' },
+    { icon: Users,         label: 'Chapter Grading',       href: '/supervisor/groups' },
+    { icon: FileText,      label: 'Weekly Reports',        href: '/supervisor/weekly-reports' },
+    { icon: BarChart3,     label: 'Committee Evaluation',  href: '/supervisor/committee' },
+    { icon: Calendar,      label: 'Calendar',              href: '/supervisor/schedule' },
+    { icon: Bell,          label: 'Announcements',         href: '/supervisor/announcements' },
+    { icon: FolderOpen,    label: 'Important Files',       href: '/supervisor/important-files' },
+    { icon: Settings,      label: 'Settings',              href: '/supervisor/settings' },
+  ],
+  coordinator: [
+    { icon: Home,          label: 'Dashboard',               href: '/coordinator' },
+    { icon: CheckSquare,   label: 'Chapter Configuration',   href: '/admin/milestones' },
+    { icon: FileText,      label: 'Weekly Reports',          href: '/coordinator/weekly-reports' },
+    { icon: BarChart3,     label: 'Deliverables Grading',    href: '/coordinator/grades' },
+    { icon: Calendar,      label: 'Presentation & Committee',href: '/admin/presentation-committee' },
+    { icon: Calendar,      label: 'Calendar',                href: '/coordinator/calendar' },
+    { icon: Bell,          label: 'Announcements Manager',   href: '/coordinator/announcements' },
+    { icon: BarChart3,     label: 'Exports & Audit',         href: '/admin/exports' },
+    { icon: Users,         label: 'User Management',         href: '/admin/users' },
+    { icon: FolderOpen,    label: 'Important Files Manager', href: '/admin/important-files' },
+    { icon: Lock,          label: 'Lock Manager',            href: '/admin/locks' },
+    { icon: Settings,      label: 'Settings',                href: '/coordinator/settings' },
   ],
   admin: [
-    { icon: Home, label: 'Dashboard', href: '/admin' },
-    { icon: CheckSquare, label: 'Chapter Configuration', href: '/admin/milestones' },
-    { icon: FileText, label: 'Weekly Reports', href: '/admin/weekly-reports' },
-    { icon: BarChart3, label: 'Deliverables Grading', href: '/admin/grades-deliverables' },
-    { icon: Calendar, label: 'Presentation & Committee', href: '/admin/presentation-committee' },
-    { icon: Calendar, label: 'Calendar', href: '/admin/calendar' },
-    { icon: Bell, label: 'Announcements Manager', href: '/admin/announcements' },
-    { icon: BarChart3, label: 'Exports & Audit', href: '/admin/exports' },
-    { icon: Users, label: 'User Management', href: '/admin/users' },
-    { icon: FolderOpen, label: 'Important Files Manager', href: '/admin/important-files' },
-    { icon: Settings, label: 'Settings', href: '/admin/settings' },
+    { icon: Home,          label: 'Dashboard',             href: '/admin' },
+    { icon: CheckSquare,   label: 'Chapter Configuration', href: '/admin/milestones' },
+    { icon: FileText,      label: 'Weekly Reports',        href: '/admin/weekly-reports' },
+    { icon: BarChart3,     label: 'Deliverables Grading',  href: '/admin/grades-deliverables' },
+    { icon: Calendar,      label: 'Presentation & Committee', href: '/admin/presentation-committee' },
+    { icon: Calendar,      label: 'Calendar',              href: '/admin/calendar' },
+    { icon: Bell,          label: 'Announcements Manager', href: '/admin/announcements' },
+    { icon: BarChart3,     label: 'Exports & Audit',       href: '/admin/exports' },
+    { icon: Users,         label: 'User Management',       href: '/admin/users' },
+    { icon: FolderOpen,    label: 'Important Files Manager', href: '/admin/important-files' },
+    { icon: Lock,          label: 'Lock Manager',          href: '/admin/locks' },
+    { icon: Settings,      label: 'Settings',              href: '/admin/settings' },
   ],
 };
 
 interface SidebarProps {
+  /** The active role determines which navigation set is shown */
   role: UserRole;
 }
 
 export function Sidebar({ role }: SidebarProps) {
   const location = useLocation();
-  const items = navItems[role];
+  const items = navItems[role] ?? navItems['student'];
 
   return (
     <div className="w-[280px] h-screen bg-[var(--color-surface-white)] border-r border-[var(--color-border)] flex flex-col fixed left-0 top-0">
@@ -67,19 +86,22 @@ export function Sidebar({ role }: SidebarProps) {
         <ul className="space-y-1">
           {items.map((item) => {
             const Icon = item.icon;
-            const isActive = location.pathname === item.href;
+            const isActive =
+              item.href === `/${role}`
+                ? location.pathname === item.href
+                : location.pathname.startsWith(item.href);
 
             return (
               <li key={item.href}>
                 <Link
                   to={item.href}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-sm ${
                     isActive
-                      ? 'bg-[var(--color-primary-100)] text-black'
-                      : 'text-black hover:bg-[var(--color-surface-alt)]'
+                      ? 'bg-[var(--color-primary-100)] text-[var(--color-primary-700)] font-semibold'
+                      : 'text-[var(--color-text-700)] hover:bg-[var(--color-surface-alt)] hover:text-[var(--color-text-900)]'
                   }`}
                 >
-                  <Icon className="w-5 h-5" />
+                  <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-[var(--color-primary-600)]' : 'text-[var(--color-text-600)]'}`} />
                   <span>{item.label}</span>
                 </Link>
               </li>
@@ -90,7 +112,9 @@ export function Sidebar({ role }: SidebarProps) {
 
       {/* Footer */}
       <div className="p-4 border-t border-[var(--color-border)]">
-        <p className="text-[var(--color-text-600)] text-center">Faculty of Computing and Information Technology, King Abdulaziz University</p>
+        <p className="text-[var(--color-text-600)] text-center text-xs">
+          Faculty of Computing and Information Technology, King Abdulaziz University
+        </p>
       </div>
     </div>
   );

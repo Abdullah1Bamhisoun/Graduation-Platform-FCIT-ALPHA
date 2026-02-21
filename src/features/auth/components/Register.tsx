@@ -4,61 +4,32 @@ import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
 import { Textarea } from '../../../components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/select';
-import { GraduationCap, Users, CheckCircle, ArrowLeft, AlertCircle, Eye, EyeOff, Lock } from 'lucide-react';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '../../../components/ui/select';
+import {
+  GraduationCap, Users, CheckCircle, ArrowLeft, AlertCircle, Eye, EyeOff, Lock,
+} from 'lucide-react';
 import { addRegistration } from '../../../lib/pending-registrations';
 import { getPublicGroups, type PublicGroup } from '../../../services/groups';
+import { getActiveCourses } from '../../../services/courses';
+import type { Course } from '../../../types';
 
 type AccountType = 'student' | 'supervisor';
-type Department = 'CS' | 'IT' | 'IS' | '';
 type Term = 'First' | 'Second' | 'Summer' | '';
-type Gender = 'male' | 'female' | '';
-
-const departments = [
-  { value: 'CS', label: 'Computer Science (CS)' },
-  { value: 'IT', label: 'Information Technology (IT)' },
-  { value: 'IS', label: 'Information Systems (IS)' },
-];
-
-const coursesByDepartment: Record<string, Array<{ value: string; label: string }>> = {
-  CS: [
-    { value: 'CPCS-498', label: 'CPCS-498' },
-    { value: 'CPCS-499', label: 'CPCS-499' },
-  ],
-  IT: [
-    { value: 'CPIT-498', label: 'CPIT-498' },
-    { value: 'CPIT-499', label: 'CPIT-499' },
-  ],
-  IS: [
-    { value: 'CPIS-498', label: 'CPIS-498' },
-    { value: 'CPIS-499', label: 'CPIS-499' },
-  ],
-};
 
 const terms = [
-  { value: 'First', label: 'First' },
+  { value: 'First',  label: 'First' },
   { value: 'Second', label: 'Second' },
   { value: 'Summer', label: 'Summer' },
 ];
 
-const genders = [
-  { value: 'male', label: 'Male' },
-  { value: 'female', label: 'Female' },
-];
-
-// ── Password toggle helper ────────────────────────────────────────────────────
+// ── Password Input helper ──────────────────────────────────────────────────────
 function PasswordInput({
-  id,
-  placeholder,
-  value,
-  onChange,
-  hasError,
+  id, placeholder, value, onChange, hasError,
 }: {
-  id: string;
-  placeholder: string;
-  value: string;
-  onChange: (v: string) => void;
-  hasError?: boolean;
+  id: string; placeholder: string; value: string;
+  onChange: (v: string) => void; hasError?: boolean;
 }) {
   const [show, setShow] = useState(false);
   return (
@@ -83,19 +54,17 @@ function PasswordInput({
   );
 }
 
-// ── Email validation helpers ──────────────────────────────────────────────────
-const studentEmailRegex = /^[a-zA-Z0-9._%+-]+@stu\.kau\.edu\.sa$/;
+// ── Email validation ───────────────────────────────────────────────────────────
+const studentEmailRegex    = /^[a-zA-Z0-9._%+-]+@stu\.kau\.edu\.sa$/;
 const supervisorEmailRegex = /^[a-zA-Z0-9._%+-]+@kau\.edu\.sa$/;
 
 function validateEmail(email: string, type: AccountType): string {
   if (!email.trim()) return 'Email is required';
-  if (type === 'student' && !studentEmailRegex.test(email)) {
+  if (type === 'student' && !studentEmailRegex.test(email))
     return 'Student email must end with @stu.kau.edu.sa';
-  }
   if (type === 'supervisor') {
-    if (!supervisorEmailRegex.test(email) || email.toLowerCase().endsWith('@stu.kau.edu.sa')) {
+    if (!supervisorEmailRegex.test(email) || email.toLowerCase().endsWith('@stu.kau.edu.sa'))
       return 'Supervisor email must end with @kau.edu.sa';
-    }
   }
   return '';
 }
@@ -105,82 +74,72 @@ function validateEmail(email: string, type: AccountType): string {
 export function Register() {
   const navigate = useNavigate();
   const [accountType, setAccountType] = useState<AccountType>('student');
-  const [submitted, setSubmitted] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [submitted,   setSubmitted]   = useState(false);
+  const [submitting,  setSubmitting]  = useState(false);
   const [submitError, setSubmitError] = useState('');
 
-  // Student fields – Basic Info
-  const [studentFirstName, setStudentFirstName] = useState('');
-  const [studentLastName, setStudentLastName] = useState('');
-  const [studentId, setStudentId] = useState('');
-  const [studentEmail, setStudentEmail] = useState('');
-  const [studentPassword, setStudentPassword] = useState('');
+  // ── Courses (fetched dynamically) ──────────────────────────────────────────
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [coursesLoading, setCoursesLoading] = useState(true);
+
+  useEffect(() => {
+    getActiveCourses()
+      .then(setCourses)
+      .finally(() => setCoursesLoading(false));
+  }, []);
+
+  // ── Student fields ─────────────────────────────────────────────────────────
+  const [studentFirstName,       setStudentFirstName]       = useState('');
+  const [studentLastName,        setStudentLastName]        = useState('');
+  const [studentId,              setStudentId]              = useState('');
+  const [studentEmail,           setStudentEmail]           = useState('');
+  const [studentPassword,        setStudentPassword]        = useState('');
   const [studentConfirmPassword, setStudentConfirmPassword] = useState('');
-  const [studentGender, setStudentGender] = useState<Gender>('');
 
-  // Student fields – Academic Info
-  const [department, setDepartment] = useState<Department>('');
-  const [course, setCourse] = useState('');
-  const [term, setTerm] = useState<Term>('');
-  const [selectedGroupId, setSelectedGroupId] = useState(''); // UUID
+  // Academic info – course selection only (no gender, no department)
+  const [selectedCourseId,   setSelectedCourseId]   = useState('');
+  const [term,               setTerm]               = useState<Term>('');
 
-  // "Has idea" toggle: true = student creates group, false = student joins existing
+  // Has-idea toggle
   const [hasIdea, setHasIdea] = useState<boolean | null>(null);
 
-  // Student fields – Project Info
+  // Project fields (has-idea path)
   const [projectName, setProjectName] = useState('');
   const [projectIdea, setProjectIdea] = useState('');
 
-  // Supervisor fields
-  const [supervisorFirstName, setSupervisorFirstName] = useState('');
-  const [supervisorLastName, setSupervisorLastName] = useState('');
-  const [supervisorId, setSupervisorId] = useState('');
-  const [supervisorEmail, setSupervisorEmail] = useState('');
-  const [supervisorPassword, setSupervisorPassword] = useState('');
-  const [supervisorConfirmPassword, setSupervisorConfirmPassword] = useState('');
-  const [supervisorDepartment, setSupervisorDepartment] = useState('');
-  const [supervisorGender, setSupervisorGender] = useState<Gender>('');
+  // Join-group fields (no-idea path)
+  const [selectedGroupId, setSelectedGroupId] = useState('');
+  const [publicGroups,    setPublicGroups]    = useState<PublicGroup[]>([]);
+  const [groupsLoading,   setGroupsLoading]   = useState(false);
 
-  // Group list from API (only used when hasIdea === false)
-  const [publicGroups, setPublicGroups] = useState<PublicGroup[]>([]);
-  const [groupsLoading, setGroupsLoading] = useState(false);
-
-  // Derived: selected group object
   const selectedGroup = publicGroups.find((g) => g.id === selectedGroupId) ?? null;
+  const selectedCourse = courses.find((c) => c.id === selectedCourseId) ?? null;
 
-  // Derived: course number from course code e.g. 'CPCS-498' → '498'
-  const courseNumber = course ? course.split('-').pop() ?? '' : '';
+  // ── Supervisor fields ──────────────────────────────────────────────────────
+  const [supervisorFirstName,       setSupervisorFirstName]       = useState('');
+  const [supervisorLastName,        setSupervisorLastName]        = useState('');
+  const [supervisorId,              setSupervisorId]              = useState('');
+  const [supervisorEmail,           setSupervisorEmail]           = useState('');
+  const [supervisorPassword,        setSupervisorPassword]        = useState('');
+  const [supervisorConfirmPassword, setSupervisorConfirmPassword] = useState('');
 
-  // Available courses for selected department
-  const [availableCourses, setAvailableCourses] = useState<Array<{ value: string; label: string }>>([]);
-
-  // Validation errors
+  // ── Validation errors ─────────────────────────────────────────────────────
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Fetch groups when department, course, or gender changes (only for no-idea path)
+  // Fetch available groups when course or term changes (no-idea path only)
   useEffect(() => {
     setSelectedGroupId('');
     setPublicGroups([]);
-    if (hasIdea !== false) return;
-    if (!department || !courseNumber || !studentGender) return;
+    if (hasIdea !== false || !selectedCourseId) return;
+
     setGroupsLoading(true);
-    getPublicGroups(department, courseNumber, studentGender)
+    // Groups are now fetched by course_id only (no gender/dept filter)
+    getPublicGroups(undefined, undefined, undefined, selectedCourseId)
       .then(setPublicGroups)
       .finally(() => setGroupsLoading(false));
-  }, [department, courseNumber, studentGender, hasIdea]);
+  }, [selectedCourseId, hasIdea]);
 
-  // Update available courses when department changes
-  useEffect(() => {
-    if (department && coursesByDepartment[department]) {
-      setAvailableCourses(coursesByDepartment[department]);
-      setCourse('');
-    } else {
-      setAvailableCourses([]);
-      setCourse('');
-    }
-  }, [department]);
-
-  // Reset idea-related state when toggle changes
+  // Reset idea state when toggle changes
   useEffect(() => {
     setSelectedGroupId('');
     setProjectName('');
@@ -188,26 +147,25 @@ export function Register() {
     setPublicGroups([]);
   }, [hasIdea]);
 
-  // ── Validation ──────────────────────────────────────────────────────────────
+  // ── Validation ─────────────────────────────────────────────────────────────
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
 
     if (accountType === 'student') {
       if (!studentFirstName.trim()) newErrors.firstName = 'First name is required';
-      if (!studentLastName.trim()) newErrors.lastName = 'Last name is required';
-      if (!studentId.trim()) newErrors.studentId = 'Student ID is required';
-      if (!studentGender) newErrors.gender = 'Gender is required';
+      if (!studentLastName.trim())  newErrors.lastName  = 'Last name is required';
+      if (!studentId.trim())        newErrors.studentId = 'Student ID is required';
 
       const emailErr = validateEmail(studentEmail, 'student');
       if (emailErr) newErrors.email = emailErr;
 
-      if (!studentPassword) newErrors.password = 'Password is required';
+      if (!studentPassword)             newErrors.password        = 'Password is required';
       else if (studentPassword.length < 8) newErrors.password = 'Password must be at least 8 characters';
-      if (studentPassword !== studentConfirmPassword) newErrors.confirmPassword = 'Passwords do not match';
+      if (studentPassword !== studentConfirmPassword)
+        newErrors.confirmPassword = 'Passwords do not match';
 
-      if (!department) newErrors.department = 'Department is required';
-      if (!course) newErrors.course = 'Course is required';
-      if (!term) newErrors.term = 'Term is required';
+      if (!selectedCourseId) newErrors.course = 'Course is required';
+      if (!term)             newErrors.term   = 'Term is required';
 
       if (hasIdea === null) {
         newErrors.hasIdea = 'Please select whether you have a project idea';
@@ -216,29 +174,28 @@ export function Register() {
         if (!projectIdea.trim()) newErrors.projectIdea = 'Project idea is required';
       } else {
         if (!selectedGroupId) newErrors.groupId = 'Please select a group to join';
-        if (selectedGroup && selectedGroup.membersCount >= 3) {
+        if (selectedGroup && selectedGroup.membersCount >= 3)
           newErrors.groupId = 'This group is full (maximum 3 students)';
-        }
       }
     } else {
-      if (!supervisorFirstName.trim()) newErrors.firstName = 'First name is required';
-      if (!supervisorLastName.trim()) newErrors.lastName = 'Last name is required';
-      if (!supervisorId.trim()) newErrors.supervisorId = 'Supervisor ID is required';
-      if (!supervisorGender) newErrors.gender = 'Gender is required';
-      if (!supervisorDepartment) newErrors.department = 'Department is required';
+      if (!supervisorFirstName.trim()) newErrors.firstName   = 'First name is required';
+      if (!supervisorLastName.trim())  newErrors.lastName    = 'Last name is required';
+      if (!supervisorId.trim())        newErrors.supervisorId = 'Supervisor ID is required';
 
       const emailErr = validateEmail(supervisorEmail, 'supervisor');
       if (emailErr) newErrors.email = emailErr;
 
-      if (!supervisorPassword) newErrors.password = 'Password is required';
+      if (!supervisorPassword)              newErrors.password        = 'Password is required';
       else if (supervisorPassword.length < 8) newErrors.password = 'Password must be at least 8 characters';
-      if (supervisorPassword !== supervisorConfirmPassword) newErrors.confirmPassword = 'Passwords do not match';
+      if (supervisorPassword !== supervisorConfirmPassword)
+        newErrors.confirmPassword = 'Passwords do not match';
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
+  // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError('');
@@ -249,27 +206,27 @@ export function Register() {
       if (accountType === 'student') {
         await addRegistration({
           accountType: 'student',
-          name: `${studentFirstName} ${studentLastName}`,
-          email: studentEmail,
-          password: studentPassword,
-          department,
-          gender: studentGender,
+          name:        `${studentFirstName} ${studentLastName}`,
+          email:       studentEmail,
+          password:    studentPassword,
+          // Department defaults to FCIT internally — not collected from UI
+          department:  'IS',
           studentId,
-          course,
+          courseId:    selectedCourseId,
+          course:      selectedCourse?.code ?? '',
           term,
-          groupId: hasIdea === false ? selectedGroupId : undefined,
-          projectName: hasIdea === true ? projectName : undefined,
-          projectIdea: hasIdea === true ? projectIdea : undefined,
+          groupId:       hasIdea === false ? selectedGroupId : undefined,
+          projectName:   hasIdea === true  ? projectName     : undefined,
+          projectIdea:   hasIdea === true  ? projectIdea     : undefined,
           teammateSubmittedIdea: hasIdea === false,
         });
       } else {
         await addRegistration({
-          accountType: 'supervisor',
-          name: `${supervisorFirstName} ${supervisorLastName}`,
-          email: supervisorEmail,
-          password: supervisorPassword,
-          department: supervisorDepartment,
-          gender: supervisorGender,
+          accountType:    'supervisor',
+          name:           `${supervisorFirstName} ${supervisorLastName}`,
+          email:          supervisorEmail,
+          password:       supervisorPassword,
+          department:     'IS',
           employeeNumber: supervisorId,
         });
       }
@@ -281,7 +238,7 @@ export function Register() {
     }
   };
 
-  // ── Success screen ──────────────────────────────────────────────────────────
+  // ── Success Screen ─────────────────────────────────────────────────────────
   if (submitted) {
     return (
       <div className="min-h-screen flex">
@@ -292,24 +249,22 @@ export function Register() {
             </div>
             <h1 className="text-[var(--color-text-900)] mb-3">Request Submitted!</h1>
             <p className="text-[var(--color-text-600)] mb-8">
-              Your account request has been sent to the admin for approval. You will be notified once your account is activated.
+              Your account request has been sent for approval. You will be notified once your account is activated.
             </p>
-            <Button onClick={() => navigate('/login')} className="w-full">
-              Back to Login
-            </Button>
+            <Button onClick={() => navigate('/login')} className="w-full">Back to Login</Button>
           </div>
         </div>
         <div className="w-1/2 bg-gradient-to-br from-[var(--color-primary-600)] to-[var(--color-primary-700)] p-12 flex items-center justify-center text-white">
           <div className="max-w-md">
             <h2 className="text-white mb-6">What Happens Next?</h2>
             <ul className="space-y-4">
-              {['Admin Review', 'Account Activation', 'Get Started'].map((step, i) => (
+              {['Admin/Coordinator Review', 'Account Activation', 'Get Started'].map((step, i) => (
                 <li key={step} className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0 mt-0.5 text-sm font-semibold">{i + 1}</div>
                   <div>
                     <h3 className="text-white mb-1">{step}</h3>
                     <p className="text-white/80">{[
-                      'The admin will review your registration details',
+                      'Your registration will be reviewed by the course coordinator or admin',
                       'Once approved, your account will be activated',
                       'Sign in and start using the Graduation Project Platform',
                     ][i]}</p>
@@ -323,7 +278,7 @@ export function Register() {
     );
   }
 
-  // ── Registration form ───────────────────────────────────────────────────────
+  // ── Registration Form ──────────────────────────────────────────────────────
   return (
     <div className="min-h-screen flex">
       {/* Left Panel */}
@@ -377,32 +332,19 @@ export function Register() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="s-id">Student ID *</Label>
-                    <Input id="s-id" placeholder="e.g. 2136XXX" value={studentId}
-                      onChange={(e) => setStudentId(e.target.value)}
-                      className={`mt-1 ${errors.studentId ? 'border-red-500' : ''}`} />
-                    {errors.studentId && <p className="text-xs text-red-500 mt-1">{errors.studentId}</p>}
-                  </div>
-                  <div>
-                    <Label htmlFor="s-gender">Gender *</Label>
-                    <Select value={studentGender} onValueChange={(v) => setStudentGender(v as Gender)}>
-                      <SelectTrigger className={`mt-1 ${errors.gender ? 'border-red-500' : ''}`}>
-                        <SelectValue placeholder="Select gender" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {genders.map((g) => (
-                          <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {errors.gender && <p className="text-xs text-red-500 mt-1">{errors.gender}</p>}
-                  </div>
+                <div>
+                  <Label htmlFor="s-id">Student ID *</Label>
+                  <Input id="s-id" placeholder="e.g. 2136XXX" value={studentId}
+                    onChange={(e) => setStudentId(e.target.value)}
+                    className={`mt-1 ${errors.studentId ? 'border-red-500' : ''}`} />
+                  {errors.studentId && <p className="text-xs text-red-500 mt-1">{errors.studentId}</p>}
                 </div>
 
                 <div>
-                  <Label htmlFor="s-email">University Email * <span className="text-xs text-[var(--color-text-600)] font-normal">(must end with @stu.kau.edu.sa)</span></Label>
+                  <Label htmlFor="s-email">
+                    University Email *{' '}
+                    <span className="text-xs text-[var(--color-text-600)] font-normal">(must end with @stu.kau.edu.sa)</span>
+                  </Label>
                   <Input id="s-email" type="email" placeholder="Ahmed@stu.kau.edu.sa" value={studentEmail}
                     onChange={(e) => setStudentEmail(e.target.value)}
                     className={`mt-1 ${errors.email ? 'border-red-500' : ''}`} />
@@ -428,37 +370,27 @@ export function Register() {
                 <div className="pt-4 border-t border-[var(--color-border)]">
                   <h3 className="text-sm font-semibold text-[var(--color-text-900)] mb-4">Academic Information</h3>
 
+                  {/* Course selection – fetched dynamically, no hardcoded values */}
                   <div className="mb-4">
-                    <Label>Department *</Label>
-                    <Select value={department} onValueChange={(v) => setDepartment(v as Department)}>
-                      <SelectTrigger className={`mt-1 ${errors.department ? 'border-red-500' : ''}`}>
-                        <SelectValue placeholder="Select department" />
+                    <Label>Course *</Label>
+                    <Select
+                      value={selectedCourseId}
+                      onValueChange={(v) => { setSelectedCourseId(v); setHasIdea(null); }}
+                      disabled={coursesLoading}
+                    >
+                      <SelectTrigger className={`mt-1 ${errors.course ? 'border-red-500' : ''}`}>
+                        <SelectValue placeholder={coursesLoading ? 'Loading courses…' : 'Select course'} />
                       </SelectTrigger>
                       <SelectContent>
-                        {departments.map((d) => (
-                          <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+                        {courses.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.code}{c.name ? ` — ${c.name}` : ''}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    {errors.department && <p className="text-xs text-red-500 mt-1">{errors.department}</p>}
+                    {errors.course && <p className="text-xs text-red-500 mt-1">{errors.course}</p>}
                   </div>
-
-                  {department && (
-                    <div className="mb-4">
-                      <Label>Course *</Label>
-                      <Select value={course} onValueChange={setCourse}>
-                        <SelectTrigger className={`mt-1 ${errors.course ? 'border-red-500' : ''}`}>
-                          <SelectValue placeholder="Select course" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availableCourses.map((c) => (
-                            <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {errors.course && <p className="text-xs text-red-500 mt-1">{errors.course}</p>}
-                    </div>
-                  )}
 
                   <div className="mb-4">
                     <Label>Term *</Label>
@@ -474,47 +406,40 @@ export function Register() {
                     </Select>
                     {errors.term && <p className="text-xs text-red-500 mt-1">{errors.term}</p>}
                   </div>
-
                 </div>
 
-                {/* ── Has Idea Toggle ── */}
-                {department && course && term && studentGender && (
+                {/* ── Has Idea Toggle (only shown when course + term selected) ── */}
+                {selectedCourseId && term && (
                   <div className="pt-4 border-t border-[var(--color-border)]">
                     <h3 className="text-sm font-semibold text-[var(--color-text-900)] mb-3">Project Group</h3>
                     <p className="text-sm text-[var(--color-text-600)] mb-3">Do you have a project idea?</p>
                     <div className="flex gap-3 mb-4">
-                      <button
-                        type="button"
-                        onClick={() => setHasIdea(true)}
+                      <button type="button" onClick={() => setHasIdea(true)}
                         className={`flex-1 py-3 px-4 rounded-lg border-[1.5px] text-sm font-medium transition-all ${
                           hasIdea === true
                             ? 'border-green-500 bg-green-50 text-green-700'
                             : 'border-[var(--color-border)] bg-white text-[var(--color-text-600)] hover:border-[var(--color-text-400)]'
-                        }`}
-                      >
+                        }`}>
                         Yes, I have an idea
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => setHasIdea(false)}
+                      <button type="button" onClick={() => setHasIdea(false)}
                         className={`flex-1 py-3 px-4 rounded-lg border-[1.5px] text-sm font-medium transition-all ${
                           hasIdea === false
                             ? 'border-blue-500 bg-blue-50 text-blue-700'
                             : 'border-[var(--color-border)] bg-white text-[var(--color-text-600)] hover:border-[var(--color-text-400)]'
-                        }`}
-                      >
+                        }`}>
                         No, I'll join a group
                       </button>
                     </div>
                     {errors.hasIdea && <p className="text-xs text-red-500 mb-3">{errors.hasIdea}</p>}
 
-                    {/* HAS IDEA: Project fields */}
+                    {/* HAS IDEA: project fields */}
                     {hasIdea === true && (
                       <div className="space-y-4">
                         <div className="flex items-start gap-3 p-3 bg-green-50 border border-green-200 rounded-lg mb-3">
                           <AlertCircle className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
                           <p className="text-xs text-green-800">
-                            A new group will be created for you automatically. Your teammates can join your group after registering.
+                            A new group will be created for you automatically. Your teammates can join after registering.
                           </p>
                         </div>
                         <div>
@@ -534,13 +459,13 @@ export function Register() {
                       </div>
                     )}
 
-                    {/* NO IDEA: Join existing group */}
+                    {/* NO IDEA: join existing group */}
                     {hasIdea === false && (
                       <div>
                         <div className="flex items-start gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg mb-3">
                           <Lock className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
                           <p className="text-xs text-blue-800">
-                            Showing groups for <strong>{department}</strong> / <strong>{courseNumber}</strong> / <strong>{studentGender}</strong>.
+                            Showing available groups for <strong>{selectedCourse?.code ?? 'your course'}</strong>.
                             Only groups with open slots are shown.
                           </p>
                         </div>
@@ -556,11 +481,7 @@ export function Register() {
                                 <SelectItem value="_none" disabled>No groups available yet</SelectItem>
                               ) : (
                                 publicGroups.map((g) => (
-                                  <SelectItem
-                                    key={g.id}
-                                    value={g.id}
-                                    disabled={g.membersCount >= 3}
-                                  >
+                                  <SelectItem key={g.id} value={g.id} disabled={g.membersCount >= 3}>
                                     Group {g.groupNumber}
                                     {g.projectName ? ` — ${g.projectName}` : ''}
                                     {' '}({g.membersCount}/3)
@@ -578,7 +499,7 @@ export function Register() {
                     <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg mt-4">
                       <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
                       <p className="text-sm text-amber-800">
-                        <span className="font-medium">Admin Approval Required — </span>
+                        <span className="font-medium">Approval Required — </span>
                         Your registration will be reviewed before you can access the platform.
                       </p>
                     </div>
@@ -605,32 +526,19 @@ export function Register() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="sv-id">Supervisor ID *</Label>
-                    <Input id="sv-id" placeholder="Employee ID" value={supervisorId}
-                      onChange={(e) => setSupervisorId(e.target.value)}
-                      className={`mt-1 ${errors.supervisorId ? 'border-red-500' : ''}`} />
-                    {errors.supervisorId && <p className="text-xs text-red-500 mt-1">{errors.supervisorId}</p>}
-                  </div>
-                  <div>
-                    <Label htmlFor="sv-gender">Gender *</Label>
-                    <Select value={supervisorGender} onValueChange={(v) => setSupervisorGender(v as Gender)}>
-                      <SelectTrigger className={`mt-1 ${errors.gender ? 'border-red-500' : ''}`}>
-                        <SelectValue placeholder="Select gender" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {genders.map((g) => (
-                          <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {errors.gender && <p className="text-xs text-red-500 mt-1">{errors.gender}</p>}
-                  </div>
+                <div>
+                  <Label htmlFor="sv-id">Supervisor ID *</Label>
+                  <Input id="sv-id" placeholder="Employee ID" value={supervisorId}
+                    onChange={(e) => setSupervisorId(e.target.value)}
+                    className={`mt-1 ${errors.supervisorId ? 'border-red-500' : ''}`} />
+                  {errors.supervisorId && <p className="text-xs text-red-500 mt-1">{errors.supervisorId}</p>}
                 </div>
 
                 <div>
-                  <Label htmlFor="sv-email">University Email * <span className="text-xs text-[var(--color-text-600)] font-normal">(must end with @kau.edu.sa)</span></Label>
+                  <Label htmlFor="sv-email">
+                    University Email *{' '}
+                    <span className="text-xs text-[var(--color-text-600)] font-normal">(must end with @kau.edu.sa)</span>
+                  </Label>
                   <Input id="sv-email" type="email" placeholder="Abdullah@kau.edu.sa" value={supervisorEmail}
                     onChange={(e) => setSupervisorEmail(e.target.value)}
                     className={`mt-1 ${errors.email ? 'border-red-500' : ''}`} />
@@ -650,21 +558,6 @@ export function Register() {
                     value={supervisorConfirmPassword} onChange={setSupervisorConfirmPassword}
                     hasError={!!errors.confirmPassword} />
                   {errors.confirmPassword && <p className="text-xs text-red-500 mt-1">{errors.confirmPassword}</p>}
-                </div>
-
-                <div>
-                  <Label>Department *</Label>
-                  <Select value={supervisorDepartment} onValueChange={setSupervisorDepartment}>
-                    <SelectTrigger className={`mt-1 ${errors.department ? 'border-red-500' : ''}`}>
-                      <SelectValue placeholder="Select department" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {departments.map((d) => (
-                        <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {errors.department && <p className="text-xs text-red-500 mt-1">{errors.department}</p>}
                 </div>
               </>
             )}
@@ -699,8 +592,8 @@ export function Register() {
           </p>
           <ul className="space-y-4">
             {[
-              { title: 'Track Milestones', desc: 'Monitor deadlines for chapters, reports, and presentations' },
-              { title: 'Submit & Review', desc: 'Upload submissions and receive detailed feedback from supervisors' },
+              { title: 'Track Milestones',  desc: 'Monitor deadlines for chapters, reports, and presentations' },
+              { title: 'Submit & Review',   desc: 'Upload submissions and receive detailed feedback from supervisors' },
               { title: 'Transparent Grading', desc: 'View rubric-based evaluations and track your progress' },
             ].map((item) => (
               <li key={item.title} className="flex items-start gap-3">

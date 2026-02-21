@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { StatusBadge } from '../../features/submissions/components/StatusBadge';
 import { Button } from '../../components/ui/button';
@@ -24,6 +24,7 @@ import {
 } from '../../components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../components/ui/tooltip';
 import { useAuth } from '../../lib/AuthContext';
+import { getGroupsForSupervisor } from '../../services/groups';
 import { SubmissionStatus } from '../../types';
 import { 
   Save, 
@@ -73,34 +74,6 @@ interface AuditEntry {
   details: string;
 }
 
-const mockGroups: Group[] = [
-  {
-    id: '13_498_2026_01_M',
-    groupNumber: 13,
-    course: 'CPIS-498',
-    year: 2026,
-    term: '01',
-    section: 'M',
-    students: [
-      { id: '2236500', name: 'Abdullah Bamhisoun', email: 'abdullah.b@stu.kau.edu.sa' },
-      { id: '2236501', name: 'Abdulrahman Solymani', email: 'abdulrahman.s@stu.kau.edu.sa' },
-    ],
-    projectTitle: 'Graduation Project Platform',
-  },
-  {
-    id: '07_498_2026_01_M',
-    groupNumber: 7,
-    course: 'CPIS-498',
-    year: 2026,
-    term: '01',
-    section: 'M',
-    students: [
-      { id: '2236789', name: 'Bandar Al-Juhani', email: 'bandar.j@stu.kau.edu.sa' },
-      { id: '2236790', name: 'Rayan Al-Malki', email: 'rayan.m@stu.kau.edu.sa' },
-    ],
-    projectTitle: 'Smart Healthcare System',
-  },
-];
 
 const initialChapterSubmissions: ChapterSubmission[] = [
   {
@@ -168,7 +141,24 @@ const initialChapterSubmissions: ChapterSubmission[] = [
 export function SupervisorMyGroupsAndReviews() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [groups, setGroups] = useState<Group[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<string>('');
+
+  useEffect(() => {
+    if (!user) return;
+    getGroupsForSupervisor(user.id).then((data) => {
+      setGroups(data.map((g) => ({
+        id: g.id,
+        groupNumber: g.groupNumber ?? 0,
+        course: g.courseCode,
+        year: 0,
+        term: '',
+        section: '',
+        students: g.members.map((m) => ({ id: m.id, name: m.name, email: '' })),
+        projectTitle: g.projectName,
+      })));
+    });
+  }, [user?.id]);
   const [status, setStatus] = useState<SubmissionStatus>('under-review');
   const [isIPModalOpen, setIsIPModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('chapters');
@@ -211,7 +201,7 @@ export function SupervisorMyGroupsAndReviews() {
     },
   ]);
 
-  const currentGroup = mockGroups.find(g => g.id === selectedGroup);
+  const currentGroup = groups.find(g => g.id === selectedGroup);
 
   if (!user) return null;
 
@@ -354,7 +344,7 @@ export function SupervisorMyGroupsAndReviews() {
                 <SelectValue placeholder="Choose a group..." />
               </SelectTrigger>
               <SelectContent>
-                {mockGroups.map((group) => (
+                {groups.map((group) => (
                   <SelectItem key={group.id} value={group.id}>
                     Group {group.groupNumber} - {group.projectTitle}
                   </SelectItem>

@@ -52,11 +52,62 @@ export function timeAgo(isoString: string): string {
   return `${days} day${days !== 1 ? 's' : ''} ago`;
 }
 
-export async function getAdminStats(): Promise<AdminStats> {
+export async function getAdminStats(courseId?: string): Promise<AdminStats> {
   try {
     const now = new Date().toISOString();
     const in7Days = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
+    if (courseId) {
+      // Coordinator scope: filter everything by course
+      const { data: groupRows } = await supabase
+        .from('groups')
+        .select('id')
+        .eq('course_id', courseId);
+      const groupIds = (groupRows || []).map((g: any) => g.id);
+      const groupFilter = groupIds.length > 0 ? groupIds : ['__none__'];
+
+      const [studentResult, upcomingResult, assessmentResult, overdueResult] = await Promise.all([
+        supabase
+          .from('group_members')
+          .select('*', { count: 'exact', head: true })
+          .in('group_id', groupFilter),
+        supabase
+          .from('milestones')
+          .select('*', { count: 'exact', head: true })
+          .eq('course_id', courseId)
+          .eq('visible', true)
+          .gt('due_date', now)
+          .lt('due_date', in7Days),
+        supabase
+          .from('supervisor_assessments')
+          .select('student_id', { count: 'exact', head: true })
+          .eq('course_id', courseId),
+        supabase
+          .from('submissions')
+          .select('id, milestone:milestones!milestone_id(due_date, course_id)')
+          .in('status', ['submitted', 'changes_requested']),
+      ]);
+
+      const overdueCount = (overdueResult.data || []).filter(
+        (s: any) =>
+          s.milestone?.course_id === courseId &&
+          s.milestone?.due_date &&
+          new Date(s.milestone.due_date) < new Date()
+      ).length;
+
+      const totalStudents = studentResult.count ?? 0;
+      const completedProjects = assessmentResult.count ?? 0;
+
+      return {
+        totalStudents,
+        overdueSubmissions: overdueCount,
+        upcomingDeadlines: upcomingResult.count ?? 0,
+        completedProjects,
+        completionRate: totalStudents > 0 ? Math.round((completedProjects / totalStudents) * 100) : 0,
+      };
+    }
+
+    // Admin scope: all courses
     const [studentResult, upcomingResult, assessmentResult, overdueResult] = await Promise.all([
       supabase
         .from('profiles')
@@ -99,13 +150,20 @@ export async function getAdminStats(): Promise<AdminStats> {
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-export async function getSubmissionVolumeLastWeek(): Promise<SubmissionVolumeDay[]> {
+export async function getSubmissionVolumeLastWeek(courseId?: string): Promise<SubmissionVolumeDay[]> {
   try {
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const { data, error } = await supabase
+
+    let query = supabase
       .from('submissions')
       .select('created_at')
       .gte('created_at', sevenDaysAgo);
+
+    if (courseId) {
+      query = (query as any).eq('course_id', courseId);
+    }
+
+    const { data, error } = await query;
 
     if (error) throw error;
 
@@ -132,16 +190,27 @@ export async function getSubmissionVolumeLastWeek(): Promise<SubmissionVolumeDay
   }
 }
 
-export async function getEvaluationProgressByCourse(): Promise<EvaluationProgress> {
+export async function getEvaluationProgressByCourse(courseId?: string): Promise<EvaluationProgress> {
   try {
-    const { data: courses } = await supabase
-      .from('courses')
-      .select('id, code')
-      .in('code', ['CPIS_498', 'CPIS_499']);
+    let courses: { id: string; code: string }[] = [];
+
+    if (courseId) {
+      const { data } = await supabase
+        .from('courses')
+        .select('id, code')
+        .eq('id', courseId);
+      courses = data || [];
+    } else {
+      const { data } = await supabase
+        .from('courses')
+        .select('id, code')
+        .in('code', ['CPIS_498', 'CPIS_499']);
+      courses = data || [];
+    }
 
     const courseResults: CourseEvaluationProgress[] = [];
 
-    for (const course of (courses || [])) {
+    for (const course of courses) {
       const { data: groups } = await supabase
         .from('groups')
         .select('id')
@@ -163,7 +232,7 @@ export async function getEvaluationProgressByCourse(): Promise<EvaluationProgres
       const total = totalStudents ?? 0;
       const evaluated = evaluatedStudents ?? 0;
       const percent = total > 0 ? Math.round((evaluated / total) * 100) : 0;
-      const displayCode = course.code === 'CPIS_498' ? 'CPIS-498' : 'CPIS-499';
+      const displayCode = course.code.replace('_', '-');
 
       courseResults.push({ course: displayCode, evaluated, total, percent });
     }
@@ -202,16 +271,23 @@ export async function getRecentActivity(limit = 5): Promise<ActivityEntry[]> {
   }
 }
 
-export async function getUpcomingEvents(limit = 3): Promise<UpcomingEvent[]> {
+export async function getUpcomingEvents(limit = 3, courseId?: string): Promise<UpcomingEvent[]> {
   try {
     const now = new Date().toISOString();
-    const { data, error } = await supabase
+
+    let query = supabase
       .from('milestones')
       .select('id, name, due_date, course:courses!course_id(code)')
       .eq('visible', true)
       .gt('due_date', now)
       .order('due_date')
       .limit(limit);
+
+    if (courseId) {
+      query = (query as any).eq('course_id', courseId);
+    }
+
+    const { data, error } = await query;
 
     if (error) throw error;
 

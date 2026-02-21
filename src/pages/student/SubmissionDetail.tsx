@@ -12,11 +12,14 @@ import { Upload, FileText, Clock, MessageSquare, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { useEffect } from 'react';
 import type { Milestone, Submission } from '../../types';
+import { useLockStatus } from '../../hooks/useLockStatus';
+import { LockedBanner } from '../../components/ui/LockedBanner';
 
 export function StudentSubmissionDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { isLocked } = useLockStatus('submissions');
   const [milestone, setMilestone] = useState<Milestone | null>(null);
   const [submission, setSubmission] = useState<Submission | undefined>(undefined);
   const [supervisorName, setSupervisorName] = useState<string>('');
@@ -61,6 +64,7 @@ export function StudentSubmissionDetail() {
 
   return (
     <Layout user={user} pageTitle={milestone.name}>
+      {isLocked && <LockedBanner />}
       <div className="mb-6">
         <Button
           variant="ghost"
@@ -95,7 +99,7 @@ export function StudentSubmissionDetail() {
               <p className="text-[var(--color-text-600)] mb-4">or click to browse</p>
               <Button
                 onClick={handleFileUpload}
-                disabled={uploading}
+                disabled={uploading || isLocked}
               >
                 {uploading ? 'Uploading...' : 'Select File'}
               </Button>

@@ -11,30 +11,31 @@ interface MetricCardProps {
   color?: 'primary' | 'success' | 'warning' | 'danger' | 'info';
 }
 
-const colorClasses = {
-  primary: '!bg-white text-purple-700',
-  success: '!bg-white text-green-700',
-  warning: '!bg-white text-amber-700',
-  danger: '!bg-white text-red-700',
-  info: '!bg-white text-blue-700',
+const iconStyles: Record<NonNullable<MetricCardProps['color']>, string> = {
+  primary: 'bg-blue-50 text-blue-600',
+  success: 'bg-emerald-50 text-emerald-600',
+  warning: 'bg-amber-50 text-amber-600',
+  danger:  'bg-red-50 text-red-500',
+  info:    'bg-indigo-50 text-indigo-600',
 };
 
 export function MetricCard({ label, value, icon: Icon, trend, color = 'primary' }: MetricCardProps) {
   return (
-    <div className="!bg-white rounded-lg border-[1.5px] border-[var(--color-border)] p-6 hover:border-[var(--color-primary-600)] transition-colors">
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <p className="text-[var(--color-text-600)] mb-2">{label}</p>
-          <p className="text-[var(--color-text-900)]">{value}</p>
-          {trend && (
-            <p className={`mt-2 ${trend.positive ? 'text-green-600' : 'text-red-600'}`}>
-              {trend.positive ? '↑' : '↓'} {trend.value}
-            </p>
-          )}
-        </div>
-        <div className={`w-12 h-12 rounded-lg ${colorClasses[color]} flex items-center justify-center border-[1.5px] ${color === 'primary' ? 'border-purple-500' : color === 'success' ? 'border-green-500' : color === 'warning' ? 'border-amber-500' : color === 'danger' ? 'border-red-500' : 'border-blue-500'}`}>
-          <Icon className="w-6 h-6" />
-        </div>
+    <div className="!bg-white rounded-xl border border-[var(--color-border)] p-6 flex flex-col gap-4 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-default">
+      {/* Icon */}
+      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${iconStyles[color]}`}>
+        <Icon className="w-5 h-5" />
+      </div>
+
+      {/* Content */}
+      <div>
+        <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-text-600)] mb-1">{label}</p>
+        <p className="text-3xl font-bold text-[var(--color-text-900)] leading-none">{value}</p>
+        {trend && (
+          <p className={`mt-2 text-xs font-medium ${trend.positive ? 'text-emerald-600' : 'text-red-500'}`}>
+            {trend.positive ? '↑' : '↓'} {trend.value}
+          </p>
+        )}
       </div>
     </div>
   );

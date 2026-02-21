@@ -6,12 +6,15 @@ import { useAuth } from '../../lib/AuthContext';
 import { getMilestonesByStudentWithStatus } from '../../services/milestones';
 import { useNavigate } from 'react-router-dom';
 import { Calendar, FileText, X } from 'lucide-react';
+import { useLockStatus } from '../../hooks/useLockStatus';
+import { LockedBanner } from '../../components/ui/LockedBanner';
 import { Milestone } from '../../types';
 import { useEffect } from 'react';
 
 export function StudentMilestones() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { isLocked } = useLockStatus('submissions');
   const [selectedMilestone, setSelectedMilestone] = useState<Milestone | null>(null);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,6 +34,7 @@ export function StudentMilestones() {
 
   return (
     <Layout user={user} pageTitle="Chapter Submissions">
+      {isLocked && <LockedBanner />}
       <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] shadow-sm">
         {/* Table Header */}
         <div className="grid grid-cols-12 gap-4 p-4 border-b border-[var(--color-border)] text-[var(--color-text-600)]">
@@ -75,6 +79,7 @@ export function StudentMilestones() {
                 {milestone.status === 'draft' || milestone.status === 'changes-requested' ? (
                   <Button
                     size="sm"
+                    disabled={isLocked}
                     onClick={(e) => {
                       e.stopPropagation();
                       navigate(`/student/submissions/${milestone.id}`);

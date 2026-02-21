@@ -10,6 +10,8 @@ import { Switch } from '../../components/ui/switch';
 import { getSubmissionById } from '../../services/submissions';
 import { getMilestoneById } from '../../services/milestones';
 import { useAuth } from '../../lib/AuthContext';
+import { useLockStatus } from '../../hooks/useLockStatus';
+import { LockedBanner } from '../../components/ui/LockedBanner';
 import { FileText, ChevronLeft, Check, AlertCircle, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useEffect } from 'react';
@@ -19,6 +21,7 @@ export function SupervisorSubmissionReview() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { isLocked } = useLockStatus('submissions');
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [milestone, setMilestone] = useState<Milestone | null>(null);
   const [loading, setLoading] = useState(true);
@@ -83,6 +86,7 @@ export function SupervisorSubmissionReview() {
 
   return (
     <Layout user={user} pageTitle="Review Submission">
+      {isLocked && <LockedBanner />}
       <div className="mb-6">
         <Button
           variant="ghost"
@@ -226,15 +230,17 @@ export function SupervisorSubmissionReview() {
                 variant="success"
                 className="w-full gap-2"
                 onClick={handleApprove}
+                disabled={isLocked}
               >
                 <Check className="w-4 h-4" />
                 Approve Submission
               </Button>
-              
+
               <Button
                 variant="outline"
                 className="w-full gap-2"
                 onClick={() => setShowRequestChangesModal(true)}
+                disabled={isLocked}
               >
                 <AlertCircle className="w-4 h-4" />
                 Request Changes
@@ -244,6 +250,7 @@ export function SupervisorSubmissionReview() {
                 variant="outline"
                 className="w-full"
                 onClick={handleSaveDraft}
+                disabled={isLocked}
               >
                 Save Draft
               </Button>

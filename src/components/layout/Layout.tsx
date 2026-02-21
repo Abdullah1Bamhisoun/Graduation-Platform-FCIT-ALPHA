@@ -14,11 +14,11 @@ interface LayoutProps {
 export function Layout({ user, pageTitle, children, unreadCount }: LayoutProps) {
   return (
     <div className="min-h-screen bg-[var(--color-surface-alt)]">
-      <Sidebar role={user.role} />
+      <Sidebar role={user.activeRole} />
       <Topbar user={user} pageTitle={pageTitle} unreadCount={unreadCount} />
 
       <div className="mt-16">
-        {user.role === 'student' && <StudentGroupBanner user={user} />}
+        {user.activeRole === 'student' && <StudentGroupBanner user={user} />}
         <main className="ml-[280px] p-8">
           <div className="max-w-[1200px] mx-auto">
             {children}

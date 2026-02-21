@@ -1,5 +1,5 @@
-import { Search, ChevronDown } from 'lucide-react';
-import { User } from '../../types';
+import { Search, ChevronDown, RefreshCw } from 'lucide-react';
+import { User, UserRole } from '../../types';
 import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import { useAuth } from '../../lib/AuthContext';
@@ -10,47 +10,112 @@ interface TopbarProps {
   unreadCount?: number;
 }
 
+// ── Role badge colours ────────────────────────────────────────────────────────
+const roleBadgeStyle: Record<string, string> = {
+  supervisor:  'bg-blue-100 text-blue-700 border border-blue-200',
+  coordinator: 'bg-purple-100 text-purple-700 border border-purple-200',
+  admin:       'bg-red-100 text-red-700 border border-red-200',
+  student:     'bg-green-100 text-green-700 border border-green-200',
+};
+
+const roleLabel: Record<string, string> = {
+  supervisor:  'Supervisor Mode',
+  coordinator: 'Coordinator Mode',
+  admin:       'Admin',
+  student:     'Student',
+};
+
+// Faculty roles that can be switched between
+const SWITCHABLE_ROLES: UserRole[] = ['supervisor', 'coordinator'];
+
 export function Topbar({ user, pageTitle }: TopbarProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const { logout } = useAuth();
+  const { logout, switchRole } = useAuth();
+
+  // Only show role switcher when user has multiple switchable roles
+  const switchableRoles = user.roles.filter((r) => SWITCHABLE_ROLES.includes(r));
+  const isMultiRole = switchableRoles.length > 1;
 
   const handleLogout = () => {
     setShowUserMenu(false);
     logout();
   };
 
+  const handleSwitchRole = async (role: UserRole) => {
+    await switchRole(role);
+  };
+
+  // Settings path depends on active role
+  const settingsPath =
+    user.activeRole === 'coordinator'
+      ? '/coordinator/settings'
+      : `/${user.activeRole}/settings`;
+
   return (
     <div className="h-16 bg-[var(--color-surface-white)] border-b border-[var(--color-border)] fixed top-0 right-0 left-[280px] z-10 flex items-center justify-between px-6">
       {/* Page Title */}
-      <h1 className="text-[var(--color-text-900)]">{pageTitle}</h1>
+      <h1 className="text-lg font-semibold text-[var(--color-text-900)] tracking-tight">{pageTitle}</h1>
 
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
         {/* Search */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-600)]" />
           <input
             type="text"
             placeholder="Search... (Cmd+/)"
-            className="pl-10 pr-4 py-2 w-80 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-alt)] text-[var(--color-text-900)] placeholder:text-[var(--color-text-600)] focus:outline-none focus:ring-2 focus:ring-[var(--color-focus)] focus:border-transparent"
+            className="pl-10 pr-4 py-2 w-72 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-alt)] text-[var(--color-text-900)] placeholder:text-[var(--color-text-600)] focus:outline-none focus:ring-2 focus:ring-[var(--color-focus)] focus:border-transparent"
           />
         </div>
 
-        {/* User Menu */}
+        {/* ── Role Switcher (faculty with multiple roles only) ── */}
+        {isMultiRole && (
+          <>
+            {/* Prominent one-click switch button */}
+            {user.activeRole === 'supervisor' && user.roles.includes('coordinator') && (
+              <button
+                onClick={() => handleSwitchRole('coordinator')}
+                style={{ borderRadius: 0 }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-50 border border-purple-300 hover:bg-purple-100 transition-colors whitespace-nowrap"
+                title="Switch to Coordinator Mode"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Switch to Coordinator Mode
+              </button>
+            )}
+            {user.activeRole === 'coordinator' && user.roles.includes('supervisor') && (
+              <button
+                onClick={() => handleSwitchRole('supervisor')}
+                style={{ borderRadius: 0 }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-300 hover:bg-blue-100 transition-colors whitespace-nowrap"
+                title="Switch to Supervisor Mode"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Switch to Supervisor Mode
+              </button>
+            )}
+            {/* Active role badge */}
+            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${roleBadgeStyle[user.activeRole] ?? ''}`}>
+              {roleLabel[user.activeRole] ?? user.activeRole}
+            </span>
+          </>
+        )}
+
+        {/* ── User Menu ── */}
         <div className="relative">
           <button
             onClick={() => setShowUserMenu(!showUserMenu)}
             className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--color-surface-alt)] transition-colors"
           >
-            <div className="w-8 h-8 rounded-full bg-[var(--color-primary-600)] text-white flex items-center justify-center">
-              {user.name.charAt(0)}
+            <div className="w-8 h-8 rounded-full bg-[var(--color-primary-600)] text-white flex items-center justify-center font-semibold">
+              {user.name.charAt(0).toUpperCase()}
             </div>
             <div className="text-left">
-              <div className="text-[var(--color-text-900)]">{user.name}</div>
+              <div className="text-sm font-medium text-[var(--color-text-900)]">{user.name}</div>
               {user.studentId && (
-                <div className="text-[var(--color-text-600)]">{user.studentId}</div>
+                <div className="text-xs text-[var(--color-text-600)]">{user.studentId}</div>
               )}
               {user.employeeNumber && (
-                <div className="text-[var(--color-text-600)]">{user.employeeNumber}</div>
+                <div className="text-xs text-[var(--color-text-600)]">{user.employeeNumber}</div>
               )}
             </div>
             <ChevronDown className="w-4 h-4 text-[var(--color-text-600)]" />
@@ -58,19 +123,26 @@ export function Topbar({ user, pageTitle }: TopbarProps) {
 
           {showUserMenu && (
             <>
-              <div
-                className="fixed inset-0 z-10"
-                onClick={() => setShowUserMenu(false)}
-              />
+              <div className="fixed inset-0 z-10" onClick={() => setShowUserMenu(false)} />
               <div className="absolute right-0 top-full mt-2 w-56 bg-[var(--color-surface-white)] rounded-lg shadow-lg border border-[var(--color-border)] py-2 z-20">
+                {/* Show single-role badge when NOT multi-role */}
+                {!isMultiRole && (
+                  <div className="px-4 py-2">
+                    <span
+                      className={`text-xs font-semibold px-2 py-0.5 rounded-full ${roleBadgeStyle[user.activeRole] ?? ''}`}
+                    >
+                      {roleLabel[user.activeRole] ?? user.activeRole}
+                    </span>
+                  </div>
+                )}
                 <Link
-                  to={`/${user.role}/settings`}
+                  to={settingsPath}
                   className="block px-4 py-2 text-[var(--color-text-900)] hover:bg-[var(--color-surface-alt)]"
                   onClick={() => setShowUserMenu(false)}
                 >
                   Profile Settings
                 </Link>
-                <div className="border-t border-[var(--color-border)] my-2"></div>
+                <div className="border-t border-[var(--color-border)] my-2" />
                 <button
                   onClick={handleLogout}
                   className="w-full text-left block px-4 py-2 text-[var(--color-danger)] hover:bg-[var(--color-surface-alt)]"

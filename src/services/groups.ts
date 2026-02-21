@@ -58,20 +58,31 @@ function mapDbGroup(data: any): GroupData {
   };
 }
 
-/** Fetch all groups via backend API (bypasses RLS, requires admin auth) */
-async function fetchAllGroupsFromApi(): Promise<GroupData[]> {
+/** Fetch all groups via backend API (bypasses RLS).
+ *  Passing activeRole ensures the backend applies coordinator course-scoping when needed. */
+async function fetchAllGroupsFromApi(activeRole?: string): Promise<GroupData[]> {
   const session = await supabase.auth.getSession();
   const token = session.data.session?.access_token;
-  const response = await fetch('/api/groups', {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const headers: Record<string, string> = { Authorization: `Bearer ${token ?? ''}` };
+  if (activeRole) headers['X-Active-Role'] = activeRole;
+  const response = await fetch('/api/groups', { headers });
   if (!response.ok) {
     const text = await response.text();
     console.error('getAllGroups API error', response.status, text);
     throw new Error(`Failed to fetch groups (${response.status})`);
   }
   const data = await response.json();
-  return (data as any[]).map((g) => mapDbGroup({ ...g, group_code: g.groupCode, group_number: g.groupNumber, project_name: g.projectName, project_description: g.projectDescription, supervisor_id: g.supervisorId, is_locked: g.isLocked, course_number: g.courseNumber }));
+  return (data as any[]).map((g) => mapDbGroup({
+    ...g,
+    group_code: g.groupCode,
+    group_number: g.groupNumber,
+    project_name: g.projectName,
+    project_description: g.projectDescription,
+    supervisor_id: g.supervisorId,
+    is_locked: g.isLocked,
+    course_number: g.courseNumber,
+    course_id: g.courseId,       // backend now returns courseId (camelCase)
+  }));
 }
 
 const GROUP_SELECT = `
@@ -159,9 +170,9 @@ export async function getGroupForStudent(studentId: string): Promise<GroupData |
   }
 }
 
-export async function getAllGroups(): Promise<GroupData[]> {
+export async function getAllGroups(activeRole?: string): Promise<GroupData[]> {
   try {
-    return await fetchAllGroupsFromApi();
+    return await fetchAllGroupsFromApi(activeRole);
   } catch (error) {
     console.error('Error fetching groups:', error);
     return [];
@@ -184,17 +195,22 @@ export async function getGroupById(id: string): Promise<GroupData | null> {
   }
 }
 
-/** Used by the registration page — public, no auth required */
+/**
+ * Used by the registration page — public, no auth required.
+ * Filters by course_id (preferred, scalable) with optional legacy fallbacks.
+ */
 export async function getPublicGroups(
   department?: string,
   courseNumber?: string,
-  gender?: string
+  gender?: string,
+  courseId?: string,
 ): Promise<PublicGroup[]> {
   try {
     const params = new URLSearchParams();
-    if (department) params.set('department', department);
+    if (courseId)     params.set('course_id',    courseId);
+    if (department)   params.set('department',   department);
     if (courseNumber) params.set('course_number', courseNumber);
-    if (gender) params.set('gender', gender);
+    if (gender)       params.set('gender',        gender);
     const query = params.toString() ? `?${params.toString()}` : '';
     const response = await fetch(`/api/groups/available${query}`);
     if (!response.ok) throw new Error('Failed to fetch groups');

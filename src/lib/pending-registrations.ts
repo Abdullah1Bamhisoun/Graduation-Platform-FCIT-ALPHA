@@ -13,6 +13,9 @@ export interface PendingRegistration {
 
   // Student-specific
   studentId?: string;
+  /** UUID of the selected course (new scalable FK) */
+  courseId?: string;
+  /** Human-readable course code e.g. 'CPIS-498' (for display) */
   course?: string;
   term?: string;
   groupId?: string;
@@ -88,9 +91,10 @@ export async function addRegistration(
         name: reg.name,
         email: reg.email,
         passwordHash: reg.password,
-        department: reg.department,
+        department: reg.department || null,
         gender: reg.gender || null,
         studentId: reg.studentId,
+        courseId: reg.courseId || null,
         course: reg.course,
         term: reg.term,
         groupId: reg.groupId,
@@ -148,20 +152,26 @@ export async function approveRegistration(id: string): Promise<PendingRegistrati
   }
 }
 
-// Reject a registration
+// Reject a registration (routes through backend to bypass RLS)
 export async function rejectRegistration(id: string): Promise<void> {
   try {
-    const { error } = await supabase
-      .from('pending_registrations')
-      .update({ status: 'rejected' })
-      .eq('id', id);
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    const response = await fetch('/api/auth/reject-registration', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ registrationId: id }),
+    });
 
-    if (error) throw error;
+    const json = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error((json as any).error || 'Rejection failed');
 
     notify();
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error rejecting registration:', error);
-    throw new Error('Failed to reject registration. Please try again.');
+    throw new Error(error?.message || 'Failed to reject registration. Please try again.');
   }
 }
 
@@ -173,11 +183,12 @@ function mapDatabaseToRegistration(data: any): PendingRegistration {
     name: data.name,
     email: data.email,
     password: '', // Don't expose the password hash
-    department: data.department,
+    department: data.department ?? '',
     gender: data.gender,
     status: data.status,
     submittedAt: data.submitted_at,
     studentId: data.student_id,
+    courseId: data.course_id ?? undefined,
     course: data.course,
     term: data.term,
     groupId: data.group_id,

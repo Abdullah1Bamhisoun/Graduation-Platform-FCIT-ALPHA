@@ -11,6 +11,8 @@ import { Textarea } from '../../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { toast } from 'sonner';
 import { supabase } from '../../lib/supabase';
+import { useLockStatus } from '../../hooks/useLockStatus';
+import { LockedBanner } from '../../components/ui/LockedBanner';
 
 interface FileItem {
   id: string;
@@ -37,6 +39,7 @@ async function getToken() {
 
 export function ImportantFilesManager() {
   const { user } = useAuth();
+  const { isLocked } = useLockStatus('important_files');
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -170,13 +173,14 @@ export function ImportantFilesManager() {
 
   return (
     <Layout user={user} pageTitle="Important Files Manager">
+      {isLocked && <LockedBanner />}
       <div className="mb-6 flex items-center justify-between">
         <p className="text-[var(--color-text-600)]">
           Manage essential documents, templates, and resources for graduation projects
         </p>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
-            <Button variant="primary" onClick={() => handleOpenDialog()}>
+            <Button variant="primary" onClick={() => handleOpenDialog()} disabled={isLocked}>
               <Plus className="w-4 h-4 mr-2" />
               Add File
             </Button>
@@ -290,10 +294,10 @@ export function ImportantFilesManager() {
                     <Download className="w-4 h-4 mr-2" />
                     Download
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => handleOpenDialog(file.id)}>
+                  <Button variant="outline" size="sm" onClick={() => handleOpenDialog(file.id)} disabled={isLocked}>
                     <Edit className="w-4 h-4" />
                   </Button>
-                  <Button variant="destructive" size="sm" onClick={() => handleDeleteFile(file.id)}>
+                  <Button variant="destructive" size="sm" onClick={() => handleDeleteFile(file.id)} disabled={isLocked}>
                     <Trash2 className="w-4 h-4" />
                   </Button>
                 </div>

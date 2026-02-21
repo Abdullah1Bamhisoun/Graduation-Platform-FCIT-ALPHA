@@ -12,6 +12,8 @@ import {
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu';
 import { useAuth } from '../../lib/AuthContext';
+import { useLockStatus } from '../../hooks/useLockStatus';
+import { LockedBanner } from '../../components/ui/LockedBanner';
 import {
   Save,
   CheckCircle,
@@ -55,6 +57,7 @@ interface SupervisorGradeData {
 export function AdminGradesDeliverables() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { isLocked } = useLockStatus('grades');
   const [groups, setGroups] = useState<GroupData[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<string>('');
   const [activeTab, setActiveTab] = useState('overview');
@@ -80,10 +83,13 @@ export function AdminGradesDeliverables() {
   // Audit history
   const [auditHistory, setAuditHistory] = useState<AuditLogEntry[]>([]);
 
+  const isCoordinator = user?.activeRole === 'coordinator';
+
   useEffect(() => {
-    getAllGroups().then(setGroups);
+    // Pass activeRole so the backend applies coordinator course-scoping automatically
+    getAllGroups(user?.activeRole).then(setGroups);
     getAuditLog().then(entries => setAuditHistory(entries.slice(0, 5)));
-  }, []);
+  }, [user?.activeRole]);
 
   useEffect(() => {
     if (!selectedGroup) return;
@@ -187,10 +193,19 @@ export function AdminGradesDeliverables() {
 
   return (
     <Layout user={user} pageTitle="Course Deliverables Grading">
+      {isLocked && <LockedBanner />}
       <div className="mb-6">
         <p className="text-[var(--color-text-600)] mb-4">
           View and manage all grades for groups (Total: 100 marks)
         </p>
+
+        {/* Coordinator scope badge */}
+        {isCoordinator && (
+          <div className="mb-4 inline-flex items-center gap-2 px-3 py-1.5 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-700">
+            <BookOpen className="w-4 h-4" />
+            Showing groups from your assigned course only
+          </div>
+        )}
 
         {/* Group Selection */}
         <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6 mb-6">
@@ -438,9 +453,10 @@ export function AdminGradesDeliverables() {
                       <p className="text-[var(--color-text-600)] text-sm mt-1">Total: 15 marks</p>
                     </div>
                     {editingSection !== 'admin' ? (
-                      <Button 
+                      <Button
                         onClick={handleEditAdmin}
                         className="bg-[#10B981] text-[rgb(0,0,0)] hover:bg-[#0ea572]"
+                        disabled={isLocked}
                       >
                         Edit Grades
                       </Button>
@@ -449,7 +465,7 @@ export function AdminGradesDeliverables() {
                         <Button variant="outline" onClick={() => setEditingSection(null)}>
                           Cancel
                         </Button>
-                        <Button onClick={handleSaveAdmin} className="bg-[#10B981] text-[rgb(0,0,0)] hover:bg-[#0ea572]">
+                        <Button onClick={handleSaveAdmin} className="bg-[#10B981] text-[rgb(0,0,0)] hover:bg-[#0ea572]" disabled={isLocked}>
                           <Save className="w-4 h-4 mr-2" />
                           Save Grades
                         </Button>
@@ -867,13 +883,13 @@ export function AdminGradesDeliverables() {
                 <h4 className="text-[var(--color-text-900)] mb-3">Quick Actions</h4>
                 <div className="space-y-2">
                   <button
-                    onClick={() => navigate('/admin/committee')}
+                    onClick={() => navigate(isCoordinator ? '/coordinator/committee-scores' : '/admin/committee')}
                     className="w-full text-left px-3 py-2 rounded-lg hover:bg-[var(--color-surface-alt)] text-[var(--color-text-900)] transition-colors"
                   >
                     View Committee Evaluation
                   </button>
                   <button
-                    onClick={() => navigate('/admin/weekly-reports')}
+                    onClick={() => navigate(isCoordinator ? '/coordinator/weekly-reports' : '/admin/weekly-reports')}
                     className="w-full text-left px-3 py-2 rounded-lg hover:bg-[var(--color-surface-alt)] text-[var(--color-text-900)] transition-colors"
                   >
                     View Weekly Reports

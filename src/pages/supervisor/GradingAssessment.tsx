@@ -6,6 +6,8 @@ import { Label } from '../../components/ui/label';
 import { Textarea } from '../../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { useAuth } from '../../lib/AuthContext';
+import { useLockStatus } from '../../hooks/useLockStatus';
+import { LockedBanner } from '../../components/ui/LockedBanner';
 import { getAllGroupGrades } from '../../services/grades';
 import { GroupGrade } from '../../types';
 import { Save, X } from 'lucide-react';
@@ -14,6 +16,7 @@ import { useEffect } from 'react';
 
 export function SupervisorGradingAssessment() {
   const { user } = useAuth();
+  const { isLocked } = useLockStatus('grades');
   const [selectedGroup, setSelectedGroup] = useState<string>('');
   const [grades, setGrades] = useState<GroupGrade[]>([]);
   const [editingGroup, setEditingGroup] = useState<string | null>(null);
@@ -95,6 +98,7 @@ export function SupervisorGradingAssessment() {
 
   return (
     <Layout user={user} pageTitle="Supervisor Assessment">
+      {isLocked && <LockedBanner />}
       <div className="mb-6">
         <p className="text-[var(--color-text-600)] mb-4">
           Grade your groups' students individually (20% of total assessment per student)
@@ -143,9 +147,10 @@ export function SupervisorGradingAssessment() {
             <div className="p-6 border-b border-[var(--color-border)] flex items-center justify-between">
               <h3 className="text-[var(--color-text-900)]">Individual Student Assessment (20 marks each)</h3>
               {editingGroup !== selectedGroup ? (
-                <Button 
+                <Button
                   onClick={() => handleEdit(selectedGroup)}
                   className="bg-[#10B981] text-white hover:bg-[#0ea572]"
+                  disabled={isLocked}
                 >
                   Edit Grades
                 </Button>
@@ -155,7 +160,7 @@ export function SupervisorGradingAssessment() {
                     <X className="w-4 h-4 mr-2" />
                     Cancel
                   </Button>
-                  <Button onClick={handleSave} className="bg-[#10B981] text-white hover:bg-[#0ea572]">
+                  <Button onClick={handleSave} className="bg-[#10B981] text-white hover:bg-[#0ea572]" disabled={isLocked}>
                     <Save className="w-4 h-4 mr-2" />
                     Save Grades
                   </Button>
@@ -200,6 +205,7 @@ export function SupervisorGradingAssessment() {
                             placeholder="Enter score"
                             className="mt-2 max-w-xs"
                             required
+                            disabled={isLocked}
                           />
                         </div>
 
@@ -214,6 +220,7 @@ export function SupervisorGradingAssessment() {
                             })}
                             placeholder="Enter assessment comments..."
                             className="mt-2 min-h-[100px]"
+                            disabled={isLocked}
                           />
                         </div>
                       </div>

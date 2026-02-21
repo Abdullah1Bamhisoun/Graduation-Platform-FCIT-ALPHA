@@ -1,15 +1,49 @@
-// User roles
-export type UserRole = 'student' | 'supervisor' | 'admin';
+// ─── User Roles ──────────────────────────────────────────────────────────────
 
-// Status types
-export type SubmissionStatus = 'draft' | 'submitted' | 'under-review' | 'changes-requested' | 'approved';
+/** All possible roles a user can hold */
+export type UserRole = 'student' | 'supervisor' | 'coordinator' | 'admin';
 
-// User type
+/** Roles that faculty members can switch between in the header */
+export type FacultyActiveRole = 'supervisor' | 'coordinator';
+
+// ─── Status Types ─────────────────────────────────────────────────────────────
+
+export type SubmissionStatus =
+  | 'draft'
+  | 'submitted'
+  | 'under-review'
+  | 'changes-requested'
+  | 'approved';
+
+// ─── Course ───────────────────────────────────────────────────────────────────
+
+export interface Course {
+  id: string;
+  code: string;   // e.g. 'CPIS-498', 'CPIS-499'
+  name: string;   // e.g. 'Graduation Project I'
+}
+
+// ─── User ─────────────────────────────────────────────────────────────────────
+
+export interface UserRoleEntry {
+  roleId: string;
+  roleName: UserRole;
+  /** Only set when roleName === 'coordinator' */
+  coordinatorCourseId?: string;
+}
+
 export interface User {
   id: string;
   name: string;
   email: string;
+  /** Primary role stored in profiles.role (legacy / display) */
   role: UserRole;
+  /** All roles from user_roles table (authoritative) */
+  roles: UserRole[];
+  /** Which role is currently active – drives dashboard & sidebar */
+  activeRole: UserRole;
+  /** Course UUID this user coordinates (undefined if not a coordinator) */
+  coordinatorCourseId?: string;
   studentId?: string;
   employeeNumber?: string;
   avatarUrl?: string;
@@ -17,12 +51,13 @@ export interface User {
   gender?: string;
 }
 
-// Milestone types
+// ─── Milestone ────────────────────────────────────────────────────────────────
+
 export interface Milestone {
   id: string;
   name: string;
   type: 'weekly-report' | 'chapter' | 'final-report' | 'poster' | 'presentation';
-  course: 'CPIS-498' | 'CPIS-499';
+  course: string;   // course code string, e.g. 'CPIS-498'
   openDate: string;
   dueDate: string;
   status: SubmissionStatus;
@@ -31,7 +66,8 @@ export interface Milestone {
   rubric?: RubricCriterion[];
 }
 
-// Rubric types
+// ─── Rubric ───────────────────────────────────────────────────────────────────
+
 export interface RubricCriterion {
   id: string;
   name: string;
@@ -40,7 +76,8 @@ export interface RubricCriterion {
   comment?: string;
 }
 
-// Submission types
+// ─── Submission ───────────────────────────────────────────────────────────────
+
 export interface Submission {
   id: string;
   milestoneId: string;
@@ -72,13 +109,14 @@ export interface Feedback {
   maxScore: number;
 }
 
-// Weekly Report types
+// ─── Weekly Report ────────────────────────────────────────────────────────────
+
 export interface WeeklyReport {
   id: string;
   groupId: string;
   weekNumber: number;
   dateRange: string;
-  course: 'CPIS-498' | 'CPIS-499';
+  course: string;
   allMembersAttended: boolean;
   absentStudentName?: string;
   progressStatus: 'excellent' | 'good' | 'satisfactory' | 'needs-improvement';
@@ -87,9 +125,95 @@ export interface WeeklyReport {
   reviewedBy?: string;
   status: SubmissionStatus;
   supervisorName?: string;
+  // ── Spec fields ──
+  studentProgress?: string;
+  futureWork?: string;
+  discussionPoints?: string;
+  submissionStatus: 'not_submitted' | 'submitted';
+  supervisorResponseStatus: 'pending' | 'responded';
+  studentMark: 0 | 1;
+  supervisorMark: 0 | 1;
 }
 
-// Comment types
+// ─── Week Status ──────────────────────────────────────────────────────────────
+
+export type WeekDisplayStatus = 'Not Opened' | 'Open' | 'Closed' | 'Locked';
+
+export interface WeekStatus {
+  id: string;
+  department: string;
+  courseType: '498' | '499';
+  weekNumber: number;
+  isOpen: boolean;
+  isLocked: boolean;
+  wasOpened: boolean;
+  semester: string;
+  openedAt?: string;
+  closedAt?: string;
+  lockedAt?: string;
+  openedBy?: string;
+}
+
+// ─── Grading Schema ───────────────────────────────────────────────────────────
+
+export interface GradingSchema {
+  id: string;
+  department: string;
+  courseType: '498' | '499';
+  componentName: string;
+  weight: number;
+  /** Who grades this component: supervisor | coordinator | committee | student | auto */
+  role: string;
+  semester: string;
+  isActive: boolean;
+}
+
+// ─── Weekly Grade Summary ─────────────────────────────────────────────────────
+
+export interface WeeklyGradeSummary {
+  weeksOpened: number;
+  totalRaw: number;         // sum of student_mark + supervisor_mark across opened weeks (uncapped)
+  maxRaw: number;           // weeksOpened × 2
+  cappedScore: number;      // min(totalRaw, maxWeeklyMarks) — the actual weekly grade
+  maxWeeklyMarks: number;   // hard cap: 22 for CPIS-499, 20 for CPIS-498
+  normalizedScore: number;  // deprecated alias for cappedScore (backward-compat)
+  weight: number;           // from grading schema (22 for 499, 20 for 498)
+  weekMarks?: Record<number, { studentMark: number; supervisorMark: number }>;
+}
+
+// ─── Late Request ─────────────────────────────────────────────────────────────
+
+export interface LateRequest {
+  id: string;
+  groupId: string;
+  weekNumber: number;
+  courseType: '498' | '499';
+  department: string;
+  semester: string;
+  status: 'pending' | 'approved' | 'rejected';
+  reason?: string;
+  requestedAt: string;
+  requestedBy?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+}
+
+// ─── Admin Committee Score (CPIS-499 Coordinator 15%) ─────────────────────────
+
+export interface AdminCommitteeScore {
+  id: string;
+  groupId: string;
+  posterDayScore: number;       // 0–5
+  implementationScore: number;  // 0–5
+  testingScore: number;         // 0–5
+  totalScore: number;           // sum ≤ 15
+  semester: string;
+  gradedBy?: string;
+  gradedAt?: string;
+}
+
+// ─── Comment ──────────────────────────────────────────────────────────────────
+
 export interface Comment {
   id: string;
   author: string;
@@ -99,39 +223,37 @@ export interface Comment {
   avatarUrl?: string;
 }
 
-// Grading types (CPIS-498 Assessment)
+// ─── Grading ──────────────────────────────────────────────────────────────────
+
 export interface GroupGrade {
   groupId: string;
   groupName: string;
-  course: 'CPIS-498' | 'CPIS-499';
+  course: string;
   students: { id: string; name: string }[];
   supervisorName: string;
-  
-  // Course Deliverables (15 marks) - Managed by Admin (per group)
+
   deliverables: {
-    chapter1: { score?: number; maxScore: 5; status: 'not-submitted' | 'submitted' | 'graded' };
-    chapter2: { score?: number; maxScore: 1; status: 'not-submitted' | 'submitted' | 'graded' };
-    chapter3: { score?: number; maxScore: 1; status: 'not-submitted' | 'submitted' | 'graded' };
-    chapter4: { score?: number; maxScore: 3; status: 'not-submitted' | 'submitted' | 'graded' };
-    finalReport: { score?: number; maxScore: 3; status: 'not-submitted' | 'submitted' | 'graded' };
-    revisedFinalReport: { score?: number; maxScore: 3; status: 'not-submitted' | 'submitted' | 'graded' };
-    presentation: { score?: number; maxScore: 0; status: 'not-submitted' | 'submitted' | 'graded' };
+    chapter1:           { score?: number; maxScore: 5;  status: 'not-submitted' | 'submitted' | 'graded' };
+    chapter2:           { score?: number; maxScore: 1;  status: 'not-submitted' | 'submitted' | 'graded' };
+    chapter3:           { score?: number; maxScore: 1;  status: 'not-submitted' | 'submitted' | 'graded' };
+    chapter4:           { score?: number; maxScore: 3;  status: 'not-submitted' | 'submitted' | 'graded' };
+    finalReport:        { score?: number; maxScore: 3;  status: 'not-submitted' | 'submitted' | 'graded' };
+    revisedFinalReport: { score?: number; maxScore: 3;  status: 'not-submitted' | 'submitted' | 'graded' };
+    presentation:       { score?: number; maxScore: 0;  status: 'not-submitted' | 'submitted' | 'graded' };
   };
-  deliverablesTotal: number; // out of 15
-  
-  // Weekly Progress Reports (20 marks) - Auto-calculated from weekly reports
+  deliverablesTotal: number;
+
   weeklyProgress: {
     score?: number;
-    maxScore: 20;
+    maxScore: number;    // 22 for CPIS-499, 20 for CPIS-498
     reportsSubmitted: number;
     totalReports: number;
   };
-  
-  // Supervisor Assessment (20 marks) - Graded per student in group
+
   supervisorAssessment: {
     [studentId: string]: {
       score?: number;
-      maxScore: 20;
+      maxScore: number;    // 23 for CPIS-499, 20 for CPIS-498
       comment?: string;
       gradedBy?: string;
       gradedAt?: string;
@@ -139,7 +261,8 @@ export interface GroupGrade {
   };
 }
 
-// Presentation scheduling for committee evaluation
+// ─── Presentation ─────────────────────────────────────────────────────────────
+
 export interface PresentationSchedule {
   groupId: string;
   groupName: string;
@@ -151,7 +274,6 @@ export interface PresentationSchedule {
   committeeMembers: string[];
 }
 
-// Student's selected presentation slot
 export interface StudentPresentationSelection {
   groupId: string;
   groupName: string;
@@ -163,22 +285,22 @@ export interface StudentPresentationSelection {
   selectedAt?: string;
 }
 
+// ─── Student Grade ────────────────────────────────────────────────────────────
+
 export interface StudentGrade {
   studentId: string;
   studentName: string;
   groupId: string;
-  course: 'CPIS-498' | 'CPIS-499';
-  
-  // Supervisor Assessment (20 marks) - Managed by Supervisor (per student)
+  course: string;
+
   supervisorAssessment: {
     score?: number;
-    maxScore: 20;
+    maxScore: number;    // 23 for CPIS-499, 20 for CPIS-498
     comment?: string;
     gradedBy?: string;
     gradedAt?: string;
   };
-  
-  // Evaluation Committee (40 marks) - Other supervisors evaluate (per student)
+
   committeeEvaluation: {
     score?: number;
     maxScore: 40;
@@ -186,24 +308,21 @@ export interface StudentGrade {
     comment?: string;
     evaluatedAt?: string;
   };
-  
-  // Peer Feedback (5 marks) - Student peer evaluation
+
   peerFeedback: {
     score?: number;
     maxScore: 5;
     evaluations?: PeerEvaluation[];
   };
-  
-  // Group deliverables and weekly (from GroupGrade)
+
   deliverablesTotal?: number;
   weeklyProgressScore?: number;
-  
-  // Total
-  totalScore: number; // out of 100
-  finalGrade?: string; // A+, A, B+, etc.
+  totalScore: number;
+  finalGrade?: string;
 }
 
-// Notification types
+// ─── Notifications ────────────────────────────────────────────────────────────
+
 export interface Notification {
   id: string;
   type: 'deadline' | 'feedback' | 'grade' | 'announcement';
@@ -214,7 +333,8 @@ export interface Notification {
   link?: string;
 }
 
-// Announcement types
+// ─── Announcement ─────────────────────────────────────────────────────────────
+
 export interface Announcement {
   id: string;
   title: string;
@@ -226,17 +346,20 @@ export interface Announcement {
   attachments?: string[];
 }
 
-// Admin/Coordinator types
+// ─── Milestone Config ─────────────────────────────────────────────────────────
+
 export interface MilestoneConfig {
   id: string;
   name: string;
-  course: 'CPIS-498' | 'CPIS-499';
+  course: string;
   openDate: string;
   closeDate: string;
   visible: boolean;
   allowLateSubmission: boolean;
   requireJustification: boolean;
 }
+
+// ─── Audit Log ────────────────────────────────────────────────────────────────
 
 export interface AuditLogEntry {
   id: string;
@@ -247,10 +370,33 @@ export interface AuditLogEntry {
   context: string;
 }
 
+// ─── Peer Evaluation ──────────────────────────────────────────────────────────
+
 export interface PeerEvaluation {
   evaluatorId: string;
   evaluatorName: string;
   score: number;
   comment?: string;
   submittedAt: string;
+}
+
+// ─── Role Switch Log ──────────────────────────────────────────────────────────
+
+export interface RoleSwitchLog {
+  id: string;
+  userId: string;
+  fromRole: UserRole;
+  toRole: UserRole;
+  switchedAt: string;
+}
+
+// ─── Approval Record ──────────────────────────────────────────────────────────
+
+export interface ApprovalRecord {
+  id: string;
+  userId: string;
+  approvedBy: string;
+  approvedRole: UserRole;
+  courseScope?: string;
+  timestamp: string;
 }

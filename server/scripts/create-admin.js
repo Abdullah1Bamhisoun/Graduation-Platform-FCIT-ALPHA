@@ -71,7 +71,7 @@ async function createAdminUser() {
           email: ADMIN_EMAIL,
           name: ADMIN_NAME,
           role: 'admin',
-          department: 'CS',
+          department: 'IS',
         });
 
       if (insertError) {

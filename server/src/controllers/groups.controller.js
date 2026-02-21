@@ -9,13 +9,20 @@ async function getAllGroups(req, res) {
     // Step 1: fetch groups (with supervisor join) and group_members separately
     const groupSelect = `
       id, group_code, group_number, department, gender, course_number, project_name,
-      project_description, is_locked, status, created_at, supervisor_id
+      project_description, is_locked, status, created_at, supervisor_id, course_id
     `;
 
-    let { data: groupData, error: groupError } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('groups')
       .select(groupSelect)
       .order('group_code', { ascending: true });
+
+    // Coordinators can only view groups in their assigned course
+    if (req.user.activeRole === 'coordinator' && req.user.coordinatorCourseId) {
+      query = query.eq('course_id', req.user.coordinatorCourseId);
+    }
+
+    let { data: groupData, error: groupError } = await query;
 
     if (groupError) throw groupError;
 
@@ -67,6 +74,7 @@ async function getAllGroups(req, res) {
         department: g.department ?? null,
         gender: g.gender ?? null,
         courseNumber: g.course_number ?? null,
+        courseId: g.course_id ?? null,
         projectName: g.project_name,
         projectDescription: g.project_description,
         isLocked: g.is_locked ?? false,
@@ -175,12 +183,19 @@ async function assignSupervisor(req, res) {
     // Verify group exists and is approved
     const { data: group, error: groupError } = await supabaseAdmin
       .from('groups')
-      .select('id, status, group_number')
+      .select('id, status, group_number, course_id')
       .eq('id', groupId)
       .single();
 
     if (groupError || !group) {
       return res.status(404).json({ error: 'Group not found' });
+    }
+
+    // Coordinator scope check
+    if (!req.user.roles.includes('admin') && req.user.coordinatorCourseId) {
+      if (group.course_id !== req.user.coordinatorCourseId) {
+        return res.status(403).json({ error: 'You can only assign supervisors to groups in your assigned course' });
+      }
     }
 
     // Verify supervisor exists and has correct role + status
@@ -246,6 +261,18 @@ async function updateGroupStatus(req, res) {
       return res.status(400).json({ error: 'Invalid status value' });
     }
 
+    // Coordinator scope check — can only update groups in their course
+    if (!req.user.roles.includes('admin') && req.user.coordinatorCourseId) {
+      const { data: group } = await supabaseAdmin
+        .from('groups')
+        .select('course_id')
+        .eq('id', groupId)
+        .maybeSingle();
+      if (!group || group.course_id !== req.user.coordinatorCourseId) {
+        return res.status(403).json({ error: 'You can only update groups in your assigned course' });
+      }
+    }
+
     const { error } = await supabaseAdmin
       .from('groups')
       .update({ status })
@@ -277,12 +304,19 @@ async function deleteGroup(req, res) {
 
     const { data: group, error: groupError } = await supabaseAdmin
       .from('groups')
-      .select('id, group_code')
+      .select('id, group_code, course_id')
       .eq('id', groupId)
       .single();
 
     if (groupError || !group) {
       return res.status(404).json({ error: 'Group not found' });
+    }
+
+    // Coordinator scope check
+    if (!req.user.roles.includes('admin') && req.user.coordinatorCourseId) {
+      if (group.course_id !== req.user.coordinatorCourseId) {
+        return res.status(403).json({ error: 'You can only delete groups in your assigned course' });
+      }
     }
 
     // Remove members first to avoid FK violation
@@ -315,6 +349,14 @@ async function updateGroup(req, res) {
   try {
     const { id: groupId } = req.params;
     const { projectName, removeMemberIds, addMemberIds, removeSupervisor } = req.body;
+
+    // Coordinator scope check
+    if (!req.user.roles.includes('admin') && req.user.coordinatorCourseId) {
+      const { data: grp } = await supabaseAdmin.from('groups').select('course_id').eq('id', groupId).maybeSingle();
+      if (!grp || grp.course_id !== req.user.coordinatorCourseId) {
+        return res.status(403).json({ error: 'You can only edit groups in your assigned course' });
+      }
+    }
 
     const groupUpdates = {};
     if (projectName !== undefined) groupUpdates.project_name = projectName;
@@ -350,4 +392,101 @@ async function updateGroup(req, res) {
   }
 }
 
-module.exports = { getAllGroups, getAvailableGroups, assignSupervisor, updateGroupStatus, deleteGroup, updateGroup };
+/**
+ * POST /api/groups
+ * Admin or coordinator — create a new group manually.
+ * Coordinator: courseId is forced to their coordinatorCourseId.
+ */
+async function createGroup(req, res) {
+  try {
+    const { projectName, projectDescription, department, gender, sectionNumber } = req.body;
+    let { courseId } = req.body;
+
+    if (!projectName) {
+      return res.status(400).json({ error: 'Project name is required' });
+    }
+
+    const isAdmin = req.user.roles.includes('admin');
+
+    // Coordinator: scope to their course
+    if (!isAdmin) {
+      if (!req.user.coordinatorCourseId) {
+        return res.status(403).json({ error: 'No course assigned to your coordinator account' });
+      }
+      courseId = req.user.coordinatorCourseId;
+    }
+
+    if (!courseId) {
+      return res.status(400).json({ error: 'Course is required' });
+    }
+
+    // Look up course code for generating group_code
+    const { data: course } = await supabaseAdmin
+      .from('courses')
+      .select('code')
+      .eq('id', courseId)
+      .maybeSingle();
+
+    // Find next group_number for this course
+    const { data: existing } = await supabaseAdmin
+      .from('groups')
+      .select('group_number')
+      .eq('course_id', courseId)
+      .order('group_number', { ascending: false })
+      .limit(1);
+
+    const lastNum = existing?.[0]?.group_number ?? 0;
+    if (lastNum >= 50) {
+      return res.status(400).json({ error: 'Group limit (50) reached for this course' });
+    }
+
+    const nextNum = lastNum + 1;
+    const now = new Date();
+    const year = now.getFullYear().toString();
+
+    // New group code format: DEPT_SECTION_COURSENUM_YEAR_GROUPNUM_GENDER
+    // Example: IS_13_499_2026_01_M
+    const dept        = (department || 'IS').toUpperCase();
+    const section     = String(sectionNumber || 1).padStart(2, '0');
+    const courseNum   = (course?.code || '000').replace(/[^0-9]/g, '').slice(-3);
+    const groupNum    = String(nextNum).padStart(2, '0');
+    const genderCode  = gender === 'male' ? 'M' : gender === 'female' ? 'F' : 'U';
+    const groupCode   = `${dept}_${section}_${courseNum}_${year}_${groupNum}_${genderCode}`;
+
+    const { data: newGroup, error: insertErr } = await supabaseAdmin
+      .from('groups')
+      .insert({
+        group_code: groupCode,
+        group_number: nextNum,
+        course_id: courseId,
+        course_number: courseNum || null,
+        department: department || null,
+        gender: gender || null,
+        project_name: projectName,
+        project_description: projectDescription || '',
+        is_locked: false,
+        status: 'pending',
+      })
+      .select('id, group_code, group_number')
+      .single();
+
+    if (insertErr) throw insertErr;
+
+    // Audit log (non-fatal)
+    try {
+      await supabaseAdmin.from('audit_log').insert({
+        actor_id: req.user.id,
+        action: 'CREATE_GROUP',
+        entity: 'group',
+        context: { groupId: newGroup.id, groupCode: newGroup.group_code, courseId },
+      });
+    } catch { /* non-fatal */ }
+
+    res.json({ success: true, group: newGroup });
+  } catch (error) {
+    console.error('Error creating group:', error);
+    res.status(500).json({ error: error.message || 'Failed to create group' });
+  }
+}
+
+module.exports = { getAllGroups, getAvailableGroups, assignSupervisor, updateGroupStatus, deleteGroup, updateGroup, createGroup };

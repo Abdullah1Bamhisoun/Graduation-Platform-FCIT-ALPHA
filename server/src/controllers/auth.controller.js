@@ -9,12 +9,23 @@ async function submitRegistration(req, res) {
   try {
     const {
       accountType, name, email, passwordHash, department, gender,
-      studentId, course, term, groupId, projectName, projectIdea,
+      studentId, course, courseId, term, groupId, projectName, projectIdea,
       teammateSubmittedIdea, employeeNumber,
     } = req.body;
 
     if (!email || !name || !accountType) {
       return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Block if account already exists in profiles
+    const { data: existingProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .eq('email', email.toLowerCase())
+      .maybeSingle();
+
+    if (existingProfile) {
+      return res.status(409).json({ error: 'An account with this email already exists. Please log in instead.' });
     }
 
     // Check if a pending registration already exists — block re-submission while waiting
@@ -42,6 +53,7 @@ async function submitRegistration(req, res) {
       gender: gender || null,
       student_id: studentId || null,
       course: course || null,
+      course_id: courseId || null,
       term: term || null,
       group_id: groupId || null,
       project_name: projectName || null,
@@ -86,6 +98,13 @@ async function approveRegistration(req, res) {
       return res.status(400).json({
         error: `Registration has already been ${registration.status}`
       });
+    }
+
+    // Coordinator scope check — coordinator can only approve their own course's registrations
+    if (req.user.activeRole === 'coordinator' && req.user.coordinatorCourseId) {
+      if (registration.course_id !== req.user.coordinatorCourseId) {
+        return res.status(403).json({ error: 'You can only approve registrations for your assigned course' });
+      }
     }
 
     // Server-side email validation by role
@@ -142,46 +161,82 @@ async function approveRegistration(req, res) {
       // Still proceed — auth user was created successfully
     }
 
+    // ── Insert into user_roles table ─────────────────────────────────────────
+    const roleName = registration.account_type === 'student' ? 'student' : 'supervisor';
+    const { data: roleRow } = await supabaseAdmin
+      .from('roles')
+      .select('id')
+      .eq('name', roleName)
+      .maybeSingle();
+
+    if (roleRow) {
+      await supabaseAdmin
+        .from('user_roles')
+        .upsert(
+          { user_id: authUser.user.id, role_id: roleRow.id, coordinator_course_id: null },
+          { onConflict: 'user_id,role_id' }
+        );
+    }
+
     // ── Group assignment (students only) ──────────────────────────────────────
     if (registration.account_type === 'student') {
       const userId = authUser.user.id;
-      const dept = registration.department || '';
-      const courseNum = (registration.course || '').split('-').pop() || ''; // 'CPCS-498' → '498'
-      const gender = registration.gender || 'male';
       const termMap = { First: '01', Second: '02', Summer: '03' };
       const termCode = termMap[registration.term] || '01';
       const year = new Date().getFullYear().toString();
-      const genderCode = gender === 'female' ? 'F' : 'M';
+
+      // Resolve course_id for group scope (prefer UUID, fallback to code lookup)
+      let resolvedCourseId = registration.course_id || null;
+      if (!resolvedCourseId && registration.course) {
+        const { data: courseRow } = await supabaseAdmin
+          .from('courses')
+          .select('id')
+          .eq('code', registration.course)
+          .maybeSingle();
+        resolvedCourseId = courseRow?.id || null;
+      }
 
       if (registration.project_name) {
         // ── HAS IDEA: auto-create a new group ──────────────────────────────
-        // Find the highest existing group_number for this dept+course+gender combo
-        const { data: existingGroups, error: numError } = await supabaseAdmin
+        // Find the highest existing group_number for this course
+        let groupQuery = supabaseAdmin
           .from('groups')
           .select('group_number')
-          .eq('department', dept)
-          .eq('course_number', courseNum)
-          .eq('gender', gender)
           .order('group_number', { ascending: false })
           .limit(1);
+
+        if (resolvedCourseId) {
+          groupQuery = groupQuery.eq('course_id', resolvedCourseId);
+        }
+
+        const { data: existingGroups, error: numError } = await groupQuery;
 
         if (!numError) {
           const lastNum = existingGroups?.[0]?.group_number ?? 0;
           if (lastNum >= 50) {
-            // Still approve the user but log the overflow
-            console.warn(`Group limit reached for ${dept}/${courseNum}/${gender}`);
+            console.warn(`Group limit reached for course ${resolvedCourseId}`);
           } else {
             const nextNum = lastNum + 1;
-            const groupCode = `${dept}_${String(nextNum).padStart(2, '0')}_${courseNum}_${year}_${termCode}_${genderCode}`;
+
+            // New group code format: DEPT_SECTION_COURSENUM_YEAR_GROUPNUM_GENDER
+            // Example: IS_13_499_2026_01_M
+            // Section defaults to term code (01/02/03) for auto-created groups
+            const dept        = (registration.department || 'IS').toUpperCase();
+            const section     = termCode; // e.g. '01', '02', '03'
+            const courseNum   = (registration.course || '000').replace(/[^0-9]/g, '').slice(-3);
+            const groupNum    = String(nextNum).padStart(2, '0');
+            const genderCode  = registration.gender === 'male' ? 'M' : registration.gender === 'female' ? 'F' : 'U';
+            const groupCode   = `${dept}_${section}_${courseNum}_${year}_${groupNum}_${genderCode}`;
 
             const { data: newGroup, error: groupError } = await supabaseAdmin
               .from('groups')
               .insert({
                 group_code: groupCode,
                 group_number: nextNum,
-                department: dept,
-                course_number: courseNum,
-                gender,
+                course_id: resolvedCourseId,
+                course_number: courseNum || null,
+                department: registration.department || null,
+                gender: registration.gender || null,
                 project_name: registration.project_name,
                 project_description: registration.project_idea || '',
                 is_locked: true,
@@ -204,7 +259,7 @@ async function approveRegistration(req, res) {
         // ── NO IDEA: join an existing group ───────────────────────────────
         const { data: group } = await supabaseAdmin
           .from('groups')
-          .select('id, gender, members:group_members(student_id)')
+          .select('id, members:group_members(student_id)')
           .eq('id', registration.group_id)
           .single();
 
@@ -236,8 +291,8 @@ async function approveRegistration(req, res) {
       console.error('Error updating registration:', updateError);
     }
 
-    // Log the action in audit log
-    await supabaseAdmin.from('audit_log').insert({
+    // Log the action in audit log (non-fatal if table missing)
+    const { error: auditLogError } = await supabaseAdmin.from('audit_log').insert({
       actor_id: req.user.id,
       action: 'APPROVE_REGISTRATION',
       entity: 'registration',
@@ -247,6 +302,16 @@ async function approveRegistration(req, res) {
         accountType: registration.account_type,
       }
     });
+    if (auditLogError) console.error('Error inserting audit log:', auditLogError);
+
+    // Record in approvals table
+    const { error: approvalInsertError } = await supabaseAdmin.from('approvals').insert({
+      registration_id: registrationId,
+      reviewed_by: req.user.id,
+      status: 'approved',
+      course_id: registration.course_id || null,
+    });
+    if (approvalInsertError) console.error('Error inserting approval record:', approvalInsertError);
 
     res.json({
       success: true,
@@ -287,6 +352,13 @@ async function rejectRegistration(req, res) {
       });
     }
 
+    // Coordinator scope check
+    if (req.user.activeRole === 'coordinator' && req.user.coordinatorCourseId) {
+      if (registration.course_id !== req.user.coordinatorCourseId) {
+        return res.status(403).json({ error: 'You can only reject registrations for your assigned course' });
+      }
+    }
+
     // Update registration status
     const { error: updateError } = await supabaseAdmin
       .from('pending_registrations')
@@ -302,8 +374,8 @@ async function rejectRegistration(req, res) {
       return res.status(500).json({ error: 'Failed to reject registration' });
     }
 
-    // Log the action in audit log
-    await supabaseAdmin.from('audit_log').insert({
+    // Log the action in audit log (non-fatal if table missing)
+    const { error: rejectAuditError } = await supabaseAdmin.from('audit_log').insert({
       actor_id: req.user.id,
       action: 'REJECT_REGISTRATION',
       entity: 'registration',
@@ -313,6 +385,16 @@ async function rejectRegistration(req, res) {
         accountType: registration.account_type,
       }
     });
+    if (rejectAuditError) console.error('Error inserting audit log:', rejectAuditError);
+
+    // Record in approvals table
+    const { error: rejectionInsertError } = await supabaseAdmin.from('approvals').insert({
+      registration_id: registrationId,
+      reviewed_by: req.user.id,
+      status: 'rejected',
+      course_id: registration.course_id || null,
+    });
+    if (rejectionInsertError) console.error('Error inserting rejection record:', rejectionInsertError);
 
     res.json({
       success: true,
@@ -324,8 +406,151 @@ async function rejectRegistration(req, res) {
   }
 }
 
+/**
+ * POST /api/auth/repair-groups
+ * Admin only — retroactively creates missing groups for already-approved students.
+ * Safe to call multiple times (skips students already in a group).
+ */
+async function repairGroups(req, res) {
+  try {
+    // Fetch all approved student registrations that had a project idea
+    const { data: approvedRegs, error: fetchErr } = await supabaseAdmin
+      .from('pending_registrations')
+      .select('*')
+      .eq('status', 'approved')
+      .eq('account_type', 'student')
+      .not('project_name', 'is', null);
+
+    if (fetchErr) throw fetchErr;
+
+    let created = 0;
+    let skipped = 0;
+
+    for (const reg of (approvedRegs || [])) {
+      // Find the student's profile by email
+      const { data: profile } = await supabaseAdmin
+        .from('profiles')
+        .select('id')
+        .eq('email', reg.email)
+        .maybeSingle();
+
+      if (!profile) { skipped++; continue; }
+
+      // Check if the student is already in a group
+      const { data: existing } = await supabaseAdmin
+        .from('group_members')
+        .select('group_id')
+        .eq('student_id', profile.id)
+        .maybeSingle();
+
+      if (existing) { skipped++; continue; }
+
+      // Resolve course_id
+      let resolvedCourseId = reg.course_id || null;
+      if (!resolvedCourseId && reg.course) {
+        const { data: courseRow } = await supabaseAdmin
+          .from('courses')
+          .select('id')
+          .eq('code', reg.course)
+          .maybeSingle();
+        resolvedCourseId = courseRow?.id || null;
+      }
+
+      // Find next group_number for this course
+      let numQuery = supabaseAdmin
+        .from('groups')
+        .select('group_number')
+        .order('group_number', { ascending: false })
+        .limit(1);
+      if (resolvedCourseId) {
+        numQuery = numQuery.eq('course_id', resolvedCourseId);
+      }
+      const { data: existingGroups } = await numQuery;
+      const lastNum = existingGroups?.[0]?.group_number ?? 0;
+      if (lastNum >= 50) { skipped++; continue; }
+
+      const nextNum = lastNum + 1;
+      const termMap = { First: '01', Second: '02', Summer: '03' };
+      const termCode = termMap[reg.term] || '01';
+      const year = new Date(reg.submitted_at || Date.now()).getFullYear().toString();
+      const courseCode = (reg.course || 'GRP').replace(/[^A-Z0-9]/gi, '');
+      const groupCode = `${courseCode}_${String(nextNum).padStart(2, '0')}_${year}_${termCode}`;
+
+      const { data: newGroup, error: groupErr } = await supabaseAdmin
+        .from('groups')
+        .insert({
+          group_code: groupCode,
+          group_number: nextNum,
+          course_id: resolvedCourseId,
+          course_number: (reg.course || '').split('-').pop() || null,
+          department: reg.department || null,
+          gender: reg.gender || null,
+          project_name: reg.project_name,
+          project_description: reg.project_idea || '',
+          is_locked: true,
+          status: 'pending',
+        })
+        .select('id')
+        .single();
+
+      if (groupErr) {
+        console.error(`repairGroups: failed to create group for ${reg.email}:`, groupErr.message);
+        skipped++;
+        continue;
+      }
+
+      await supabaseAdmin.from('group_members').insert({
+        group_id: newGroup.id,
+        student_id: profile.id,
+      });
+
+      created++;
+    }
+
+    res.json({ success: true, created, skipped });
+  } catch (error) {
+    console.error('Error repairing groups:', error);
+    res.status(500).json({ error: 'Failed to repair groups' });
+  }
+}
+
+/**
+ * GET /api/auth/pending-registrations
+ * Admin: all registrations. Coordinator: scoped to their course_id.
+ */
+async function listRegistrations(req, res) {
+  try {
+    const { status } = req.query; // optional filter: pending|approved|rejected
+    const isAdmin = req.user.roles.includes('admin');
+    const isCoordinator = req.user.activeRole === 'coordinator' && req.user.coordinatorCourseId;
+
+    let query = supabaseAdmin
+      .from('pending_registrations')
+      .select('*')
+      .order('submitted_at', { ascending: false });
+
+    if (status) query = query.eq('status', status);
+
+    if (!isAdmin && isCoordinator) {
+      query = query.eq('course_id', req.user.coordinatorCourseId);
+    } else if (!isAdmin) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    res.json(data || []);
+  } catch (error) {
+    console.error('Error listing registrations:', error);
+    res.status(500).json({ error: 'Failed to fetch registrations' });
+  }
+}
+
 module.exports = {
   submitRegistration,
   approveRegistration,
   rejectRegistration,
+  listRegistrations,
+  repairGroups,
 };

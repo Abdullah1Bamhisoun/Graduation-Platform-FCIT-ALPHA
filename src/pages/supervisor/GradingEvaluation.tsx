@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { Button } from '../../components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
@@ -14,6 +14,9 @@ import {
   DialogTitle,
 } from '../../components/ui/dialog';
 import { useAuth } from '../../lib/AuthContext';
+import { getGroupsForSupervisor } from '../../services/groups';
+import { useLockStatus } from '../../hooks/useLockStatus';
+import { LockedBanner } from '../../components/ui/LockedBanner';
 import {
   Save,
   AlertCircle,
@@ -43,43 +46,43 @@ interface CommitteeCriterion {
   score: number | null;
 }
 
-const mockGroups: Group[] = [
-  {
-    id: '13_498_2026_01_M',
-    groupNumber: 13,
-    course: 'CPIS-498',
-    projectTitle: 'Graduation Project Platform',
-  },
-  {
-    id: '07_498_2026_01_M',
-    groupNumber: 7,
-    course: 'CPIS-498',
-    projectTitle: 'Smart Healthcare System',
-  },
-];
 
 export function SupervisorGradingEvaluation() {
   const { user } = useAuth();
+  const { isLocked } = useLockStatus('grades');
 
+  const [groups, setGroups] = useState<Group[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'chapters' | 'committee'>('chapters');
   const [status, setStatus] = useState<'draft' | 'submitted'>('draft');
-  
+
+  useEffect(() => {
+    if (!user) return;
+    getGroupsForSupervisor(user.id).then((data) => {
+      setGroups(data.map((g) => ({
+        id: g.id,
+        groupNumber: g.groupNumber ?? 0,
+        course: g.courseCode,
+        projectTitle: g.projectName,
+      })));
+    });
+  }, [user?.id]);
+
   // Chapter grades (CPIS-498 - 20 marks total)
   const [chapterGrades, setChapterGrades] = useState<ChapterGrade[]>([
-    { chapter: 'Chapter-1 Introduction', score: 5 },
+    { chapter: 'Chapter-1 Introduction', score: null },
     { chapter: 'Chapter-2 Related Work', score: null },
-    { chapter: 'Chapter-3 Data Analysis', score: 4 },
+    { chapter: 'Chapter-3 Data Analysis', score: null },
     { chapter: 'Chapter-4 Design', score: null },
     { chapter: 'Chapter-5 Conclusion', score: null },
   ]);
-  
-  const [chapterComments, setChapterComments] = useState('Great work on the introduction. Please improve the related work section with more recent references.');
+
+  const [chapterComments, setChapterComments] = useState('');
 
   // Committee criteria (CPIS-498 - 40 marks total)
   const [committeeCriteria, setCommitteeCriteria] = useState<CommitteeCriterion[]>([
-    { id: 'technical', name: 'Technical Work Level', maxScore: 5, score: 4 },
-    { id: 'complexity', name: 'Project Complexity', maxScore: 5, score: 5 },
+    { id: 'technical', name: 'Technical Work Level', maxScore: 5, score: null },
+    { id: 'complexity', name: 'Project Complexity', maxScore: 5, score: null },
     { id: 'presentation', name: 'Presentation (Style & Format)', maxScore: 5, score: null },
     { id: 'conclusion', name: 'Conclusion & Future Work', maxScore: 5, score: null },
     { id: 'document', name: 'Document (Style & Format)', maxScore: 5, score: null },
@@ -98,7 +101,7 @@ export function SupervisorGradingEvaluation() {
   // Confirm Submit Modal
   const [showSubmitModal, setShowSubmitModal] = useState(false);
 
-  const currentGroup = mockGroups.find(g => g.id === selectedGroup);
+  const currentGroup = groups.find(g => g.id === selectedGroup);
 
   if (!user) return null;
 
@@ -181,6 +184,7 @@ export function SupervisorGradingEvaluation() {
 
   return (
     <Layout user={user} pageTitle="Grading & Evaluation">
+      {isLocked && <LockedBanner />}
       <div className="mb-6">
         {/* Group Selection */}
         <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6 mb-6">
@@ -193,7 +197,7 @@ export function SupervisorGradingEvaluation() {
                 <SelectValue placeholder="Choose a group..." />
               </SelectTrigger>
               <SelectContent>
-                {mockGroups.map((group) => (
+                {groups.map((group) => (
                   <SelectItem key={group.id} value={group.id}>
                     Group {group.groupNumber} - {group.projectTitle}
                   </SelectItem>
@@ -234,14 +238,14 @@ export function SupervisorGradingEvaluation() {
               </div>
 
               <div className="flex items-center gap-2">
-                <Button variant="outline" onClick={handleSaveDraft}>
+                <Button variant="outline" onClick={handleSaveDraft} disabled={isLocked}>
                   <Save className="w-4 h-4 mr-2" />
                   Save Draft
                 </Button>
                 <Button
                   onClick={handleSubmitGrades}
                   className="bg-green-600 hover:bg-green-700 text-white"
-                  disabled={status === 'submitted' || isIP}
+                  disabled={isLocked || status === 'submitted' || isIP}
                 >
                   <Send className="w-4 h-4 mr-2" />
                   Submit Grades

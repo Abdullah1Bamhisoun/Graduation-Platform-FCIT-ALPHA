@@ -21,12 +21,12 @@ const buttonVariants = cva(
         ghost:
           "!bg-white hover:!bg-gray-50 text-black font-bold active:text-gray-700",
         link: "!bg-transparent text-black font-bold underline-offset-4 hover:underline active:text-gray-700",
-        primary: "!bg-[#10B981] text-white font-bold border-[1.5px] border-[#10B981] hover:!bg-[#059669] active:!bg-[#047857] focus-visible:ring-green-500/20",
+        primary: "!bg-[var(--color-primary-600)] text-white font-bold border-[1.5px] border-[var(--color-primary-600)] hover:!bg-[var(--color-primary-700)] active:!bg-[var(--color-primary-700)] focus-visible:ring-[var(--color-primary-600)]/20",
       },
       size: {
         default: "h-9 px-4 py-2 text-sm",
-        sm: "h-8 rounded-md px-3 text-xs",
-        lg: "h-10 rounded-md px-8",
+        sm: "h-8 rounded-lg px-3 text-xs",
+        lg: "h-10 rounded-lg px-8 text-sm",
         icon: "size-9",
       },
     },

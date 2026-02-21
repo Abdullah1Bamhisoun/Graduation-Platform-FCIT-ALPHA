@@ -1,16 +1,18 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/groups.controller');
-const { authenticate, requireAdmin } = require('../middleware/auth.middleware');
+const { authenticate, requireAdmin, requireCoordinatorOrAdmin } = require('../middleware/auth.middleware');
+const { checkLocked } = require('../middleware/lock.middleware');
 
 // Public — for registration page group selection
 router.get('/available', controller.getAvailableGroups);
 
-// Admin routes
-router.get('/', authenticate, requireAdmin, controller.getAllGroups);
-router.patch('/:id', authenticate, requireAdmin, controller.updateGroup);
-router.delete('/:id', authenticate, requireAdmin, controller.deleteGroup);
-router.post('/:id/assign-supervisor', authenticate, requireAdmin, controller.assignSupervisor);
-router.patch('/:id/status', authenticate, requireAdmin, controller.updateGroupStatus);
+// Coordinator (course-scoped) or admin (all groups)
+router.get('/', authenticate, requireCoordinatorOrAdmin, controller.getAllGroups);
+router.post('/', authenticate, requireCoordinatorOrAdmin, controller.createGroup);
+router.patch('/:id', authenticate, requireCoordinatorOrAdmin, controller.updateGroup);
+router.delete('/:id', authenticate, requireCoordinatorOrAdmin, controller.deleteGroup);
+router.post('/:id/assign-supervisor', authenticate, requireCoordinatorOrAdmin, controller.assignSupervisor);
+router.patch('/:id/status', authenticate, requireCoordinatorOrAdmin, controller.updateGroupStatus);
 
 module.exports = router;

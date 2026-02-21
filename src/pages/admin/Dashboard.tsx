@@ -2,8 +2,7 @@ import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { DashboardCard } from '../../features/dashboard/components/DashboardCard';
 import { MetricCard } from '../../features/dashboard/components/MetricCard';
-import { Button } from '../../components/ui/button';
-import { Settings, Bell, BarChart3, Users, AlertTriangle, CheckCircle, Clock, FileText } from 'lucide-react';
+import { Settings, Bell, BarChart3, Users, AlertTriangle, CheckCircle, Clock, FileText, CalendarDays } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../lib/AuthContext';
 import {
@@ -21,12 +20,50 @@ import type {
   UpcomingEvent,
 } from '../../services/dashboard';
 
+// ── Quick-action definitions ──────────────────────────────────────────────────
+const QUICK_ACTIONS = [
+  { icon: Settings,  label: 'Configure Milestones',  path: '/admin/milestones' },
+  { icon: Bell,      label: 'Create Announcement',   path: '/admin/announcements' },
+  { icon: BarChart3, label: 'Export Reports',         path: '/admin/exports' },
+  { icon: Users,     label: 'Manage Users',           path: '/admin/users' },
+] as const;
+
+// ── Color maps ────────────────────────────────────────────────────────────────
+const ACTIVITY_BAR: Record<string, string> = {
+  blue:   'bg-blue-400',
+  green:  'bg-emerald-400',
+  purple: 'bg-purple-400',
+  amber:  'bg-amber-400',
+  gray:   'bg-gray-300',
+};
+
+const EVENT_CARD: Record<string, string> = {
+  blue:   'border-blue-400   bg-blue-50/60',
+  purple: 'border-purple-400 bg-purple-50/60',
+  green:  'border-emerald-400 bg-emerald-50/60',
+  amber:  'border-amber-400  bg-amber-50/60',
+};
+
+const EVENT_LABEL: Record<string, string> = {
+  blue:   'text-blue-600',
+  purple: 'text-purple-600',
+  green:  'text-emerald-600',
+  amber:  'text-amber-600',
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function AdminDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [stats, setStats] = useState<AdminStats>({ totalStudents: 0, overdueSubmissions: 0, upcomingDeadlines: 0, completedProjects: 0, completionRate: 0 });
+
+  const [stats, setStats] = useState<AdminStats>({
+    totalStudents: 0, overdueSubmissions: 0, upcomingDeadlines: 0, completedProjects: 0, completionRate: 0,
+  });
   const [submissionVolume, setSubmissionVolume] = useState<SubmissionVolumeDay[]>([]);
-  const [evalProgress, setEvalProgress] = useState<EvaluationProgress>({ courses: [], overallEvaluated: 0, overallTotal: 0, overallPercent: 0 });
+  const [evalProgress, setEvalProgress] = useState<EvaluationProgress>({
+    courses: [], overallEvaluated: 0, overallTotal: 0, overallPercent: 0,
+  });
   const [recentActivity, setRecentActivity] = useState<ActivityEntry[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,204 +85,191 @@ export function AdminDashboard() {
   }, []);
 
   if (!user) return null;
-  if (loading) return <Layout user={user} pageTitle="Admin Dashboard"><div className="p-6">Loading...</div></Layout>;
+
+  if (loading) {
+    return (
+      <Layout user={user} pageTitle="Admin Dashboard">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="!bg-white rounded-xl border border-[var(--color-border)] p-6 h-36 animate-pulse" />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="!bg-white rounded-xl border border-[var(--color-border)] h-64 animate-pulse" />
+          ))}
+        </div>
+      </Layout>
+    );
+  }
 
   const maxSubmissions = submissionVolume.length > 0 ? Math.max(...submissionVolume.map(d => d.count), 1) : 1;
 
-  const eventColors: Record<string, string> = {
-    blue: 'border-blue-500 dark:border-blue-900/50',
-    purple: 'border-purple-500 dark:border-purple-900/50',
-    green: 'border-green-500 dark:border-green-900/50',
-    amber: 'border-amber-500 dark:border-amber-900/50',
-  };
-  const eventTextColors: Record<string, string> = {
-    blue: 'text-blue-600 dark:text-blue-400',
-    purple: 'text-purple-600 dark:text-purple-400',
-    green: 'text-green-600 dark:text-green-400',
-    amber: 'text-amber-600 dark:text-amber-400',
-  };
-
   return (
     <Layout user={user} pageTitle="Admin Dashboard">
-      {/* KPIs */}
-      <div className="grid grid-cols-4 gap-6 mb-8">
-        <MetricCard
-          label="Total Students"
-          value={stats.totalStudents}
-          icon={Users}
-          color="primary"
-        />
-        <MetricCard
-          label="Overdue Submissions"
-          value={stats.overdueSubmissions}
-          icon={AlertTriangle}
-          color="danger"
-        />
-        <MetricCard
-          label="Upcoming Deadlines"
-          value={stats.upcomingDeadlines}
-          icon={Clock}
-          color="warning"
-        />
+
+      {/* ── KPI Cards ──────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+        <MetricCard label="Total Students"       value={stats.totalStudents}       icon={Users}          color="primary" />
+        <MetricCard label="Overdue Submissions"  value={stats.overdueSubmissions}  icon={AlertTriangle}  color="danger"  />
+        <MetricCard label="Upcoming Deadlines"   value={stats.upcomingDeadlines}   icon={Clock}          color="warning" />
         <MetricCard
           label="Completed Projects"
           value={stats.completedProjects}
           icon={CheckCircle}
-          trend={stats.completionRate > 0 ? { value: `${stats.completionRate}% completion rate`, positive: true } : undefined}
           color="success"
+          trend={stats.completionRate > 0 ? { value: `${stats.completionRate}% completion rate`, positive: true } : undefined}
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
-        {/* Quick Actions */}
-        <DashboardCard
-          title="Quick Actions"
-          icon={Settings}
-        >
-          <div className="space-y-3">
-            <Button
-              variant="outline"
-              className="w-full justify-start"
-              onClick={() => navigate('/admin/milestones')}
-            >
-              <Settings className="w-4 h-4 mr-2" />
-              Configure Milestones
-            </Button>
-            <Button
-              variant="outline"
-              className="w-full justify-start"
-              onClick={() => navigate('/admin/announcements')}
-            >
-              <Bell className="w-4 h-4 mr-2" />
-              Create Announcement
-            </Button>
-            <Button
-              variant="outline"
-              className="w-full justify-start"
-              onClick={() => navigate('/admin/exports')}
-            >
-              <BarChart3 className="w-4 h-4 mr-2" />
-              Export Reports
-            </Button>
-            <Button
-              variant="outline"
-              className="w-full justify-start"
-              onClick={() => navigate('/admin/users')}
-            >
-              <Users className="w-4 h-4 mr-2" />
-              Manage Users
-            </Button>
+      {/* ── Main grid ──────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        {/* Quick Actions ──────────────────────────────────────────────────── */}
+        <DashboardCard title="Quick Actions" icon={Settings}>
+          <div className="space-y-2">
+            {QUICK_ACTIONS.map(({ icon: ActionIcon, label, path }) => (
+              <button
+                key={path}
+                onClick={() => navigate(path)}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-[var(--color-text-700)] hover:bg-[var(--color-surface-alt)] hover:text-[var(--color-text-900)] transition-colors text-left group"
+              >
+                <div className="w-8 h-8 rounded-lg bg-[var(--color-primary-100)] flex items-center justify-center shrink-0 group-hover:bg-[var(--color-primary-600)] transition-colors">
+                  <ActionIcon className="w-4 h-4 text-[var(--color-primary-600)] group-hover:text-white transition-colors" />
+                </div>
+                {label}
+              </button>
+            ))}
           </div>
         </DashboardCard>
 
-        {/* Submission Volume */}
-        <DashboardCard
-          title="Submission Volume (Last 7 Days)"
-          icon={FileText}
-        >
-          <div className="space-y-4">
-            {submissionVolume.map((data) => (
-              <div key={data.day} className="flex items-center gap-4">
-                <span className="w-24 text-[var(--color-text-600)]">{data.day}</span>
-                <div className="flex-1 !bg-white dark:bg-gray-800 border-[1.5px] border-[var(--color-border)] rounded-full h-6">
-                  <div
-                    className="bg-[var(--color-primary-600)] h-full rounded-full flex items-center justify-end px-3 text-white"
-                    style={{ width: `${(data.count / maxSubmissions) * 100}%` }}
-                  >
-                    {data.count > 0 && data.count}
+        {/* Submission Volume ──────────────────────────────────────────────── */}
+        <DashboardCard title="Submission Volume (Last 7 Days)" icon={FileText}>
+          {submissionVolume.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+              <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center mb-3">
+                <FileText className="w-5 h-5 text-gray-400" />
+              </div>
+              <p className="text-sm font-medium text-[var(--color-text-900)]">No submissions this week</p>
+              <p className="text-xs text-[var(--color-text-600)] mt-1">Submission data will appear once students start submitting</p>
+            </div>
+          ) : (
+            <div className="space-y-3.5">
+              {submissionVolume.map((data) => (
+                <div key={data.day} className="flex items-center gap-3">
+                  <span className="w-[88px] shrink-0 text-xs font-medium text-[var(--color-text-600)]">{data.day}</span>
+                  <div className="flex-1 bg-[var(--color-surface-alt)] rounded-full h-2.5 overflow-hidden">
+                    <div
+                      className="bg-[var(--color-primary-600)] h-full rounded-full transition-all duration-700 ease-out"
+                      style={{ width: `${Math.max((data.count / maxSubmissions) * 100, data.count > 0 ? 6 : 0)}%` }}
+                    />
                   </div>
-                </div>
-              </div>
-            ))}
-            {submissionVolume.length === 0 && (
-              <p className="text-center text-[var(--color-text-600)] py-4">No submissions this week</p>
-            )}
-          </div>
-        </DashboardCard>
-
-        {/* Evaluation Progress */}
-        <DashboardCard
-          title="Evaluation Progress by Course"
-          icon={BarChart3}
-        >
-          <div className="space-y-6">
-            {evalProgress.courses.map((c) => (
-              <div key={c.course}>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[var(--color-text-900)]">{c.course}</span>
-                  <span className="text-[var(--color-text-600)]">{c.evaluated}/{c.total} ({c.percent}%)</span>
-                </div>
-                <div className="w-full !bg-white dark:bg-gray-800 border-[1.5px] border-[var(--color-border)] rounded-full h-3">
-                  <div
-                    className="bg-green-500 h-full rounded-full"
-                    style={{ width: `${c.percent}%` }}
-                  ></div>
-                </div>
-              </div>
-            ))}
-
-            {evalProgress.overallTotal > 0 && (
-              <div className="pt-4 border-t border-[var(--color-border)]">
-                <p className="text-[var(--color-text-600)] mb-2">
-                  Overall evaluation completion rate
-                </p>
-                <div className="text-center p-4 bg-white border border-green-500 rounded-lg">
-                  <p className="text-green-900">{evalProgress.overallPercent}%</p>
-                  <p className="text-green-700">{evalProgress.overallEvaluated}/{evalProgress.overallTotal} evaluations completed</p>
-                </div>
-              </div>
-            )}
-
-            {evalProgress.courses.length === 0 && (
-              <p className="text-center text-[var(--color-text-600)] py-4">No evaluation data available</p>
-            )}
-          </div>
-        </DashboardCard>
-
-        {/* Recent Activity */}
-        <DashboardCard
-          title="System Activity"
-          icon={Clock}
-        >
-          <div className="space-y-3">
-            {recentActivity.map((activity) => (
-              <div key={activity.id} className="flex items-start gap-3 p-3 rounded-lg hover:bg-[var(--color-surface-alt)] transition-colors">
-                <div className={`w-2 h-2 rounded-full mt-2 bg-${activity.color}-500`}></div>
-                <div className="flex-1">
-                  <p className="text-[var(--color-text-900)]">{activity.message}</p>
-                  <p className="text-[var(--color-text-600)]">{activity.time}</p>
-                </div>
-              </div>
-            ))}
-            {recentActivity.length === 0 && (
-              <p className="text-center text-[var(--color-text-600)] py-4">No recent activity</p>
-            )}
-          </div>
-        </DashboardCard>
-
-        {/* Upcoming Events */}
-        <DashboardCard
-          title="Upcoming Events"
-          className="col-span-2"
-        >
-          {upcomingEvents.length > 0 ? (
-            <div className="grid grid-cols-3 gap-4">
-              {upcomingEvents.map((event, index) => (
-                <div
-                  key={index}
-                  className={`p-4 !bg-white dark:bg-gray-800 border-[1.5px] ${eventColors[event.color]} rounded-lg hover:opacity-90 transition-colors`}
-                >
-                  <h3 className="text-[var(--color-text-900)] mb-2">{event.title}</h3>
-                  <p className="text-[var(--color-text-600)] mb-1">{event.date}</p>
-                  <p className={eventTextColors[event.color]}>{event.detail}</p>
+                  <span className="w-5 shrink-0 text-xs font-semibold text-[var(--color-text-900)] text-right tabular-nums">
+                    {data.count}
+                  </span>
                 </div>
               ))}
             </div>
-          ) : (
-            <p className="text-center text-[var(--color-text-600)] py-4">No upcoming events</p>
           )}
         </DashboardCard>
+
+        {/* Evaluation Progress ────────────────────────────────────────────── */}
+        <DashboardCard title="Evaluation Progress by Course" icon={BarChart3}>
+          {evalProgress.courses.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+              <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center mb-3">
+                <BarChart3 className="w-5 h-5 text-gray-400" />
+              </div>
+              <p className="text-sm font-medium text-[var(--color-text-900)]">No evaluation data yet</p>
+              <p className="text-xs text-[var(--color-text-600)] mt-1">Data will appear once supervisor assessments are submitted</p>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {evalProgress.courses.map((c) => (
+                <div key={c.course}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-[var(--color-text-900)]">{c.course}</span>
+                    <span className="text-xs text-[var(--color-text-600)] tabular-nums">{c.evaluated}/{c.total} ({c.percent}%)</span>
+                  </div>
+                  <div className="w-full bg-[var(--color-surface-alt)] rounded-full h-2.5 overflow-hidden">
+                    <div
+                      className="bg-emerald-500 h-full rounded-full transition-all duration-700 ease-out"
+                      style={{ width: `${c.percent}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+
+              {evalProgress.overallTotal > 0 && (
+                <div className="mt-2 pt-4 border-t border-[var(--color-border)]">
+                  <div className="flex items-center justify-between px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+                    <p className="text-xs font-medium text-emerald-700">Overall completion</p>
+                    <div className="text-right">
+                      <p className="text-lg font-bold text-emerald-700 leading-none">{evalProgress.overallPercent}%</p>
+                      <p className="text-xs text-emerald-600 mt-0.5 tabular-nums">{evalProgress.overallEvaluated}/{evalProgress.overallTotal} evaluated</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </DashboardCard>
+
+        {/* System Activity ────────────────────────────────────────────────── */}
+        <DashboardCard title="System Activity" icon={Clock}>
+          {recentActivity.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+              <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center mb-3">
+                <Clock className="w-5 h-5 text-gray-400" />
+              </div>
+              <p className="text-sm font-medium text-[var(--color-text-900)]">No recent activity</p>
+              <p className="text-xs text-[var(--color-text-600)] mt-1">System events will be logged here</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-[var(--color-border)]">
+              {recentActivity.map((entry) => (
+                <div key={entry.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+                  <div className={`w-1 self-stretch rounded-full shrink-0 ${ACTIVITY_BAR[entry.color] ?? 'bg-gray-300'}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-[var(--color-text-900)] leading-snug">
+                      {typeof entry.message === 'string' ? entry.message : JSON.stringify(entry.message)}
+                    </p>
+                    <p className="text-xs text-[var(--color-text-600)] mt-0.5">{entry.time}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </DashboardCard>
+
+        {/* Upcoming Events ────────────────────────────────────────────────── */}
+        <DashboardCard title="Upcoming Events" icon={CalendarDays} className="lg:col-span-2">
+          {upcomingEvents.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+              <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center mb-3">
+                <CalendarDays className="w-5 h-5 text-gray-400" />
+              </div>
+              <p className="text-sm font-medium text-[var(--color-text-900)]">No upcoming events</p>
+              <p className="text-xs text-[var(--color-text-600)] mt-1">Upcoming milestones and deadlines will appear here</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {upcomingEvents.map((event, index) => (
+                <div
+                  key={index}
+                  className={`p-4 rounded-lg border-l-4 ${EVENT_CARD[event.color] ?? 'border-gray-300 bg-gray-50'} hover:shadow-sm transition-shadow`}
+                >
+                  <h3 className="text-sm font-semibold text-[var(--color-text-900)] mb-1.5 leading-snug">{event.title}</h3>
+                  <p className="text-xs text-[var(--color-text-600)] mb-1">{event.date}</p>
+                  <p className={`text-xs font-medium ${EVENT_LABEL[event.color] ?? 'text-gray-600'}`}>{event.detail}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </DashboardCard>
+
       </div>
+
     </Layout>
   );
 }

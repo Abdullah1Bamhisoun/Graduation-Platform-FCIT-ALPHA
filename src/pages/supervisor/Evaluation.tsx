@@ -22,6 +22,8 @@ import {
 } from '../../components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../components/ui/tooltip';
 import { useAuth } from '../../lib/AuthContext';
+import { useLockStatus } from '../../hooks/useLockStatus';
+import { LockedBanner } from '../../components/ui/LockedBanner';
 import { SubmissionStatus } from '../../types';
 import { 
   Save, 
@@ -78,6 +80,7 @@ interface AuditEntry {
 export function SupervisorEvaluation() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { isLocked } = useLockStatus('evaluations');
   const [status, setStatus] = useState<SubmissionStatus>('under-review');
   const [isIPModalOpen, setIsIPModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('cpis498');
@@ -269,6 +272,7 @@ export function SupervisorEvaluation() {
 
   return (
     <Layout user={user} pageTitle="Evaluation">
+      {isLocked && <LockedBanner />}
       <div className="flex gap-6">
         {/* Main Content Area */}
         <div className="flex-1 max-w-[800px]">
@@ -320,29 +324,32 @@ export function SupervisorEvaluation() {
 
             {/* Action Buttons */}
             <div className="flex gap-2 pt-4 border-t border-[var(--color-border)]">
-              <Button variant="outline" onClick={handleSaveDraft} className="gap-2">
+              <Button variant="outline" onClick={handleSaveDraft} className="gap-2" disabled={isLocked}>
                 <Save className="w-4 h-4" />
                 Save Draft
               </Button>
-              <Button 
-                variant="outline" 
-                onClick={handleRequestChanges} 
+              <Button
+                variant="outline"
+                onClick={handleRequestChanges}
                 className="gap-2 text-amber-600 border-amber-300 hover:bg-amber-50"
+                disabled={isLocked}
               >
                 <MessageSquare className="w-4 h-4" />
                 Request Changes
               </Button>
-              <Button 
-                onClick={handleApprove} 
+              <Button
+                onClick={handleApprove}
                 className="gap-2 bg-[#10B981] text-white hover:bg-[#0ea572]"
+                disabled={isLocked}
               >
                 <CheckCircle className="w-4 h-4" />
                 Approve
               </Button>
-              <Button 
-                variant="outline" 
-                onClick={handleMarkIP} 
+              <Button
+                variant="outline"
+                onClick={handleMarkIP}
                 className="gap-2 text-orange-600 border-orange-300 hover:bg-orange-50"
+                disabled={isLocked}
               >
                 <AlertCircle className="w-4 h-4" />
                 Mark IP

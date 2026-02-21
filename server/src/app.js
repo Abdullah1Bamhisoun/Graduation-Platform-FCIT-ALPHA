@@ -16,6 +16,11 @@ const announcementsRoutes = require('./routes/announcements.routes');
 const reportsRoutes = require('./routes/reports.routes');
 const importantFilesRoutes = require('./routes/importantFiles.routes');
 const calendarEventsRoutes = require('./routes/calendarEvents.routes');
+const rolesRoutes = require('./routes/roles.routes');
+const coursesRoutes = require('./routes/courses.routes');
+const locksRoutes = require('./routes/locks.routes');
+const settingsRoutes = require('./routes/settings.routes');
+const weekStatusesRoutes = require('./routes/weekStatuses.routes');
 
 const app = express();
 
@@ -37,6 +42,11 @@ app.use('/api/announcements', announcementsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/important-files', importantFilesRoutes);
 app.use('/api/calendar-events', calendarEventsRoutes);
+app.use('/api/roles', rolesRoutes);
+app.use('/api/courses', coursesRoutes);
+app.use('/api/locks', locksRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/week-statuses', weekStatusesRoutes);
 
 // Error handling
 app.use(errorHandler);

@@ -1,16 +1,17 @@
 import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
+import { useLockStatus } from '../../hooks/useLockStatus';
+import { LockedBanner } from '../../components/ui/LockedBanner';
 import { Button } from '../../components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { toast } from 'sonner';
-import { Search, CheckCircle, XCircle, Eye, Clock, Users, UserCheck, Trash2, Pencil } from 'lucide-react';
+import { Search, CheckCircle, XCircle, Eye, Clock, Users, UserCheck, Pencil, Trash2 } from 'lucide-react';
 import { getPendingRegistrations, approveRegistration, rejectRegistration, subscribe, type PendingRegistration } from '../../lib/pending-registrations';
-import { getProfilesByRole } from '../../services/profiles';
-import { getAllGroups, assignSupervisor, updateGroupStatus, deleteGroup, updateGroup, type GroupData } from '../../services/groups';
+import { assignSupervisor, updateGroupStatus, deleteGroup, updateGroup, type GroupData } from '../../services/groups';
 import type { User as ProfileUser } from '../../types';
 
 // ── Local types ───────────────────────────────────────────────────────────────
@@ -46,6 +47,7 @@ type ActiveTab = 'users' | 'groups' | 'pending';
 
 export function AdminUserManagement() {
   const { user } = useAuth();
+  const { isLocked } = useLockStatus('groups');
 
   // ── Tab ───────────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<ActiveTab>('pending');
@@ -58,6 +60,11 @@ export function AdminUserManagement() {
   const [filterGender, setFilterGender] = useState('all');
   const [filterSemester, setFilterSemester] = useState('all');
   const [filterCourse, setFilterCourse] = useState('all');
+
+  const [isRepairingGroups, setIsRepairingGroups] = useState(false);
+  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
+  const [createGroupForm, setCreateGroupForm] = useState({ projectName: '', projectDescription: '', courseId: '', department: '', gender: '', sectionNumber: '' });
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
 
   // ── Groups ────────────────────────────────────────────────────────────────
   const [groups, setGroups] = useState<GroupData[]>([]);
@@ -88,30 +95,109 @@ export function AdminUserManagement() {
   const [removeSupervisor, setRemoveSupervisor] = useState(false);
   const [isSavingGroup, setIsSavingGroup] = useState(false);
 
+  // ── Assign Coordinator ────────────────────────────────────────────────────
+  const [assigningCoordinatorUser, setAssigningCoordinatorUser] = useState<User | null>(null);
+  const [selectedCoordinatorCourseId, setSelectedCoordinatorCourseId] = useState('');
+  const [isAssigningCoordinator, setIsAssigningCoordinator] = useState(false);
+  const [courses, setCourses] = useState<{ id: string; code: string; name: string }[]>([]);
+  // userId → courseCode for supervisors who have been assigned coordinator role
+  const [coordinatorMap, setCoordinatorMap] = useState<Record<string, string>>({});
+
   // ── Pending Registrations ─────────────────────────────────────────────────
   const [pendingRegs, setPendingRegs] = useState<PendingRegistration[]>([]);
   const [viewingReg, setViewingReg] = useState<PendingRegistration | null>(null);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
 
-  // ── Load data ─────────────────────────────────────────────────────────────
-  const reloadUsers = () => {
-    Promise.all([
-      getProfilesByRole('student'),
-      getProfilesByRole('supervisor'),
-      getProfilesByRole('admin'),
-    ]).then(([s, sup, a]) => {
-      setUsers([...s, ...sup, ...a].map(profileToUser));
-    });
+  // ── Loading ───────────────────────────────────────────────────────────────
+  const [isLoading, setIsLoading] = useState(true);
+
+  // ── Helpers: get auth token ───────────────────────────────────────────────
+  const getToken = async () => {
+    const { supabase: sb } = await import('../../lib/supabase');
+    const { data } = await sb.auth.getSession();
+    return data.session?.access_token ?? '';
   };
 
-  const reloadGroups = () => {
-    getAllGroups().then(setGroups);
+  // ── Load data ─────────────────────────────────────────────────────────────
+  const reloadUsers = async () => {
+    try {
+      const token = await getToken();
+      const fetchRole = async (role: string): Promise<ProfileUser[]> => {
+        const res = await fetch(`/api/users?role=${encodeURIComponent(role)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error((body as { error?: string }).error ?? `Server error (${res.status})`);
+        }
+        return res.json();
+      };
+      const [s, sup, a] = await Promise.all([
+        fetchRole('student'),
+        fetchRole('supervisor'),
+        fetchRole('admin'),
+      ]);
+      setUsers([...s, ...sup, ...a].map(profileToUser));
+    } catch (err) {
+      toast.error(`Failed to load users: ${err instanceof Error ? err.message : 'Server error'}`);
+    }
+  };
+
+  const reloadGroups = async () => {
+    try {
+      const token = await getToken();
+      const res = await fetch('/api/groups', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error ?? `Server error (${res.status})`);
+      }
+      const data: GroupData[] = await res.json();
+      setGroups(data);
+    } catch (err) {
+      toast.error(`Failed to load groups: ${err instanceof Error ? err.message : 'Server error'}`);
+    }
   };
 
   useEffect(() => {
-    reloadUsers();
-    reloadGroups();
-    getProfilesByRole('supervisor').then(setSupervisors);
+    setIsLoading(true);
+    Promise.all([
+      reloadUsers(),
+      reloadGroups(),
+      (async () => {
+        try {
+          const token = await getToken();
+          const res = await fetch('/api/users?role=supervisor', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) setSupervisors(await res.json());
+        } catch { /* non-fatal */ }
+      })(),
+      (async () => {
+        try {
+          const res = await fetch('/api/courses/active');
+          if (res.ok) setCourses(await res.json());
+        } catch { /* non-fatal */ }
+      })(),
+      (async () => {
+        try {
+          const token = await getToken();
+          const res = await fetch('/api/roles/coordinators', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            const body = await res.json();
+            const map: Record<string, string> = {};
+            (body.coordinators ?? []).forEach((c: { userId: string; courseCode: string }) => {
+              map[c.userId] = c.courseCode ?? 'Coordinator';
+            });
+            setCoordinatorMap(map);
+          }
+        } catch { /* non-fatal */ }
+      })(),
+    ]).finally(() => setIsLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -142,6 +228,67 @@ export function AdminUserManagement() {
       setViewingReg(null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to reject');
+    }
+  };
+
+  // ── Handlers: assign coordinator ─────────────────────────────────────────
+  const handleAssignCoordinator = async () => {
+    if (!assigningCoordinatorUser || !selectedCoordinatorCourseId) return;
+    setIsAssigningCoordinator(true);
+    try {
+      const token = await getToken();
+      const res = await fetch('/api/roles/assign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          userId: assigningCoordinatorUser.id,
+          roleName: 'coordinator',
+          coordinatorCourseId: selectedCoordinatorCourseId,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error ?? `Server error (${res.status})`);
+      }
+      // Optimistically mark this supervisor as coordinator in the table
+      const assignedCourse = courses.find((c) => c.id === selectedCoordinatorCourseId);
+      const assignedUserId = assigningCoordinatorUser.id;
+      setCoordinatorMap((prev) => ({
+        ...prev,
+        [assignedUserId]: assignedCourse?.code ?? 'Coordinator',
+      }));
+      toast.success(`${assigningCoordinatorUser.name} assigned as Coordinator`);
+      setAssigningCoordinatorUser(null);
+      setSelectedCoordinatorCourseId('');
+      reloadUsers();
+    } catch (err) {
+      toast.error(`Failed to assign coordinator: ${err instanceof Error ? err.message : 'Server error'}`);
+    } finally {
+      setIsAssigningCoordinator(false);
+    }
+  };
+
+  // ── Handlers: remove coordinator ─────────────────────────────────────────
+  const handleRemoveCoordinator = async (u: User) => {
+    try {
+      const token = await getToken();
+      const res = await fetch('/api/roles/revoke', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ userId: u.id, roleName: 'coordinator' }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error ?? `Server error (${res.status})`);
+      }
+      setCoordinatorMap((prev) => {
+        const next = { ...prev };
+        delete next[u.id];
+        return next;
+      });
+      toast.success(`Coordinator role removed from ${u.name}`);
+    } catch (err) {
+      toast.error(`Failed to remove coordinator: ${err instanceof Error ? err.message : 'Server error'}`);
     }
   };
 
@@ -185,6 +332,64 @@ export function AdminUserManagement() {
       toast.error(err instanceof Error ? err.message : 'Failed to delete group');
     } finally {
       setIsDeletingGroup(false);
+    }
+  };
+
+  // ── Handlers: repair missing groups ──────────────────────────────────────
+  const handleRepairGroups = async () => {
+    setIsRepairingGroups(true);
+    try {
+      const token = await getToken();
+      const res = await fetch('/api/auth/repair-groups', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || 'Repair failed');
+      toast.success(`Repair complete — ${body.created} group(s) created, ${body.skipped} skipped`);
+      if (body.created > 0) reloadGroups();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Repair failed');
+    } finally {
+      setIsRepairingGroups(false);
+    }
+  };
+
+  // ── Handlers: create group ────────────────────────────────────────────────
+  const handleCreateGroup = async () => {
+    if (!createGroupForm.projectName.trim()) {
+      toast.error('Project name is required');
+      return;
+    }
+    setIsCreatingGroup(true);
+    try {
+      const token = await getToken();
+      const res = await fetch('/api/groups', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'X-Active-Role': user?.activeRole ?? 'admin',
+        },
+        body: JSON.stringify({
+          projectName: createGroupForm.projectName.trim(),
+          projectDescription: createGroupForm.projectDescription.trim(),
+          courseId: createGroupForm.courseId || user?.coordinatorCourseId || undefined,
+          department: createGroupForm.department || undefined,
+          gender: createGroupForm.gender || undefined,
+          sectionNumber: createGroupForm.sectionNumber ? parseInt(createGroupForm.sectionNumber, 10) : undefined,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || 'Failed to create group');
+      toast.success(`Group "${body.group?.group_code}" created`);
+      setIsCreateGroupOpen(false);
+      setCreateGroupForm({ projectName: '', projectDescription: '', courseId: '', department: '', gender: '', sectionNumber: '' });
+      reloadGroups();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create group');
+    } finally {
+      setIsCreatingGroup(false);
     }
   };
 
@@ -282,10 +487,10 @@ export function AdminUserManagement() {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const getRoleBadge = (role: string) => ({
-    student:    '!bg-white text-blue-600 border-[1.5px] border-blue-500',
-    supervisor: '!bg-white text-purple-600 border-[1.5px] border-purple-500',
-    admin:      '!bg-white text-amber-600 border-[1.5px] border-amber-500',
-  }[role] ?? '');
+    student:    'bg-blue-50 text-blue-700 border border-blue-200',
+    supervisor: 'bg-purple-50 text-purple-700 border border-purple-200',
+    admin:      'bg-amber-50 text-amber-700 border border-amber-200',
+  }[role] ?? 'bg-gray-50 text-gray-600 border border-gray-200');
 
   const getStatusBadge = (status: string) => ({
     pending:  'bg-amber-100 text-amber-700',
@@ -306,6 +511,7 @@ export function AdminUserManagement() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <Layout user={user} pageTitle="User Management">
+      {isLocked && <LockedBanner />}
       {/* Stats row */}
       <div className="grid grid-cols-5 gap-4 mb-6">
         <div className="!bg-white rounded-lg border border-amber-200 p-4">
@@ -314,19 +520,27 @@ export function AdminUserManagement() {
         </div>
         <div className="!bg-white rounded-lg border border-[var(--color-border)] p-4">
           <p className="text-[var(--color-text-600)] mb-1">Total Users</p>
-          <p className="text-[var(--color-text-900)] text-xl font-semibold">{users.length}</p>
+          <p className="text-[var(--color-text-900)] text-xl font-semibold">
+            {isLoading ? <span className="inline-block w-6 h-5 bg-gray-200 rounded animate-pulse" /> : users.length}
+          </p>
         </div>
         <div className="!bg-white rounded-lg border border-[var(--color-border)] p-4">
           <p className="text-[var(--color-text-600)] mb-1">Students</p>
-          <p className="text-[var(--color-text-900)] text-xl font-semibold">{users.filter(u => u.role === 'student').length}</p>
+          <p className="text-[var(--color-text-900)] text-xl font-semibold">
+            {isLoading ? <span className="inline-block w-6 h-5 bg-gray-200 rounded animate-pulse" /> : users.filter(u => u.role === 'student').length}
+          </p>
         </div>
         <div className="!bg-white rounded-lg border border-[var(--color-border)] p-4">
           <p className="text-[var(--color-text-600)] mb-1">Supervisors</p>
-          <p className="text-[var(--color-text-900)] text-xl font-semibold">{users.filter(u => u.role === 'supervisor').length}</p>
+          <p className="text-[var(--color-text-900)] text-xl font-semibold">
+            {isLoading ? <span className="inline-block w-6 h-5 bg-gray-200 rounded animate-pulse" /> : users.filter(u => u.role === 'supervisor').length}
+          </p>
         </div>
         <div className="!bg-white rounded-lg border border-[var(--color-border)] p-4">
           <p className="text-[var(--color-text-600)] mb-1">Total Groups</p>
-          <p className="text-[var(--color-text-900)] text-xl font-semibold">{groups.length}</p>
+          <p className="text-[var(--color-text-900)] text-xl font-semibold">
+            {isLoading ? <span className="inline-block w-6 h-5 bg-gray-200 rounded animate-pulse" /> : groups.length}
+          </p>
         </div>
       </div>
 
@@ -378,10 +592,10 @@ export function AdminUserManagement() {
                     <Button size="sm" variant="outline" onClick={() => { setViewingReg(reg); setIsViewDialogOpen(true); }}>
                       <Eye className="w-4 h-4 mr-1" />Details
                     </Button>
-                    <Button size="sm" variant="primary" onClick={() => handleApprove(reg)}>
+                    <Button size="sm" variant="primary" onClick={() => handleApprove(reg)} disabled={isLocked}>
                       <CheckCircle className="w-4 h-4 mr-1" />Approve
                     </Button>
-                    <Button size="sm" variant="destructive" onClick={() => handleReject(reg)}>
+                    <Button size="sm" variant="destructive" onClick={() => handleReject(reg)} disabled={isLocked}>
                       <XCircle className="w-4 h-4 mr-1" />Reject
                     </Button>
                   </div>
@@ -396,14 +610,20 @@ export function AdminUserManagement() {
       {activeTab === 'users' && (
         <>
           {/* Filters */}
-          <div className="mb-4 flex flex-wrap items-center gap-3">
-            <div className="relative flex-1 min-w-[200px] max-w-sm">
+          <div className="mb-5 flex flex-wrap items-center gap-2.5">
+            <div className="relative flex-1 min-w-[200px] max-w-[260px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-600)]" />
-              <Input placeholder="Search name, email, ID…" value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)} className="pl-10" />
+              <Input
+                placeholder="Search name, email, ID…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 h-9 text-sm rounded-lg"
+              />
             </div>
             <Select value={filterRole} onValueChange={setFilterRole}>
-              <SelectTrigger className="w-[150px]"><SelectValue placeholder="Role" /></SelectTrigger>
+              <SelectTrigger className="h-9 w-[136px] text-sm rounded-lg">
+                <SelectValue placeholder="All Roles" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Roles</SelectItem>
                 <SelectItem value="student">Students</SelectItem>
@@ -412,7 +632,9 @@ export function AdminUserManagement() {
               </SelectContent>
             </Select>
             <Select value={filterDept} onValueChange={setFilterDept}>
-              <SelectTrigger className="w-[150px]"><SelectValue placeholder="Department" /></SelectTrigger>
+              <SelectTrigger className="h-9 w-[136px] text-sm rounded-lg">
+                <SelectValue placeholder="Department" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Departments</SelectItem>
                 <SelectItem value="CS">CS</SelectItem>
@@ -421,15 +643,19 @@ export function AdminUserManagement() {
               </SelectContent>
             </Select>
             <Select value={filterGender} onValueChange={setFilterGender}>
-              <SelectTrigger className="w-[130px]"><SelectValue placeholder="Gender" /></SelectTrigger>
+              <SelectTrigger className="h-9 w-[120px] text-sm rounded-lg">
+                <SelectValue placeholder="Gender" />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="all">All Genders</SelectItem>
                 <SelectItem value="male">Male</SelectItem>
                 <SelectItem value="female">Female</SelectItem>
               </SelectContent>
             </Select>
             <Select value={filterSemester} onValueChange={setFilterSemester}>
-              <SelectTrigger className="w-[150px]"><SelectValue placeholder="Semester" /></SelectTrigger>
+              <SelectTrigger className="h-9 w-[148px] text-sm rounded-lg">
+                <SelectValue placeholder="Semester" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Semesters</SelectItem>
                 <SelectItem value="01">First Semester</SelectItem>
@@ -438,7 +664,9 @@ export function AdminUserManagement() {
               </SelectContent>
             </Select>
             <Select value={filterCourse} onValueChange={setFilterCourse}>
-              <SelectTrigger className="w-[130px]"><SelectValue placeholder="Course" /></SelectTrigger>
+              <SelectTrigger className="h-9 w-[120px] text-sm rounded-lg">
+                <SelectValue placeholder="Course" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Courses</SelectItem>
                 <SelectItem value="498">GP 498</SelectItem>
@@ -447,52 +675,97 @@ export function AdminUserManagement() {
             </Select>
           </div>
 
-          <div className="!bg-white rounded-xl border border-[var(--color-border)] shadow-sm">
-            {/* Header */}
-            <div className="grid grid-cols-12 gap-3 p-4 border-b border-[var(--color-border)] text-sm font-medium text-[var(--color-text-600)]">
-              <div className="col-span-3">Full Name</div>
-              <div className="col-span-3">Email</div>
-              <div className="col-span-2">Department</div>
-              <div className="col-span-1">Gender</div>
-              <div className="col-span-2">Role</div>
-              <div className="col-span-1">Status</div>
-              <div className="col-span-1"></div>
+          <div className="!bg-white rounded-xl border border-[var(--color-border)] shadow-sm overflow-hidden">
+            {/* Table Header — col spans sum to 12 */}
+            <div className="grid grid-cols-12 gap-4 px-5 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface-alt)]">
+              <div className="col-span-3 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-600)]">Full Name</div>
+              <div className="col-span-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-600)]">Email</div>
+              <div className="col-span-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-600)]">Department</div>
+              <div className="col-span-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-600)]">Role</div>
+              <div className="col-span-1 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-600)]">Status</div>
+              <div className="col-span-2" />
             </div>
+            {/* Table Rows */}
             <div className="divide-y divide-[var(--color-border)]">
-              {filteredUsers.length === 0 ? (
-                <div className="p-8 text-center text-[var(--color-text-600)]">No users match your filters</div>
+              {isLoading ? (
+                <div className="py-12 text-center text-sm text-[var(--color-text-600)]">Loading users…</div>
+              ) : filteredUsers.length === 0 ? (
+                <div className="py-12 text-center text-sm text-[var(--color-text-600)]">No users match your filters</div>
               ) : (
                 filteredUsers.map((u) => (
-                  <div key={u.id} className="grid grid-cols-12 gap-3 p-4 hover:bg-[var(--color-surface-alt)] transition-colors items-center">
-                    <div className="col-span-3">
-                      <p className="font-medium text-[var(--color-text-900)]">{u.name}</p>
-                      <p className="text-xs text-[var(--color-text-600)]">
+                  <div
+                    key={u.id}
+                    className="grid grid-cols-12 gap-4 px-5 py-3.5 items-center hover:bg-[var(--color-surface-alt)] transition-colors"
+                  >
+                    {/* Full Name + ID */}
+                    <div className="col-span-3 min-w-0">
+                      <p className="text-sm font-semibold text-[var(--color-text-900)] truncate">{u.name}</p>
+                      <p className="text-xs text-[var(--color-text-600)] mt-0.5 tabular-nums">
                         {u.role === 'student' ? u.studentId : u.employeeNumber}
                       </p>
                     </div>
-                    <div className="col-span-3 text-sm text-[var(--color-text-600)] truncate">{u.email}</div>
-                    <div className="col-span-2 text-sm text-[var(--color-text-600)]">{u.department || '—'}</div>
-                    <div className="col-span-1 text-sm text-[var(--color-text-600)] capitalize">{u.gender || '—'}</div>
+                    {/* Email */}
+                    <div className="col-span-2 min-w-0">
+                      <p className="text-sm text-[var(--color-text-700)] truncate">{u.email}</p>
+                    </div>
+                    {/* Department + Gender (secondary) */}
                     <div className="col-span-2">
-                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-sm capitalize ${getRoleBadge(u.role)}`}>
+                      <p className="text-sm text-[var(--color-text-700)]">{u.department || '—'}</p>
+                      {u.gender && (
+                        <p className="text-xs text-[var(--color-text-600)] capitalize mt-0.5">{u.gender}</p>
+                      )}
+                    </div>
+                    {/* Role badge */}
+                    <div className="col-span-2 flex flex-col gap-1">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize w-fit ${getRoleBadge(u.role)}`}>
                         {u.role}
                       </span>
+                      {coordinatorMap[u.id] && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium w-fit bg-teal-50 text-teal-700 border border-teal-200">
+                          <span className="w-1.5 h-1.5 rounded-full bg-teal-500 inline-block" />
+                          Coordinator · {coordinatorMap[u.id]}
+                        </span>
+                      )}
                     </div>
+                    {/* Status badge */}
                     <div className="col-span-1">
-                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs capitalize ${
-                        u.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${
+                        u.status === 'active'
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          : 'bg-gray-50 text-gray-500 border border-gray-200'
                       }`}>
                         {u.status}
                       </span>
                     </div>
-                    <div className="col-span-1 flex">
+                    {/* Actions */}
+                    <div className="col-span-2 flex items-center justify-end gap-2">
+                      {u.role === 'supervisor' && (
+                        coordinatorMap[u.id] ? (
+                          <button
+                            style={{ borderRadius: 0 }}
+                            className="text-xs px-2 py-1 border border-orange-400 text-orange-600 hover:bg-orange-50 transition-colors whitespace-nowrap"
+                            onClick={() => handleRemoveCoordinator(u)}
+                          >
+                            Remove Coordinator
+                          </button>
+                        ) : (
+                          <button
+                            style={{ borderRadius: 0 }}
+                            className="text-xs px-2 py-1 border border-purple-300 text-purple-700 hover:bg-purple-50 transition-colors whitespace-nowrap"
+                            onClick={() => { setAssigningCoordinatorUser(u); setSelectedCoordinatorCourseId(''); }}
+                          >
+                            Assign Coordinator
+                          </button>
+                        )
+                      )}
                       {u.id !== user?.id && (
                         <button
-                          title="Delete user"
-                          className="p-1.5 rounded hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors"
+                          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           onClick={() => { setDeletingUser(u); setIsDeleteDialogOpen(true); }}
+                          disabled={isLocked}
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Delete
                         </button>
                       )}
                     </div>
@@ -507,6 +780,21 @@ export function AdminUserManagement() {
       {/* ── GROUPS TAB ── */}
       {activeTab === 'groups' && (
         <>
+          {/* Action buttons */}
+          <div className="mb-4 flex justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRepairGroups}
+              disabled={isRepairingGroups}
+              title="Creates missing groups for previously-approved students who don't have a group yet"
+            >
+              {isRepairingGroups ? 'Repairing…' : 'Repair Missing Groups'}
+            </Button>
+            <Button size="sm" onClick={() => setIsCreateGroupOpen(true)}>
+              + Create Group
+            </Button>
+          </div>
           {/* Filters */}
           <div className="mb-4 flex flex-wrap items-center gap-3">
             <div className="relative flex-1 min-w-[200px] max-w-sm">
@@ -573,7 +861,9 @@ export function AdminUserManagement() {
               <div className="col-span-2">Actions</div>
             </div>
             <div className="divide-y divide-[var(--color-border)]">
-              {filteredGroups.length === 0 ? (
+              {isLoading ? (
+                <div className="p-8 text-center text-[var(--color-text-600)]">Loading groups…</div>
+              ) : filteredGroups.length === 0 ? (
                 <div className="p-8 text-center text-[var(--color-text-600)]">No groups found</div>
               ) : (
                 filteredGroups.map((g) => (
@@ -634,32 +924,34 @@ export function AdminUserManagement() {
                     <div className="col-span-2 flex items-center gap-1 flex-wrap">
                       {g.status === 'pending' && (
                         <>
-                          <Button size="sm" variant="primary" onClick={() => handleGroupStatus(g.id, 'approved')}>
+                          <Button size="sm" variant="primary" onClick={() => handleGroupStatus(g.id, 'approved')} disabled={isLocked}>
                             Approve
                           </Button>
-                          <Button size="sm" variant="destructive" onClick={() => handleGroupStatus(g.id, 'rejected')}>
+                          <Button size="sm" variant="destructive" onClick={() => handleGroupStatus(g.id, 'rejected')} disabled={isLocked}>
                             Reject
                           </Button>
                         </>
                       )}
                       <button
-                        title="Edit group"
-                        className="p-1.5 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
+                        className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium bg-yellow-400 text-yellow-900 hover:bg-yellow-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         onClick={() => {
                           setEditingGroup(g);
                           setEditProjectName(g.projectName || '');
                           setRemovingMemberIds([]);
                           setAddingMemberIds([]);
                         }}
+                        disabled={isLocked}
                       >
-                        <Pencil className="w-4 h-4" />
+                        <Pencil className="w-3.5 h-3.5" />
+                        Edit
                       </button>
                       <button
-                        title="Delete group"
-                        className="p-1.5 rounded hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors"
+                        className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         onClick={() => setDeletingGroup(g)}
+                        disabled={isLocked}
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Delete
                       </button>
                     </div>
                   </div>
@@ -723,10 +1015,10 @@ export function AdminUserManagement() {
             <Button variant="outline" onClick={() => { setIsViewDialogOpen(false); setViewingReg(null); }}>Close</Button>
             {viewingReg && (
               <>
-                <Button variant="destructive" onClick={() => handleReject(viewingReg)}>
+                <Button variant="destructive" onClick={() => handleReject(viewingReg)} disabled={isLocked}>
                   <XCircle className="w-4 h-4 mr-1" />Reject
                 </Button>
-                <Button variant="primary" onClick={() => handleApprove(viewingReg)}>
+                <Button variant="primary" onClick={() => handleApprove(viewingReg)} disabled={isLocked}>
                   <CheckCircle className="w-4 h-4 mr-1" />Approve
                 </Button>
               </>
@@ -785,7 +1077,7 @@ export function AdminUserManagement() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeletingGroup(null)}>Cancel</Button>
-            <Button variant="destructive" disabled={isDeletingGroup} onClick={handleDeleteGroup}>
+            <Button variant="destructive" disabled={isLocked || isDeletingGroup} onClick={handleDeleteGroup}>
               {isDeletingGroup ? 'Deleting…' : 'Delete'}
             </Button>
           </DialogFooter>
@@ -923,14 +1215,159 @@ export function AdminUserManagement() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingGroup(null)}>Cancel</Button>
-            <Button variant="primary" disabled={isSavingGroup} onClick={handleSaveGroup}>
+            <Button variant="primary" disabled={isLocked || isSavingGroup} onClick={handleSaveGroup}>
               {isSavingGroup ? 'Saving…' : 'Save Changes'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
+      {/* ── Assign Coordinator Dialog ── */}
+      <Dialog open={!!assigningCoordinatorUser} onOpenChange={(open) => { if (!open) { setAssigningCoordinatorUser(null); setSelectedCoordinatorCourseId(''); } }}>
+        <DialogContent className="sm:max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle>Assign Coordinator Role</DialogTitle>
+            <DialogDescription>
+              Select a course to assign <strong>{assigningCoordinatorUser?.name}</strong> as its coordinator.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Label>Select Course</Label>
+            <Select value={selectedCoordinatorCourseId} onValueChange={setSelectedCoordinatorCourseId}>
+              <SelectTrigger className="mt-2">
+                <SelectValue placeholder="Choose a course…" />
+              </SelectTrigger>
+              <SelectContent>
+                {courses.length === 0 ? (
+                  <SelectItem value="__none" disabled>No courses available</SelectItem>
+                ) : (
+                  courses.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.code} — {c.name}</SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAssigningCoordinatorUser(null)}>Cancel</Button>
+            <Button
+              variant="primary"
+              disabled={!selectedCoordinatorCourseId || selectedCoordinatorCourseId === '__none' || isAssigningCoordinator}
+              onClick={handleAssignCoordinator}
+            >
+              {isAssigningCoordinator ? 'Assigning…' : 'Assign'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ── Delete User Confirmation Dialog ── */}
+      {/* ── Create Group Dialog ─────────────────────────────────────────── */}
+      <Dialog open={isCreateGroupOpen} onOpenChange={(open) => { setIsCreateGroupOpen(open); if (!open) setCreateGroupForm({ projectName: '', projectDescription: '', courseId: '', department: '', gender: '', sectionNumber: '' }); }}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle>Create Group</DialogTitle>
+            <DialogDescription>Manually create a new project group.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label>Project Name <span className="text-red-500">*</span></Label>
+              <Input
+                value={createGroupForm.projectName}
+                onChange={(e) => setCreateGroupForm((f) => ({ ...f, projectName: e.target.value }))}
+                placeholder="e.g. Smart Campus App"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label>Project Description</Label>
+              <Input
+                value={createGroupForm.projectDescription}
+                onChange={(e) => setCreateGroupForm((f) => ({ ...f, projectDescription: e.target.value }))}
+                placeholder="Brief description (optional)"
+                className="mt-1"
+              />
+            </div>
+            {/* Course — hidden for coordinator (auto-assigned) */}
+            {user?.activeRole !== 'coordinator' && (
+              <div>
+                <Label>Course</Label>
+                <Select value={createGroupForm.courseId} onValueChange={(v) => setCreateGroupForm((f) => ({ ...f, courseId: v }))}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="Select course" /></SelectTrigger>
+                  <SelectContent>
+                    {courses.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>{c.code.replace('_', '-')} — {c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label>Department</Label>
+                <Select value={createGroupForm.department} onValueChange={(v) => setCreateGroupForm((f) => ({ ...f, department: v }))}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="IS" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="CS">CS</SelectItem>
+                    <SelectItem value="IS">IS</SelectItem>
+                    <SelectItem value="IT">IT</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Gender</Label>
+                <Select value={createGroupForm.gender} onValueChange={(v) => setCreateGroupForm((f) => ({ ...f, gender: v }))}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="Any" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="male">Male</SelectItem>
+                    <SelectItem value="female">Female</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Section No.</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={99}
+                  value={createGroupForm.sectionNumber}
+                  onChange={(e) => setCreateGroupForm((f) => ({ ...f, sectionNumber: e.target.value }))}
+                  placeholder="e.g. 13"
+                  className="mt-1"
+                />
+              </div>
+            </div>
+
+            {/* Group name preview */}
+            {(createGroupForm.department || createGroupForm.gender || createGroupForm.sectionNumber) && (
+              <div className="rounded-lg bg-[var(--color-surface-alt)] border border-[var(--color-border)] px-4 py-2.5 text-sm">
+                <span className="text-[var(--color-text-600)] text-xs font-medium uppercase tracking-wide">Name preview</span>
+                <p className="font-mono text-[var(--color-text-900)] mt-0.5 text-base tracking-wide">
+                  {(createGroupForm.department || 'IS').toUpperCase()}
+                  _
+                  {String(createGroupForm.sectionNumber || '1').padStart(2, '0')}
+                  _
+                  <span className="text-[var(--color-text-600)]">XXX</span>
+                  _
+                  {new Date().getFullYear()}
+                  _
+                  <span className="text-[var(--color-text-600)]">XX</span>
+                  _
+                  {createGroupForm.gender === 'male' ? 'M' : createGroupForm.gender === 'female' ? 'F' : 'U'}
+                </p>
+                <p className="text-[var(--color-text-600)] text-xs mt-1">XXX = course number, XX = auto-assigned group number</p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCreateGroupOpen(false)}>Cancel</Button>
+            <Button onClick={handleCreateGroup} disabled={isCreatingGroup || !createGroupForm.projectName.trim()}>
+              {isCreatingGroup ? 'Creating…' : 'Create Group'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isDeleteDialogOpen} onOpenChange={(open) => { setIsDeleteDialogOpen(open); if (!open) setDeletingUser(null); }}>
         <DialogContent className="sm:max-w-[420px]">
           <DialogHeader>
@@ -953,7 +1390,7 @@ export function AdminUserManagement() {
             <Button variant="outline" onClick={() => { setIsDeleteDialogOpen(false); setDeletingUser(null); }}>
               Cancel
             </Button>
-            <Button variant="destructive" disabled={deleting} onClick={handleDeleteUser}>
+            <Button variant="destructive" disabled={isLocked || deleting} onClick={handleDeleteUser}>
               {deleting ? 'Deleting…' : 'Delete'}
             </Button>
           </DialogFooter>

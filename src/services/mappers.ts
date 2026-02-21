@@ -53,24 +53,26 @@ export function toDbMilestoneType(val: string): string {
 }
 
 // --- Course Code ---
-type CourseCode = 'CPIS-498' | 'CPIS-499';
+// DB now stores hyphen format (CPIS-498) after migration.
+// Legacy underscore values (CPIS_498) are also handled for backward compatibility.
 
-const courseCodeMap: Record<string, CourseCode> = {
+const courseCodeMap: Record<string, string> = {
+  // Legacy underscore format → hyphen format
   CPIS_498: 'CPIS-498',
   CPIS_499: 'CPIS-499',
+  // New hyphen format passes through unchanged
+  'CPIS-498': 'CPIS-498',
+  'CPIS-499': 'CPIS-499',
 };
 
-const courseCodeReverseMap: Record<string, string> = {
-  'CPIS-498': 'CPIS_498',
-  'CPIS-499': 'CPIS_499',
-};
-
-export function mapCourseCode(dbVal: string): CourseCode {
-  return courseCodeMap[dbVal] ?? (dbVal as CourseCode);
+// DB now stores hyphens natively — no conversion needed for writes
+export function mapCourseCode(dbVal: string): string {
+  return courseCodeMap[dbVal] ?? dbVal;
 }
 
 export function toDbCourseCode(val: string): string {
-  return courseCodeReverseMap[val] ?? val;
+  // DB uses hyphen format; pass through as-is (no underscore conversion needed)
+  return val;
 }
 
 // --- Progress Status ---

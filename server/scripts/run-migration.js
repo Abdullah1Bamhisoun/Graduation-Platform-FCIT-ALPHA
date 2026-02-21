@@ -24,6 +24,26 @@ const statements = [
   `ALTER TABLE groups ADD COLUMN IF NOT EXISTS department TEXT CHECK (department IN ('CS', 'IT', 'IS'))`,
   `ALTER TABLE pending_registrations ADD COLUMN IF NOT EXISTS gender TEXT CHECK (gender IN ('male', 'female'))`,
   `ALTER TABLE pending_registrations ADD COLUMN IF NOT EXISTS group_number INTEGER`,
+  // ── Global Admin Lock System ─────────────────────────────────────────────
+  `CREATE TABLE IF NOT EXISTS platform_locks (
+    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    entity_type   text NOT NULL,
+    entity_id     uuid DEFAULT NULL,
+    is_locked     boolean NOT NULL DEFAULT true,
+    locked_by     uuid REFERENCES profiles(id),
+    locked_at     timestamptz DEFAULT now(),
+    unlocked_by   uuid REFERENCES profiles(id) DEFAULT NULL,
+    unlocked_at   timestamptz DEFAULT NULL,
+    reason        text DEFAULT NULL,
+    updated_at    timestamptz DEFAULT now()
+  )`,
+  `ALTER TABLE platform_locks ENABLE ROW LEVEL SECURITY`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='platform_locks' AND policyname='locks_read') THEN
+      CREATE POLICY "locks_read" ON platform_locks FOR SELECT USING (auth.role() = 'authenticated');
+    END IF;
+  END $$`,
+  `ALTER TABLE platform_locks REPLICA IDENTITY FULL`,
 ];
 
 function runSql(sql) {

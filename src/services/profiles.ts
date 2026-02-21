@@ -1,6 +1,22 @@
 import { supabase } from '../lib/supabase';
 import type { User, UserRole } from '../types';
 
+function mapDbProfile(data: any): User {
+  return {
+    id: data.id,
+    name: data.name,
+    email: data.email,
+    role: data.role,
+    roles: data.roles ?? [data.role],
+    activeRole: data.activeRole ?? data.role,
+    studentId: data.student_id ?? undefined,
+    employeeNumber: data.employee_number ?? undefined,
+    avatarUrl: data.avatar_url ?? undefined,
+    department: data.department ?? undefined,
+    gender: data.gender ?? undefined,
+  };
+}
+
 async function getAdminToken(): Promise<string> {
   const { data } = await supabase.auth.getSession();
   return data.session?.access_token ?? '';

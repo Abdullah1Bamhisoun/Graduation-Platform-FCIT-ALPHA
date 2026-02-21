@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
+import { useLockStatus } from '../../hooks/useLockStatus';
+import { LockedBanner } from '../../components/ui/LockedBanner';
 import { getMilestoneConfigs } from '../../services/milestones';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -12,6 +14,7 @@ import { MilestoneConfig } from '../../types';
 
 export function AdminMilestonesConfig() {
   const { user } = useAuth();
+  const { isLocked } = useLockStatus('milestones');
   const [selectedCourse, setSelectedCourse] = useState<'CPIS-498' | 'CPIS-499'>('CPIS-498');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [configs, setConfigs] = useState<MilestoneConfig[]>([]);
@@ -63,6 +66,7 @@ export function AdminMilestonesConfig() {
 
   return (
     <Layout user={user} pageTitle="Chapter Configuration">
+      {isLocked && <LockedBanner />}
       <div className="mb-6 flex items-center justify-between">
         <p className="text-[var(--color-text-600)]">
           Configure milestone timelines and submission policies
@@ -71,6 +75,7 @@ export function AdminMilestonesConfig() {
           variant="primary"
           onClick={handleAddMilestone}
           className="gap-2"
+          disabled={isLocked}
         >
           <Plus className="w-4 h-4" />
           Add Milestone
@@ -202,6 +207,7 @@ export function AdminMilestonesConfig() {
                       variant="primary"
                       onClick={handleSave}
                       className="gap-2"
+                      disabled={isLocked}
                     >
                       <Save className="w-4 h-4" />
                       Save Changes
@@ -224,6 +230,7 @@ export function AdminMilestonesConfig() {
                       size="sm"
                       onClick={() => setEditingId(config.id)}
                       className="gap-2"
+                      disabled={isLocked}
                     >
                       <Edit2 className="w-4 h-4" />
                       Edit

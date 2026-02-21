@@ -7,6 +7,9 @@ const { supabaseAdmin } = require('../config/supabase');
 async function listUsers(req, res) {
   try {
     const { role } = req.query;
+    const isAdmin = req.user.roles.includes('admin');
+    const isCoordinator = req.user.activeRole === 'coordinator' && req.user.coordinatorCourseId;
+
     let query = supabaseAdmin
       .from('profiles')
       .select('id, name, email, role, student_id, employee_number, department, gender')
@@ -14,19 +17,60 @@ async function listUsers(req, res) {
 
     if (role) query = query.eq('role', role);
 
+    // Coordinators only see users in their course
+    if (!isAdmin && isCoordinator) {
+      const { data: groups } = await supabaseAdmin
+        .from('groups')
+        .select('id')
+        .eq('course_id', req.user.coordinatorCourseId);
+
+      const groupIds = (groups || []).map((g) => g.id);
+
+      const { data: members } = groupIds.length > 0
+        ? await supabaseAdmin.from('group_members').select('student_id').in('group_id', groupIds)
+        : { data: [] };
+
+      const studentIds = (members || []).map((m) => m.student_id).filter(Boolean);
+      if (studentIds.length === 0) {
+        return res.json([]);
+      }
+      query = query.in('id', studentIds);
+    }
+
     const { data, error } = await query;
     if (error) throw error;
 
-    res.json((data || []).map((p) => ({
-      id: p.id,
-      name: p.name,
-      email: p.email,
-      role: p.role,
-      studentId: p.student_id ?? undefined,
-      employeeNumber: p.employee_number ?? undefined,
-      department: p.department ?? undefined,
-      gender: p.gender ?? undefined,
-    })));
+    // Fetch all user_roles in one query to avoid N+1
+    const userIds = (data || []).map((p) => p.id);
+    let rolesMap = {};
+    if (userIds.length > 0) {
+      const { data: userRolesData } = await supabaseAdmin
+        .from('user_roles')
+        .select('user_id, coordinator_course_id, roles(name)')
+        .in('user_id', userIds);
+
+      for (const ur of (userRolesData || [])) {
+        const uid = ur.user_id;
+        if (!rolesMap[uid]) rolesMap[uid] = [];
+        if (ur.roles?.name) rolesMap[uid].push(ur.roles.name);
+      }
+    }
+
+    res.json((data || []).map((p) => {
+      const roles = rolesMap[p.id]?.length > 0 ? rolesMap[p.id] : [p.role];
+      return {
+        id: p.id,
+        name: p.name,
+        email: p.email,
+        role: p.role,
+        roles,
+        activeRole: p.role,
+        studentId: p.student_id ?? undefined,
+        employeeNumber: p.employee_number ?? undefined,
+        department: p.department ?? undefined,
+        gender: p.gender ?? undefined,
+      };
+    }));
   } catch (error) {
     console.error('Error listing users:', error);
     res.status(500).json({ error: 'Failed to fetch users' });

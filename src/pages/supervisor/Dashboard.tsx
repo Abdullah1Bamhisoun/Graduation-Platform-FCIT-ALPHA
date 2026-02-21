@@ -78,7 +78,7 @@ export function SupervisorDashboard() {
   return (
     <Layout user={user} pageTitle="Supervisor Dashboard">
       {/* Metrics */}
-      <div className="grid grid-cols-4 gap-6 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
         <MetricCard
           label="Assigned Groups"
           value={groups.length}
@@ -105,7 +105,7 @@ export function SupervisorDashboard() {
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* To Review */}
         <DashboardCard
           title="Submissions to Review"
@@ -275,7 +275,7 @@ export function SupervisorDashboard() {
         <DashboardCard
           title="Recent Activity"
           icon={Clock}
-          className="col-span-2"
+          className="lg:col-span-2"
         >
           <div className="space-y-3">
             {recentActivity.length > 0 ? (

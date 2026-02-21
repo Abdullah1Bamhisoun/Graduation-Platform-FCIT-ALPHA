@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { Button } from '../../components/ui/button';
 import { Label } from '../../components/ui/label';
@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from '../../components/ui/dialog';
 import { useAuth } from '../../lib/AuthContext';
+import { getGroupsForSupervisor } from '../../services/groups';
 import {
   Search,
   FileText,
@@ -62,64 +63,6 @@ interface CommitteeCriterion {
   score: number | null;
 }
 
-const mockAssignedGroups: AssignedGroup[] = [
-  {
-    id: '1',
-    projectName: 'Graduation Project Platform',
-    groupId: '13_498_2026_01_M',
-    course: 'CPIS-498',
-    milestone: 'Presentation',
-    date: 'Wed, Dec 10, 2025',
-    room: 'Room 301',
-    status: 'scheduled',
-  },
-  {
-    id: '2',
-    projectName: 'Healthcare App',
-    groupId: '15_498_2026_01_M',
-    course: 'CPIS-498',
-    milestone: 'Presentation',
-    date: 'Mon, Dec 8, 2025',
-    room: 'Room 205',
-    status: 'scheduled',
-  },
-  {
-    id: '3',
-    projectName: 'Mobile Banking App',
-    groupId: '17_498_2026_01_M',
-    course: 'CPIS-498',
-    milestone: 'Presentation',
-    status: 'not-scheduled',
-  },
-  {
-    id: '4',
-    projectName: 'Smart Library System',
-    groupId: '18_498_2026_01_M',
-    course: 'CPIS-498',
-    milestone: 'Poster',
-    date: 'Tue, Dec 9, 2025',
-    room: 'Room 101',
-    status: 'completed',
-  },
-  {
-    id: '5',
-    projectName: 'Food Delivery Platform',
-    groupId: '19_498_2026_01_M',
-    course: 'CPIS-498',
-    milestone: 'Presentation',
-    status: 'not-scheduled',
-  },
-  {
-    id: '6',
-    projectName: 'E-Commerce Platform',
-    groupId: '20_499_2026_01_M',
-    course: 'CPIS-499',
-    milestone: 'Presentation',
-    date: 'Thu, Dec 11, 2025',
-    room: 'Room 405',
-    status: 'scheduled',
-  },
-];
 
 const timeSlots = [
   '8:00 AM', '8:30 AM', '9:00 AM', '9:30 AM', '10:00 AM', '10:30 AM',
@@ -129,33 +72,41 @@ const timeSlots = [
 
 const weekDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'];
 
-const mockAssignedSessions: AssignedSession[] = [
-  { date: 'Wed, Dec 10', time: '11:00 AM', room: 'Room 301', projectName: 'Graduation Project Platform' },
-  { date: 'Mon, Dec 8', time: '9:00 AM', room: 'Room 205', projectName: 'Healthcare App' },
-  { date: 'Thu, Dec 11', time: '2:00 PM', room: 'Room 405', projectName: 'E-Commerce Platform' },
-];
 
 export function SupervisorGradesCommittee() {
   const { user } = useAuth();
-  
+
   const [mainTab, setMainTab] = useState<'groups' | 'availability'>('groups');
   const [isGrading, setIsGrading] = useState(false);
   const [selectedGroupForGrading, setSelectedGroupForGrading] = useState<AssignedGroup | null>(null);
-  
+  const [assignedGroups, setAssignedGroups] = useState<AssignedGroup[]>([]);
+
+  useEffect(() => {
+    if (!user) return;
+    getGroupsForSupervisor(user.id).then((data) => {
+      setAssignedGroups(data.map((g) => ({
+        id: g.id,
+        projectName: g.projectName,
+        groupId: g.groupCode,
+        course: g.courseCode.includes('499') ? 'CPIS-499' : 'CPIS-498',
+        milestone: 'Presentation' as const,
+        status: 'not-scheduled' as const,
+      })));
+    });
+  }, [user?.id]);
+
   // Tab 1: Groups to Evaluate
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCourses, setSelectedCourses] = useState<string[]>(['498', '499']);
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>(['not-scheduled', 'scheduled', 'completed']);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
-  
+
   // Tab 2: Select Available Slot
   const [selectedTerm, setSelectedTerm] = useState('2025/26 – Term 1');
   const [selectedCourseFilter, setSelectedCourseFilter] = useState<'498' | '499' | 'both'>('both');
-  const [availabilityBlocks, setAvailabilityBlocks] = useState<AvailabilityBlock[]>([
-    { id: '1', day: 'Monday', startTime: '9:00 AM', endTime: '11:00 AM' },
-    { id: '2', day: 'Wednesday', startTime: '10:00 AM', endTime: '12:00 PM' },
-  ]);
+  const [availabilityBlocks, setAvailabilityBlocks] = useState<AvailabilityBlock[]>([]);
+  const [assignedSessions] = useState<AssignedSession[]>([]);
   const [allowBackToBack, setAllowBackToBack] = useState(false);
   const [showSlotDialog, setShowSlotDialog] = useState(false);
   const [editingSlot, setEditingSlot] = useState<AvailabilityBlock | null>(null);
@@ -182,7 +133,7 @@ export function SupervisorGradesCommittee() {
   const [committeeComments, setCommitteeComments] = useState('');
 
   // Filter groups
-  const filteredGroups = mockAssignedGroups.filter(group => {
+  const filteredGroups = assignedGroups.filter(group => {
     const matchesSearch = group.projectName.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          group.groupId.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCourse = selectedCourses.includes(group.course === 'CPIS-498' ? '498' : '499');
@@ -213,7 +164,7 @@ export function SupervisorGradesCommittee() {
 
   // Handle evaluate - open grading view
   const handleEvaluate = (groupId: string) => {
-    const group = mockAssignedGroups.find(g => g.groupId === groupId);
+    const group = assignedGroups.find(g => g.groupId === groupId);
     if (group) {
       setSelectedGroupForGrading(group);
       setIsGrading(true);
@@ -945,11 +896,11 @@ export function SupervisorGradesCommittee() {
               {/* Assigned Sessions */}
               <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
                 <h3 className="text-[var(--color-text-900)] mb-4">Assigned Sessions</h3>
-                {mockAssignedSessions.length === 0 ? (
+                {assignedSessions.length === 0 ? (
                   <p className="text-sm text-[var(--color-text-600)]">No sessions assigned yet</p>
                 ) : (
                   <div className="space-y-3">
-                    {mockAssignedSessions.map((session, idx) => (
+                    {assignedSessions.map((session, idx) => (
                       <div key={idx} className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
                         <div className="flex items-start gap-2 mb-1">
                           <Calendar className="w-4 h-4 text-blue-600 mt-0.5" />
