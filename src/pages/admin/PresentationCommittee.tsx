@@ -3,6 +3,11 @@ import { Layout } from '../../components/layout/Layout';
 import { getProfilesByRole } from '../../services/profiles';
 import { getAllGroups } from '../../services/groups';
 import { getAuditLog } from '../../services/audit';
+import {
+  assignPresentationSchedule,
+  computeScheduledAt,
+  getServerTime,
+} from '../../services/presentations';
 import type { AuditLogEntry } from '../../types';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -93,7 +98,8 @@ export function AdminPresentationCommittee() {
 
   // State
   const [term, setTerm] = useState('2026-01');
-  const [course, setCourse] = useState<'498' | '499' | 'both'>('both');
+  // Coordinators are locked to their assigned course; admins choose explicitly.
+  const [course, setCourse] = useState<'498' | '499' | null>(null);
   const [weekStart, setWeekStart] = useState(() => new Date().toISOString().slice(0, 10));
 
   // Planning inputs (will be populated from DB)
@@ -116,10 +122,14 @@ export function AdminPresentationCommittee() {
   const [supervisors, setSupervisors] = useState<SupervisorAvailability[]>([]);
   const [changesLog, setChangesLog] = useState<AuditLogEntry[]>([]);
 
+  const isCoordinator = user?.activeRole === 'coordinator';
+
   useEffect(() => {
+    if (!user) return;
     Promise.all([
       getProfilesByRole('supervisor'),
-      getAllGroups(),
+      // Pass activeRole so the backend applies coordinator course-scoping
+      getAllGroups(user.activeRole),
       getAuditLog(),
     ]).then(([sups, groups, auditEntries]) => {
       setSupervisors(sups.map(s => ({
@@ -128,26 +138,38 @@ export function AdminPresentationCommittee() {
         sun: 0, mon: 0, tue: 0, wed: 0, thu: 0, total: 0,
         status: 'none' as const,
       })));
-      setProjects(groups.map(g => ({
+      // courseCode may be empty when groups come from the backend API (no course join).
+      // Use courseNumber (e.g. '499') as the reliable fallback.
+      const isCourse499 = (g: (typeof groups)[number]) =>
+        g.courseCode.includes('499') || (g.courseNumber ?? '').includes('499');
+
+      const mappedProjects = groups.map(g => ({
         id: g.id,
         name: g.projectName,
         groupId: g.groupCode,
-        course: (g.courseCode.includes('499') ? '499' : '498') as '498' | '499',
+        course: (isCourse499(g) ? '499' : '498') as '498' | '499',
         status: 'unassigned' as const,
-      })));
+      }));
+      setProjects(mappedProjects);
       setChangesLog(auditEntries.slice(0, 20));
-      const count498 = groups.filter(g => g.courseCode.includes('498')).length;
-      const count499 = groups.filter(g => g.courseCode.includes('499')).length;
+      const count498 = groups.filter(g => !isCourse499(g)).length;
+      const count499 = groups.filter(g => isCourse499(g)).length;
       setNumStudents498(count498);
       setNumStudents499(count499);
       setNumSupervisors(sups.length);
+
+      // For coordinators: auto-detect their course from loaded groups
+      if (isCoordinator && mappedProjects.length > 0) {
+        setCourse(mappedProjects[0].course);
+      }
     });
-  }, []);
+  }, [user?.activeRole, isCoordinator]);
 
   // UI State
   const [showSlotDialog, setShowSlotDialog] = useState(false);
   const [showAutoAssignDialog, setShowAutoAssignDialog] = useState(false);
   const [showPublishDialog, setShowPublishDialog] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
   const [editingSlot, setEditingSlot] = useState<Partial<TimeSlot>>({});
   const [draggedProject, setDraggedProject] = useState<Project | null>(null);
@@ -290,10 +312,64 @@ export function AdminPresentationCommittee() {
     setShowAutoAssignDialog(false);
   };
 
-  // Publish
-  const handlePublish = () => {
-    toast.success('Schedule published - notifications sent');
+  // Publish — saves assigned slots to backend with server-side date validation
+  const handlePublish = async () => {
+    const assignedSlots = slots.filter((s) => s.status === 'assigned' && s.projectId);
+    if (assignedSlots.length === 0) {
+      toast.error('No assigned slots to publish');
+      return;
+    }
+
+    // Validate that weekStart is a proper ISO week string (e.g. "2026-W08")
+    if (!/^\d{4}-W\d{2}$/.test(weekStart)) {
+      toast.error('Please select a valid week before publishing');
+      return;
+    }
+
+    // Fetch server time for frontend pre-validation (backend always re-validates)
+    const serverNow = await getServerTime();
+
+    // Pre-check all slots: compute scheduledAt and ensure they are in the future
+    const invalids: string[] = [];
+    for (const slot of assignedSlots) {
+      const scheduledAt = computeScheduledAt(weekStart, slot.day, slot.startTime);
+      if (!scheduledAt || scheduledAt <= serverNow) {
+        invalids.push(`${slot.day} ${slot.startTime}${slot.projectName ? ` (${slot.projectName})` : ''}`);
+      }
+    }
+    if (invalids.length > 0) {
+      toast.error(`These slots are in the past and cannot be published:\n${invalids.join(', ')}`);
+      return;
+    }
+
+    setPublishing(true);
+    let successCount = 0;
+    const errors: string[] = [];
+
+    for (const slot of assignedSlots) {
+      const scheduledAt = computeScheduledAt(weekStart, slot.day, slot.startTime)!;
+      try {
+        await assignPresentationSchedule({
+          groupId: slot.projectId!,
+          scheduledAt: scheduledAt.toISOString(),
+          day: slot.day,
+          timeSlot: slot.startTime,
+          committeeMembers: [slot.supervisor, slot.supervisor2].filter(Boolean) as string[],
+        });
+        successCount++;
+      } catch (err: any) {
+        errors.push(err?.message ?? `Failed: ${slot.projectName}`);
+      }
+    }
+
+    setPublishing(false);
     setShowPublishDialog(false);
+
+    if (errors.length === 0) {
+      toast.success(`Schedule published — ${successCount} slot(s) saved, calendar events and announcements created`);
+    } else {
+      toast.error(`${successCount} saved, ${errors.length} failed: ${errors[0]}`);
+    }
   };
 
   // Download schedule
@@ -331,7 +407,7 @@ export function AdminPresentationCommittee() {
   };
 
   const getUnassignedProjects = () => {
-    return projects.filter(p => p.status === 'unassigned' && (course === 'both' || p.course === course));
+    return projects.filter(p => p.status === 'unassigned' && (course === null || p.course === course));
   };
 
   const filteredSupervisors = supervisors.filter(s =>
@@ -357,26 +433,20 @@ export function AdminPresentationCommittee() {
 
           <div className="flex rounded-lg border border-[var(--color-border)] overflow-hidden">
             <button
-              onClick={() => setCourse('498')}
+              onClick={() => !isCoordinator && setCourse('498')}
+              disabled={isCoordinator && course !== '498'}
               className={`px-4 py-2 text-sm transition-colors ${
                 course === '498' ? 'bg-[var(--color-primary-600)] text-white' : 'bg-white text-[var(--color-text-600)] hover:bg-gray-50'
-              }`}
+              } disabled:opacity-40 disabled:cursor-not-allowed`}
             >
               CPIS-498
             </button>
             <button
-              onClick={() => setCourse('both')}
-              className={`px-4 py-2 text-sm border-x border-[var(--color-border)] transition-colors ${
-                course === 'both' ? 'bg-[var(--color-primary-600)] text-white' : 'bg-white text-[var(--color-text-600)] hover:bg-gray-50'
-              }`}
-            >
-              Both
-            </button>
-            <button
-              onClick={() => setCourse('499')}
-              className={`px-4 py-2 text-sm transition-colors ${
+              onClick={() => !isCoordinator && setCourse('499')}
+              disabled={isCoordinator && course !== '499'}
+              className={`px-4 py-2 text-sm border-l border-[var(--color-border)] transition-colors ${
                 course === '499' ? 'bg-[var(--color-primary-600)] text-white' : 'bg-white text-[var(--color-text-600)] hover:bg-gray-50'
-              }`}
+              } disabled:opacity-40 disabled:cursor-not-allowed`}
             >
               CPIS-499
             </button>
@@ -1086,9 +1156,13 @@ export function AdminPresentationCommittee() {
             <Button variant="outline" onClick={() => setShowPublishDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handlePublish} className="bg-green-600 hover:bg-green-700 text-white">
+            <Button
+              onClick={handlePublish}
+              disabled={publishing}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
               <Send className="w-4 h-4 mr-2" />
-              Publish Schedule
+              {publishing ? 'Publishing…' : 'Publish Schedule'}
             </Button>
           </DialogFooter>
         </DialogContent>

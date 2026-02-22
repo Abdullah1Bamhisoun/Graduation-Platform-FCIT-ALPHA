@@ -225,6 +225,12 @@ export interface Comment {
 
 // ─── Grading ──────────────────────────────────────────────────────────────────
 
+export interface DeliverableEntry {
+  score?: number;
+  maxScore: number;
+  status: 'not-submitted' | 'submitted' | 'graded';
+}
+
 export interface GroupGrade {
   groupId: string;
   groupName: string;
@@ -232,15 +238,9 @@ export interface GroupGrade {
   students: { id: string; name: string }[];
   supervisorName: string;
 
-  deliverables: {
-    chapter1:           { score?: number; maxScore: 5;  status: 'not-submitted' | 'submitted' | 'graded' };
-    chapter2:           { score?: number; maxScore: 1;  status: 'not-submitted' | 'submitted' | 'graded' };
-    chapter3:           { score?: number; maxScore: 1;  status: 'not-submitted' | 'submitted' | 'graded' };
-    chapter4:           { score?: number; maxScore: 3;  status: 'not-submitted' | 'submitted' | 'graded' };
-    finalReport:        { score?: number; maxScore: 3;  status: 'not-submitted' | 'submitted' | 'graded' };
-    revisedFinalReport: { score?: number; maxScore: 3;  status: 'not-submitted' | 'submitted' | 'graded' };
-    presentation:       { score?: number; maxScore: 0;  status: 'not-submitted' | 'submitted' | 'graded' };
-  };
+  /** CPIS-498: keyed by deliverable slug (chapter1, finalReport, etc.).
+   *  CPIS-499: always empty — coordinator scores live in admin_committee_scores. */
+  deliverables: Record<string, DeliverableEntry>;
   deliverablesTotal: number;
 
   weeklyProgress: {
@@ -315,7 +315,10 @@ export interface StudentGrade {
     evaluations?: PeerEvaluation[];
   };
 
+  /** CPIS-498: sum of chapter grades (15 max). */
   deliverablesTotal?: number;
+  /** CPIS-499: coordinator Course Deliverables total (poster+impl+testing, 15 max). */
+  adminCommitteeTotal?: number;
   weeklyProgressScore?: number;
   totalScore: number;
   finalGrade?: string;

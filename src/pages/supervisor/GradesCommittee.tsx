@@ -3,8 +3,6 @@ import { Layout } from '../../components/layout/Layout';
 import { Button } from '../../components/ui/button';
 import { Label } from '../../components/ui/label';
 import { Textarea } from '../../components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import {
   Dialog,
   DialogContent,
@@ -14,14 +12,10 @@ import {
   DialogTitle,
 } from '../../components/ui/dialog';
 import { useAuth } from '../../lib/AuthContext';
-import { getGroupsForSupervisor } from '../../services/groups';
+import { getGroupsForEvaluation } from '../../services/groups';
 import {
   Search,
   FileText,
-  Calendar,
-  Clock,
-  Plus,
-  Info,
   Save,
   Send,
   XCircle,
@@ -40,20 +34,8 @@ interface AssignedGroup {
   date?: string;
   room?: string;
   status: 'not-scheduled' | 'scheduled' | 'completed';
-}
-
-interface AvailabilityBlock {
-  id: string;
-  day: string;
-  startTime: string;
-  endTime: string;
-}
-
-interface AssignedSession {
-  date: string;
-  time: string;
-  room: string;
-  projectName: string;
+  /** Server-computed: evaluation is unlocked when presentation time has passed. */
+  evaluationActive: boolean;
 }
 
 interface CommitteeCriterion {
@@ -64,53 +46,36 @@ interface CommitteeCriterion {
 }
 
 
-const timeSlots = [
-  '8:00 AM', '8:30 AM', '9:00 AM', '9:30 AM', '10:00 AM', '10:30 AM',
-  '11:00 AM', '11:30 AM', '12:00 PM', '12:30 PM', '1:00 PM', '1:30 PM',
-  '2:00 PM', '2:30 PM', '3:00 PM', '3:30 PM', '4:00 PM',
-];
-
-const weekDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'];
-
-
 export function SupervisorGradesCommittee() {
   const { user } = useAuth();
 
-  const [mainTab, setMainTab] = useState<'groups' | 'availability'>('groups');
   const [isGrading, setIsGrading] = useState(false);
   const [selectedGroupForGrading, setSelectedGroupForGrading] = useState<AssignedGroup | null>(null);
   const [assignedGroups, setAssignedGroups] = useState<AssignedGroup[]>([]);
+  const [assignmentMode, setAssignmentMode] = useState(false);
 
   useEffect(() => {
     if (!user) return;
-    getGroupsForSupervisor(user.id).then((data) => {
-      setAssignedGroups(data.map((g) => ({
+    getGroupsForEvaluation().then(({ groups, assignmentMode: mode }) => {
+      setAssignmentMode(mode);
+      setAssignedGroups(groups.map((g) => ({
         id: g.id,
         projectName: g.projectName,
-        groupId: g.groupCode,
-        course: g.courseCode.includes('499') ? 'CPIS-499' : 'CPIS-498',
+        groupId: g.groupNumber != null ? String(g.groupNumber) : g.id,
+        course: (g.courseNumber ?? '').includes('499') || g.courseCode.includes('499') ? 'CPIS-499' : 'CPIS-498',
         milestone: 'Presentation' as const,
         status: 'not-scheduled' as const,
+        evaluationActive: g.evaluationActive,
       })));
     });
   }, [user?.id]);
 
-  // Tab 1: Groups to Evaluate
+  // Groups to Evaluate
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCourses, setSelectedCourses] = useState<string[]>(['498', '499']);
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>(['not-scheduled', 'scheduled', 'completed']);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
-
-  // Tab 2: Select Available Slot
-  const [selectedTerm, setSelectedTerm] = useState('2025/26 – Term 1');
-  const [selectedCourseFilter, setSelectedCourseFilter] = useState<'498' | '499' | 'both'>('both');
-  const [availabilityBlocks, setAvailabilityBlocks] = useState<AvailabilityBlock[]>([]);
-  const [assignedSessions] = useState<AssignedSession[]>([]);
-  const [allowBackToBack, setAllowBackToBack] = useState(false);
-  const [showSlotDialog, setShowSlotDialog] = useState(false);
-  const [editingSlot, setEditingSlot] = useState<AvailabilityBlock | null>(null);
-  const [slotForm, setSlotForm] = useState({ day: '', startTime: '', endTime: '' });
 
   // Grading States
   const [gradingStatus, setGradingStatus] = useState<'draft' | 'submitted'>('draft');
@@ -228,66 +193,6 @@ export function SupervisorGradesCommittee() {
     setIsIP(true);
     setShowIPModal(false);
     toast.success('Marked as IP (Not Ready)');
-  };
-
-  // Handle slot creation
-  const handleCreateSlot = (day: string, time: string) => {
-    setSlotForm({ day, startTime: time, endTime: '' });
-    setEditingSlot(null);
-    setShowSlotDialog(true);
-  };
-
-  // Handle slot edit
-  const handleEditSlot = (slot: AvailabilityBlock) => {
-    setEditingSlot(slot);
-    setSlotForm({ day: slot.day, startTime: slot.startTime, endTime: slot.endTime });
-    setShowSlotDialog(true);
-  };
-
-  // Handle save slot
-  const handleSaveSlot = () => {
-    if (!slotForm.day || !slotForm.startTime || !slotForm.endTime) {
-      toast.error('Please fill all fields');
-      return;
-    }
-
-    if (editingSlot) {
-      setAvailabilityBlocks(prev =>
-        prev.map(block => block.id === editingSlot.id
-          ? { ...block, ...slotForm }
-          : block
-        )
-      );
-      toast.success('Slot updated');
-    } else {
-      const newSlot: AvailabilityBlock = {
-        id: Date.now().toString(),
-        ...slotForm,
-      };
-      setAvailabilityBlocks(prev => [...prev, newSlot]);
-      toast.success('Slot created');
-    }
-    setShowSlotDialog(false);
-    setSlotForm({ day: '', startTime: '', endTime: '' });
-  };
-
-  // Handle delete slot
-  const handleDeleteSlot = () => {
-    if (editingSlot) {
-      setAvailabilityBlocks(prev => prev.filter(block => block.id !== editingSlot.id));
-      toast.success('Slot deleted');
-      setShowSlotDialog(false);
-    }
-  };
-
-  // Handle save availability
-  const handleSaveAvailability = () => {
-    toast.success('Availability saved successfully');
-  };
-
-  // Calculate slot counts per day
-  const getSlotCountForDay = (day: string) => {
-    return availabilityBlocks.filter(block => block.day === day).length;
   };
 
   if (!user) return null;
@@ -532,33 +437,23 @@ export function SupervisorGradesCommittee() {
     );
   }
 
-  // Main Committee Evaluation View (Groups & Availability)
+  // Main Committee Evaluation View
   return (
     <Layout user={user} pageTitle="Committee Evaluation">
       <div className="mb-6">
         <p className="text-[var(--color-text-600)]">
-          Manage your committee assignments and availability
+          Manage your committee assignments
         </p>
       </div>
 
-      <Tabs value={mainTab} onValueChange={(v) => setMainTab(v as any)}>
-        <TabsList className="mb-6 border-b w-full justify-start rounded-none bg-transparent p-0">
-          <TabsTrigger
-            value="groups"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-blue-600 data-[state=active]:bg-transparent pb-3"
-          >
-            Groups to Evaluate
-          </TabsTrigger>
-          <TabsTrigger
-            value="availability"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-blue-600 data-[state=active]:bg-transparent pb-3"
-          >
-            Select Available Slot
-          </TabsTrigger>
-        </TabsList>
-
-        {/* Tab 1: Groups to Evaluate */}
-        <TabsContent value="groups" className="mt-0">
+      {assignmentMode && assignedGroups.length === 0 ? (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <p className="text-amber-900">
+            No groups assigned for evaluation — Evaluation cannot start until a group is officially assigned to you by the coordinator or admin.
+          </p>
+        </div>
+      ) : (
           <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)]">
             {/* Filter Bar */}
             <div className="p-6 border-b border-[var(--color-border)]">
@@ -707,13 +602,23 @@ export function SupervisorGradesCommittee() {
                             </span>
                           </td>
                           <td className="py-4 px-6">
-                            <Button
-                              onClick={() => handleEvaluate(group.groupId)}
-                              size="sm"
-                              className="bg-blue-600 hover:bg-blue-700 text-[rgb(0,0,0)]"
-                            >
-                              Evaluate
-                            </Button>
+                            {group.evaluationActive ? (
+                              <Button
+                                onClick={() => handleEvaluate(group.groupId)}
+                                size="sm"
+                                className="bg-blue-600 hover:bg-blue-700 text-[rgb(0,0,0)]"
+                              >
+                                Evaluate
+                              </Button>
+                            ) : (
+                              <span
+                                title="Evaluation is locked until the presentation date and time"
+                                className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-500 border border-gray-200 cursor-default"
+                              >
+                                <AlertCircle className="w-3 h-3" />
+                                Locked
+                              </span>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -761,244 +666,7 @@ export function SupervisorGradesCommittee() {
               </>
             )}
           </div>
-        </TabsContent>
-
-        {/* Tab 2: Select Available Slot */}
-        <TabsContent value="availability" className="mt-0">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Main Content */}
-            <div className="lg:col-span-2">
-              <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
-                {/* Controls */}
-                <div className="mb-6 flex flex-wrap gap-4">
-                  <div className="flex-1 min-w-[200px]">
-                    <Label className="mb-2 block text-[var(--color-text-900)]">Term</Label>
-                    <Select value={selectedTerm} onValueChange={setSelectedTerm}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="2025/26 – Term 1">2025/26 – Term 1</SelectItem>
-                        <SelectItem value="2025/26 – Term 2">2025/26 – Term 2</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="flex-1 min-w-[200px]">
-                    <Label className="mb-2 block text-[var(--color-text-900)]">Course</Label>
-                    <Select value={selectedCourseFilter} onValueChange={(v) => setSelectedCourseFilter(v as any)}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="both">Both (498 & 499)</SelectItem>
-                        <SelectItem value="498">CPIS-498</SelectItem>
-                        <SelectItem value="499">CPIS-499</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                {/* Hint */}
-                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex gap-2 text-sm text-blue-900">
-                  <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                  <span>Click on any time slot to create an availability block. Max 3 sessions per day.</span>
-                </div>
-
-                {/* Week Grid */}
-                <div className="overflow-x-auto">
-                  <div className="min-w-[800px]">
-                    {/* Header */}
-                    <div className="grid grid-cols-6 gap-2 mb-2">
-                      <div className="text-sm text-[var(--color-text-600)] py-2">Time</div>
-                      {weekDays.map(day => (
-                        <div key={day} className="text-sm text-[var(--color-text-900)] py-2 text-center">
-                          {day}
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Time Slots */}
-                    {timeSlots.map((time) => (
-                      <div key={time} className="grid grid-cols-6 gap-2 mb-1">
-                        <div className="text-sm text-[var(--color-text-600)] py-3 flex items-center">
-                          {time}
-                        </div>
-                        {weekDays.map(day => {
-                          const existingBlock = availabilityBlocks.find(
-                            block => block.day === day && block.startTime === time
-                          );
-                          
-                          return (
-                            <div key={day} className="relative">
-                              {existingBlock ? (
-                                <button
-                                  onClick={() => handleEditSlot(existingBlock)}
-                                  className="w-full py-3 bg-green-100 border-2 border-green-500 rounded-lg hover:bg-green-200 transition-colors text-sm text-green-900"
-                                >
-                                  <div className="flex items-center justify-center gap-1">
-                                    <Clock className="w-3 h-3" />
-                                    <span className="text-xs">{existingBlock.endTime}</span>
-                                  </div>
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => handleCreateSlot(day, time)}
-                                  className="w-full py-3 bg-gray-50 border border-gray-200 rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors"
-                                  disabled={getSlotCountForDay(day) >= 3}
-                                >
-                                  {getSlotCountForDay(day) >= 3 ? (
-                                    <span className="text-xs text-gray-400">Full</span>
-                                  ) : (
-                                    <Plus className="w-4 h-4 mx-auto text-gray-400" />
-                                  )}
-                                </button>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Right Rail */}
-            <div className="lg:col-span-1 space-y-6">
-              {/* Offered Slots Summary */}
-              <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
-                <h3 className="text-[var(--color-text-900)] mb-4">Offered Slots Summary</h3>
-                <div className="space-y-3">
-                  {weekDays.map(day => (
-                    <div key={day} className="flex justify-between items-center">
-                      <span className="text-sm text-[var(--color-text-600)]">{day.slice(0, 3)}</span>
-                      <span className="text-sm text-[var(--color-text-900)] px-2 py-1 bg-blue-50 rounded">
-                        {getSlotCountForDay(day)} slots
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-6 pt-6 border-t border-[var(--color-border)]">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={allowBackToBack}
-                      onChange={(e) => setAllowBackToBack(e.target.checked)}
-                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm text-[var(--color-text-900)]">Allow back-to-back sessions</span>
-                  </label>
-                </div>
-              </div>
-
-              {/* Assigned Sessions */}
-              <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
-                <h3 className="text-[var(--color-text-900)] mb-4">Assigned Sessions</h3>
-                {assignedSessions.length === 0 ? (
-                  <p className="text-sm text-[var(--color-text-600)]">No sessions assigned yet</p>
-                ) : (
-                  <div className="space-y-3">
-                    {assignedSessions.map((session, idx) => (
-                      <div key={idx} className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                        <div className="flex items-start gap-2 mb-1">
-                          <Calendar className="w-4 h-4 text-blue-600 mt-0.5" />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm text-blue-900">{session.date}</p>
-                            <p className="text-xs text-blue-700">{session.time} • {session.room}</p>
-                            <p className="text-xs text-blue-600 mt-1 truncate">{session.projectName}</p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Sticky Save Button */}
-          <div className="fixed bottom-6 right-6">
-            <Button
-              onClick={handleSaveAvailability}
-              className="bg-blue-600 hover:bg-blue-700 text-white shadow-lg"
-            >
-              Save Availability
-            </Button>
-          </div>
-        </TabsContent>
-      </Tabs>
-
-      {/* Slot Dialog */}
-      <Dialog open={showSlotDialog} onOpenChange={setShowSlotDialog}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>{editingSlot ? 'Edit' : 'Create'} Availability Block</DialogTitle>
-            <DialogDescription>
-              Set your available time slot for committee evaluations
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="py-4 space-y-4">
-            <div>
-              <Label className="mb-2 block">Day</Label>
-              <Select value={slotForm.day} onValueChange={(v) => setSlotForm(prev => ({ ...prev, day: v }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select day" />
-                </SelectTrigger>
-                <SelectContent>
-                  {weekDays.map(day => (
-                    <SelectItem key={day} value={day}>{day}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label className="mb-2 block">Start Time</Label>
-              <Select value={slotForm.startTime} onValueChange={(v) => setSlotForm(prev => ({ ...prev, startTime: v }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select start time" />
-                </SelectTrigger>
-                <SelectContent>
-                  {timeSlots.map(time => (
-                    <SelectItem key={time} value={time}>{time}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label className="mb-2 block">End Time</Label>
-              <Select value={slotForm.endTime} onValueChange={(v) => setSlotForm(prev => ({ ...prev, endTime: v }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select end time" />
-                </SelectTrigger>
-                <SelectContent>
-                  {timeSlots.map(time => (
-                    <SelectItem key={time} value={time}>{time}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <DialogFooter>
-            {editingSlot && (
-              <Button variant="outline" onClick={handleDeleteSlot} className="mr-auto text-red-600 border-red-300 hover:bg-red-50">
-                Delete
-              </Button>
-            )}
-            <Button variant="outline" onClick={() => setShowSlotDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSaveSlot} className="bg-blue-600 hover:bg-blue-700 text-white">
-              Save
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      )}
     </Layout>
   );
 }

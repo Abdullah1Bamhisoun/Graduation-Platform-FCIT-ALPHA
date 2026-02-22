@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from '../../components/ui/dialog';
 import { useAuth } from '../../lib/AuthContext';
-import { getGroupsForSupervisor } from '../../services/groups';
+import { getGroupsForEvaluation } from '../../services/groups';
 import { useLockStatus } from '../../hooks/useLockStatus';
 import { LockedBanner } from '../../components/ui/LockedBanner';
 import {
@@ -32,6 +32,8 @@ interface Group {
   groupNumber: number;
   course: string;
   projectTitle: string;
+  /** Server-computed: evaluation unlocks when presentation time has passed. */
+  evaluationActive: boolean;
 }
 
 interface ChapterGrade {
@@ -55,15 +57,21 @@ export function SupervisorGradingEvaluation() {
   const [selectedGroup, setSelectedGroup] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'chapters' | 'committee'>('chapters');
   const [status, setStatus] = useState<'draft' | 'submitted'>('draft');
+  // True when the backend uses evaluation_assignments; empty list means not yet assigned.
+  const [assignmentMode, setAssignmentMode] = useState(false);
 
   useEffect(() => {
     if (!user) return;
-    getGroupsForSupervisor(user.id).then((data) => {
+    // Backend enforces: supervised group excluded; in assignment mode only
+    // officially assigned groups are returned (empty = not yet assigned).
+    getGroupsForEvaluation().then(({ groups: data, assignmentMode: mode }) => {
+      setAssignmentMode(mode);
       setGroups(data.map((g) => ({
         id: g.id,
         groupNumber: g.groupNumber ?? 0,
         course: g.courseCode,
         projectTitle: g.projectName,
+        evaluationActive: g.evaluationActive,
       })));
     });
   }, [user?.id]);
@@ -188,28 +196,54 @@ export function SupervisorGradingEvaluation() {
       <div className="mb-6">
         {/* Group Selection */}
         <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6 mb-6">
-          <div className="max-w-md">
-            <Label htmlFor="group-select" className="mb-2 block text-[var(--color-text-900)]">
-              Select Group to Evaluate
-            </Label>
-            <Select value={selectedGroup} onValueChange={setSelectedGroup}>
-              <SelectTrigger id="group-select">
-                <SelectValue placeholder="Choose a group..." />
-              </SelectTrigger>
-              <SelectContent>
-                {groups.map((group) => (
-                  <SelectItem key={group.id} value={group.id}>
-                    Group {group.groupNumber} - {group.projectTitle}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {/* Assignment-mode banner: no groups assigned yet → evaluation blocked */}
+          {assignmentMode && groups.length === 0 ? (
+            <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm text-amber-900 font-medium">No groups assigned for evaluation</p>
+                <p className="text-sm text-amber-800 mt-1">
+                  Evaluation cannot start until a group is officially assigned to you by the coordinator or admin.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="max-w-md">
+              <Label htmlFor="group-select" className="mb-2 block text-[var(--color-text-900)]">
+                Select Group to Evaluate
+              </Label>
+              <Select value={selectedGroup} onValueChange={setSelectedGroup}>
+                <SelectTrigger id="group-select">
+                  <SelectValue placeholder="Choose a group..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {groups.map((group) => (
+                    <SelectItem key={group.id} value={group.id}>
+                      Group {group.groupNumber} - {group.projectTitle}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </div>
       </div>
 
       {selectedGroup && currentGroup ? (
         <div>
+          {/* Evaluation lock banner — shown until presentation time passes */}
+          {!currentGroup.evaluationActive && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm text-amber-900 font-medium">Evaluation not yet active</p>
+                <p className="text-sm text-amber-800 mt-1">
+                  The evaluation form is locked until the presentation date and time has passed. This is enforced by the server.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Header */}
           <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6 mb-6">
             <div className="flex items-start justify-between">
@@ -238,14 +272,14 @@ export function SupervisorGradingEvaluation() {
               </div>
 
               <div className="flex items-center gap-2">
-                <Button variant="outline" onClick={handleSaveDraft} disabled={isLocked}>
+                <Button variant="outline" onClick={handleSaveDraft} disabled={isLocked || !currentGroup.evaluationActive}>
                   <Save className="w-4 h-4 mr-2" />
                   Save Draft
                 </Button>
                 <Button
                   onClick={handleSubmitGrades}
                   className="bg-green-600 hover:bg-green-700 text-white"
-                  disabled={isLocked || status === 'submitted' || isIP}
+                  disabled={isLocked || !currentGroup.evaluationActive || status === 'submitted' || isIP}
                 >
                   <Send className="w-4 h-4 mr-2" />
                   Submit Grades
@@ -254,7 +288,7 @@ export function SupervisorGradingEvaluation() {
                   variant="outline"
                   onClick={handleMarkIP}
                   className="text-red-600 border-red-300 hover:bg-red-50"
-                  disabled={isIP}
+                  disabled={isIP || !currentGroup.evaluationActive}
                 >
                   <XCircle className="w-4 h-4 mr-2" />
                   Mark IP (Not Ready)
@@ -314,7 +348,7 @@ export function SupervisorGradingEvaluation() {
                                   name={`chapter-${index}`}
                                   checked={grade.score === score}
                                   onChange={() => handleChapterScoreChange(index, score)}
-                                  disabled={isIP}
+                                  disabled={isIP || !currentGroup.evaluationActive}
                                   className="w-6 h-6 cursor-pointer appearance-none rounded-full border-2 border-gray-400 checked:border-green-600 checked:border-[6px] checked:bg-white hover:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                   style={{
                                     WebkitAppearance: 'none',
@@ -361,7 +395,7 @@ export function SupervisorGradingEvaluation() {
                     onChange={(e) => setChapterComments(e.target.value)}
                     placeholder="Overall feedback on chapters..."
                     className="min-h-[120px]"
-                    disabled={isIP}
+                    disabled={isIP || !currentGroup.evaluationActive}
                   />
                 </div>
               </div>
@@ -404,7 +438,7 @@ export function SupervisorGradingEvaluation() {
                                   name={`criterion-${criterion.id}`}
                                   checked={criterion.score === score}
                                   onChange={() => handleCommitteeScoreChange(criterion.id, score)}
-                                  disabled={isIP}
+                                  disabled={isIP || !currentGroup.evaluationActive}
                                   className="w-6 h-6 cursor-pointer appearance-none rounded-full border-2 border-gray-400 checked:border-green-600 checked:border-[6px] checked:bg-white hover:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                   style={{
                                     WebkitAppearance: 'none',
@@ -451,7 +485,7 @@ export function SupervisorGradingEvaluation() {
                     onChange={(e) => setCommitteeComments(e.target.value)}
                     placeholder="Overall notes / justification for the scores..."
                     className="min-h-[150px]"
-                    disabled={isIP}
+                    disabled={isIP || !currentGroup.evaluationActive}
                   />
                 </div>
               </div>

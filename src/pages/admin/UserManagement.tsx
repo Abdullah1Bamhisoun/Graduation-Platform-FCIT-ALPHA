@@ -758,7 +758,7 @@ export function AdminUserManagement() {
                           </button>
                         )
                       )}
-                      {u.id !== user?.id && (
+                      {u.id !== user?.id && !(user?.activeRole === 'coordinator' && u.role === 'admin') && (
                         <button
                           className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           onClick={() => { setDeletingUser(u); setIsDeleteDialogOpen(true); }}

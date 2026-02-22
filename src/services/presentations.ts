@@ -1,6 +1,166 @@
 import { supabase } from '../lib/supabase';
 import type { PresentationSchedule, StudentPresentationSelection } from '../types';
 
+// ─── Auth helper ──────────────────────────────────────────────────────────────
+async function getToken(): Promise<string> {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ?? '';
+}
+
+// ─── Date utilities (server-validated) ───────────────────────────────────────
+
+/**
+ * Fetch current UTC time from the server.
+ * Use this instead of `new Date()` to avoid relying on client/browser clock.
+ */
+export async function getServerTime(): Promise<Date> {
+  try {
+    const token = await getToken();
+    const res = await fetch('/api/presentations/server-time', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const { now } = await res.json();
+    return new Date(now);
+  } catch {
+    // Fallback to local time only if server is unreachable
+    return new Date();
+  }
+}
+
+/**
+ * Parse an ISO week string like "2026-W08" to the Monday of that week.
+ * Returns null for invalid input.
+ */
+export function isoWeekToMonday(weekValue: string): Date | null {
+  const match = weekValue.match(/^(\d{4})-W(\d{2})$/);
+  if (!match) return null;
+  const year = parseInt(match[1], 10);
+  const week = parseInt(match[2], 10);
+  // ISO 8601: Jan 4 is always in week 1
+  const jan4 = new Date(year, 0, 4);
+  const dayOfWeek = jan4.getDay() || 7; // 1=Mon … 7=Sun
+  const w1Monday = new Date(jan4);
+  w1Monday.setDate(jan4.getDate() - dayOfWeek + 1);
+  const monday = new Date(w1Monday);
+  monday.setDate(w1Monday.getDate() + (week - 1) * 7);
+  return monday;
+}
+
+const DAY_OFFSETS: Record<string, number> = { Sun: -1, Mon: 0, Tue: 1, Wed: 2, Thu: 3 };
+
+/**
+ * Compute the actual ISO datetime for a slot given the week, day, and time.
+ * day: 'Sun'|'Mon'|'Tue'|'Wed'|'Thu'
+ * time: '09:00 am' format
+ */
+export function computeScheduledAt(
+  weekStart: string,
+  day: string,
+  startTime: string
+): Date | null {
+  const monday = isoWeekToMonday(weekStart);
+  if (!monday) return null;
+  const offset = DAY_OFFSETS[day];
+  if (offset === undefined) return null;
+
+  const date = new Date(monday);
+  date.setDate(monday.getDate() + offset);
+
+  // Parse "09:00 am" or "1:00 pm"
+  const match = startTime.match(/(\d+):(\d+)\s*(am|pm)/i);
+  if (match) {
+    let hours = parseInt(match[1], 10);
+    const minutes = parseInt(match[2], 10);
+    const ampm = match[3].toLowerCase();
+    if (ampm === 'pm' && hours !== 12) hours += 12;
+    if (ampm === 'am' && hours === 12) hours = 0;
+    date.setHours(hours, minutes, 0, 0);
+  }
+  return date;
+}
+
+// ─── Presentation assignment (backend-validated) ──────────────────────────────
+
+export interface AssignSchedulePayload {
+  groupId: string;
+  scheduledAt: string;   // ISO datetime string
+  day: string;
+  timeSlot: string;
+  committeeMembers?: string[];
+}
+
+/**
+ * POST /api/presentations/assign
+ * Backend validates: scheduledAt must be in the future (server time),
+ * coordinator course scope, then saves schedule, calendar event, and announcement.
+ */
+export async function assignPresentationSchedule(
+  payload: AssignSchedulePayload
+): Promise<void> {
+  const token = await getToken();
+  const res = await fetch('/api/presentations/assign', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(err.error || 'Failed to assign presentation schedule');
+  }
+}
+
+/**
+ * DELETE /api/presentations/schedule/:groupId
+ * Removes a schedule and its linked calendar event.
+ */
+export async function deletePresentationSchedule(groupId: string): Promise<void> {
+  const token = await getToken();
+  const res = await fetch(`/api/presentations/schedule/${groupId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(err.error || 'Failed to delete presentation schedule');
+  }
+}
+
+export interface StudentPresentationView {
+  group: {
+    id: string;
+    groupCode: string;
+    groupNumber: number | null;
+    projectName: string;
+  } | null;
+  schedule: {
+    day: string;
+    timeSlot: string;
+  } | null;
+}
+
+/**
+ * Student-only: fetches their group number + assigned presentation time.
+ * Calls the backend API which strips supervisor name server-side.
+ */
+export async function getStudentPresentationView(): Promise<StudentPresentationView> {
+  const session = await supabase.auth.getSession();
+  const token = session.data.session?.access_token;
+
+  const response = await fetch('/api/presentations/student-view', {
+    headers: {
+      Authorization: `Bearer ${token ?? ''}`,
+    },
+  });
+
+  if (!response.ok) {
+    console.error('getStudentPresentationView error:', response.status);
+    return { group: null, schedule: null };
+  }
+
+  return response.json();
+}
+
 const SCHEDULE_SELECT = `
   *,
   group:groups!group_id(

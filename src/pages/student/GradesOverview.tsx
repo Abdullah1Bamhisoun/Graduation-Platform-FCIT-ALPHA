@@ -5,7 +5,17 @@ import { getGradingSchemas } from '../../services/grading-schemas';
 import { getWeekStatuses, getDisplayStatus } from '../../services/week-statuses';
 import { getGroupForStudent } from '../../services/groups';
 import { getAdminCommitteeScore } from '../../services/admin-committee-scores';
-import { CheckCircle, Clock, XCircle, Info, AlertTriangle, Lock, ChevronDown, ChevronUp, TrendingUp } from 'lucide-react';
+import {
+  CheckCircle,
+  Clock,
+  XCircle,
+  Info,
+  AlertTriangle,
+  Lock,
+  ChevronDown,
+  ChevronUp,
+  TrendingUp,
+} from 'lucide-react';
 import { useState, useEffect } from 'react';
 import type { GradingSchema, WeekStatus, StudentGrade, AdminCommitteeScore } from '../../types';
 
@@ -39,7 +49,11 @@ const WEEK_STATUS_STYLES: Record<string, string> = {
   'Not Opened': 'bg-slate-100 text-slate-500 border-slate-200',
 };
 
-const DELIVERABLE_LABELS: Record<string, string> = {
+/**
+ * Human-readable labels for CPIS-498 deliverable keys.
+ * Weights come from the DB (group_deliverable_grades.max_score).
+ */
+const DELIVERABLE_LABELS_498: Record<string, string> = {
   chapter1:           'Chapter 1 — Project Outlines',
   chapter2:           'Chapter 2 — Literature Review',
   chapter3:           'Chapter 3 — Analysis',
@@ -53,14 +67,14 @@ const DELIVERABLE_LABELS: Record<string, string> = {
 
 export function StudentGradesOverview() {
   const { user } = useAuth();
-  const [studentGrade, setStudentGrade]       = useState<StudentGrade | null>(null);
-  const [schemas, setSchemas]                 = useState<GradingSchema[]>([]);
-  const [weekStatuses, setWeekStatuses]       = useState<WeekStatus[]>([]);
-  const [adminScore, setAdminScore]           = useState<AdminCommitteeScore | null>(null);
-  const [courseCode, setCourseCode]           = useState('');
-  const [groupId, setGroupId]                 = useState<string | null>(null);
-  const [loading, setLoading]                 = useState(true);
-  const [weeklyExpanded, setWeeklyExpanded]   = useState(false);
+  const [studentGrade, setStudentGrade]     = useState<StudentGrade | null>(null);
+  const [schemas, setSchemas]               = useState<GradingSchema[]>([]);
+  const [weekStatuses, setWeekStatuses]     = useState<WeekStatus[]>([]);
+  const [adminScore, setAdminScore]         = useState<AdminCommitteeScore | null>(null);
+  const [courseCode, setCourseCode]         = useState('');
+  const [groupId, setGroupId]               = useState<string | null>(null);
+  const [loading, setLoading]               = useState(true);
+  const [weeklyExpanded, setWeeklyExpanded] = useState(false);
 
   const SEMESTER = 'DEFAULT';
 
@@ -84,7 +98,7 @@ export function StudentGradesOverview() {
         setSchemas(sc);
         setWeekStatuses(ws);
 
-        // CPIS-499: fetch coordinator committee score
+        // CPIS-499: fetch coordinator course deliverables score
         if (ct === '499' && group) {
           const ac = await getAdminCommitteeScore(group.id, SEMESTER);
           setAdminScore(ac);
@@ -100,42 +114,235 @@ export function StudentGradesOverview() {
   if (loading) {
     return (
       <Layout user={user} pageTitle="My Grades">
-        <div className="p-6 text-[var(--color-text-600)]">Loading grades...</div>
+        <div className="p-6 text-[var(--color-text-600)]">Loading grades…</div>
       </Layout>
     );
   }
 
   const ct = courseTypeFromCode(courseCode || 'CPIS-498');
-  const noGroup   = !groupId;
-  const noGrades  = !studentGrade || (
+  const noGroup  = !groupId;
+  const noGrades = !studentGrade || (
     studentGrade.supervisorAssessment.score === undefined &&
     studentGrade.committeeEvaluation.score  === undefined &&
     studentGrade.weeklyProgressScore        === undefined &&
     studentGrade.deliverablesTotal          === undefined &&
+    studentGrade.adminCommitteeTotal        === undefined &&
     studentGrade.peerFeedback.score         === undefined
   );
 
-  // Weekly summary — uses capped scoring (min(totalRaw, maxWeeklyMarks))
-  const weeksOpened      = weekStatuses.filter(ws => ws.wasOpened).length;
-  const maxRaw           = weeksOpened * 2;
-  const weeklyMaxMarks   = (studentGrade as any)?._weeklyMaxMarks ?? (ct === '499' ? 22 : 20);
-  const weeklyTotalRaw   = (studentGrade as any)?._weeklyTotalRaw ?? 0;
-  const weeklyIsAtCap    = (studentGrade as any)?._weeklyIsAtCap ?? false;
-  const weekMarks        = (studentGrade as any)?._weekMarks as Record<number, { studentMark: number; supervisorMark: number }> | undefined;
+  // Weekly summary — capped scoring
+  const weeksOpened    = weekStatuses.filter(ws => ws.wasOpened).length;
+  const weeklyMaxMarks = (studentGrade as any)?._weeklyMaxMarks ?? (ct === '499' ? 22 : 20);
+  const weeklyTotalRaw = (studentGrade as any)?._weeklyTotalRaw ?? 0;
+  const weeklyIsAtCap  = (studentGrade as any)?._weeklyIsAtCap ?? false;
+  const weekMarks      = (studentGrade as any)?._weekMarks as
+    Record<number, { studentMark: number; supervisorMark: number }> | undefined;
 
-  // Compute total score from schema weights
+  // True total that includes all components
+  // CPIS-498: supervisor(20) + committee(40) + peer(5) + deliverables(15) + weekly(20) = 100
+  // CPIS-499: supervisor(23) + committee(40) + adminCommittee(15) + weekly(22) = 100
   const totalScore = studentGrade
     ? (studentGrade.supervisorAssessment.score  ?? 0) +
       (studentGrade.committeeEvaluation.score   ?? 0) +
       (studentGrade.weeklyProgressScore         ?? 0) +
-      (studentGrade.deliverablesTotal           ?? 0) +
-      (studentGrade.peerFeedback.score          ?? 0)
+      (studentGrade.deliverablesTotal           ?? 0) +   // CPIS-498
+      (studentGrade.adminCommitteeTotal         ?? 0) +   // CPIS-499
+      (studentGrade.peerFeedback.score          ?? 0)     // CPIS-498
     : 0;
+
+  // Determine pass/fail for CPIS-498
+  const is498Fail = ct === '498' && totalScore > 0 && totalScore < 60;
+  const is498Pass = ct === '498' && totalScore >= 60;
+
+  // ─── Render a schema card by role ────────────────────────────────────────
+  const renderSchemaCard = (schema: GradingSchema) => {
+    const { componentName, weight, role, id } = schema;
+
+    switch (role) {
+      // ── Supervisor Assessment (498: 20, 499: 23) ─────────────────────────
+      case 'supervisor': {
+        const score = studentGrade?.supervisorAssessment.score;
+        return (
+          <div key={id} className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-[var(--color-text-900)] text-sm font-medium">{componentName}</h3>
+              <span className="text-xs text-[var(--color-text-600)] bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full">
+                {weight} marks
+              </span>
+            </div>
+            <div className="text-3xl font-bold text-[var(--color-text-900)] mb-2 tabular-nums">
+              {score !== undefined ? score : '—'}
+              <span className="text-lg font-normal text-[var(--color-text-600)]">/{weight}</span>
+            </div>
+            {score !== undefined
+              ? <ProgressBar value={score} max={weight} color="bg-purple-500" />
+              : <p className="text-xs text-[var(--color-text-600)]">Not graded yet</p>}
+          </div>
+        );
+      }
+
+      // ── Weekly Progress (498: 20, 499: 22) ───────────────────────────────
+      case 'auto': {
+        const score = studentGrade?.weeklyProgressScore ?? 0;
+        return (
+          <div key={id} className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-[var(--color-text-900)] text-sm font-medium">{componentName}</h3>
+              <div className="flex items-center gap-1.5">
+                {weeklyIsAtCap && (
+                  <span className="text-xs text-green-700 bg-green-50 border border-green-300 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <TrendingUp className="w-3 h-3" /> Cap reached
+                  </span>
+                )}
+                <span className="text-xs text-[var(--color-text-600)] bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
+                  {weight} marks
+                </span>
+              </div>
+            </div>
+            <div className="text-3xl font-bold text-[var(--color-text-900)] mb-2 tabular-nums">
+              {score}
+              <span className="text-lg font-normal text-[var(--color-text-600)]">/{weeklyMaxMarks}</span>
+            </div>
+            <ProgressBar value={score} max={weeklyMaxMarks} color={weeklyIsAtCap ? 'bg-green-600' : 'bg-green-500'} />
+            <p className="text-xs text-[var(--color-text-600)] mt-2">
+              {weeksOpened === 0
+                ? 'No weekly sessions activated this semester.'
+                : weeklyIsAtCap
+                  ? `Cap reached — ${weeksOpened} week${weeksOpened !== 1 ? 's' : ''} activated · ${weeklyTotalRaw} raw marks (capped at ${weeklyMaxMarks})`
+                  : `${weeksOpened} week${weeksOpened !== 1 ? 's' : ''} activated · ${weeklyTotalRaw} / ${weeklyMaxMarks} marks earned`}
+            </p>
+          </div>
+        );
+      }
+
+      // ── Evaluation/Examination Committee (both: 40) ───────────────────────
+      case 'committee': {
+        const score = studentGrade?.committeeEvaluation.score;
+        return (
+          <div key={id} className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-[var(--color-text-900)] text-sm font-medium">{componentName}</h3>
+              <span className="text-xs text-[var(--color-text-600)] bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full">
+                {weight} marks
+              </span>
+            </div>
+            <div className="text-3xl font-bold text-[var(--color-text-900)] mb-2 tabular-nums">
+              {score !== undefined ? score.toFixed(1) : '—'}
+              <span className="text-lg font-normal text-[var(--color-text-600)]">/{weight}</span>
+            </div>
+            {score !== undefined
+              ? <ProgressBar value={score} max={weight} color="bg-orange-500" />
+              : <p className="text-xs text-[var(--color-text-600)]">Not evaluated yet</p>}
+          </div>
+        );
+      }
+
+      // ── Course Deliverables — graded by coordinator (both: 15) ───────────
+      case 'coordinator': {
+        if (ct === '498') {
+          // CPIS-498: deliverables stored in group_deliverable_grades
+          const total = studentGrade?.deliverablesTotal ?? 0;
+          return (
+            <div key={id} className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-[var(--color-text-900)] text-sm font-medium">{componentName}</h3>
+                <span className="text-xs text-[var(--color-text-600)] bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+                  {weight} marks
+                </span>
+              </div>
+              <div className="text-3xl font-bold text-[var(--color-text-900)] mb-2 tabular-nums">
+                {total}
+                <span className="text-lg font-normal text-[var(--color-text-600)]">/{weight}</span>
+              </div>
+              <ProgressBar value={total} max={weight} color="bg-blue-500" />
+              <p className="text-xs text-[var(--color-text-600)] mt-2">Group grade · graded by coordinator</p>
+            </div>
+          );
+        } else {
+          // CPIS-499: deliverables stored in admin_committee_scores
+          const ac = adminScore;
+          const total = studentGrade?.adminCommitteeTotal ?? ac?.totalScore;
+          return (
+            <div key={id} className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-[var(--color-text-900)] text-sm font-medium">{componentName}</h3>
+                <span className="text-xs text-[var(--color-text-600)] bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
+                  {weight} marks
+                </span>
+              </div>
+              <div className="text-3xl font-bold text-[var(--color-text-900)] mb-2 tabular-nums">
+                {total !== undefined ? total.toFixed(1) : '—'}
+                <span className="text-lg font-normal text-[var(--color-text-600)]">/{weight}</span>
+              </div>
+              {ac ? (
+                <>
+                  <ProgressBar value={ac.totalScore} max={weight} color="bg-indigo-500" />
+                  <div className="mt-3 space-y-1 text-xs text-[var(--color-text-600)]">
+                    <div className="flex justify-between">
+                      <span>Implementation Chapter</span><span>{ac.implementationScore}/5</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Testing Chapter</span><span>{ac.testingScore}/5</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Poster Day</span><span>{ac.posterDayScore}/5</span>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-[var(--color-text-600)]">Not graded yet</p>
+              )}
+            </div>
+          );
+        }
+      }
+
+      // ── Peer Feedback — CPIS-498 only (5) ────────────────────────────────
+      case 'student': {
+        if (ct !== '498') return null; // CPIS-499 has no peer feedback
+        const score = studentGrade?.peerFeedback.score;
+        return (
+          <div key={id} className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-[var(--color-text-900)] text-sm font-medium">{componentName}</h3>
+              <span className="text-xs text-[var(--color-text-600)] bg-pink-50 border border-pink-200 px-2 py-0.5 rounded-full">
+                {weight} marks
+              </span>
+            </div>
+            <div className="text-3xl font-bold text-[var(--color-text-900)] mb-2 tabular-nums">
+              {score !== undefined ? score.toFixed(1) : '—'}
+              <span className="text-lg font-normal text-[var(--color-text-600)]">/{weight}</span>
+            </div>
+            {score !== undefined
+              ? <ProgressBar value={score} max={weight} color="bg-pink-500" />
+              : <p className="text-xs text-[var(--color-text-600)]">Not submitted yet</p>}
+          </div>
+        );
+      }
+
+      // ── Generic fallback ──────────────────────────────────────────────────
+      default:
+        return (
+          <div key={id} className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-[var(--color-text-900)] text-sm font-medium">{componentName}</h3>
+              <span className="text-xs text-[var(--color-text-600)] bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full">
+                {weight} marks
+              </span>
+            </div>
+            <div className="text-3xl font-bold text-[var(--color-text-900)] mb-2 tabular-nums">
+              —<span className="text-lg font-normal text-[var(--color-text-600)]">/{weight}</span>
+            </div>
+            <p className="text-xs text-[var(--color-text-600)]">Not graded yet</p>
+          </div>
+        );
+    }
+  };
 
   return (
     <Layout user={user} pageTitle={`My Grades${courseCode ? ` — ${courseCode}` : ''}`}>
 
-      {/* ── Banner: No group ─────────────────────────────────────── */}
+      {/* ── Banner: No group ─────────────────────────────────── */}
       {noGroup && (
         <div className="mb-6 flex items-start gap-3 rounded-xl border border-yellow-300 bg-yellow-50 p-4">
           <AlertTriangle className="mt-0.5 w-5 h-5 text-yellow-600 flex-shrink-0" />
@@ -145,7 +352,7 @@ export function StudentGradesOverview() {
         </div>
       )}
 
-      {/* ── Banner: No grades entered ────────────────────────────── */}
+      {/* ── Banner: No grades entered ────────────────────────── */}
       {!noGroup && noGrades && (
         <div className="mb-6 flex items-start gap-3 rounded-xl border border-blue-300 bg-blue-50 p-4">
           <Info className="mt-0.5 w-5 h-5 text-blue-600 flex-shrink-0" />
@@ -155,7 +362,7 @@ export function StudentGradesOverview() {
         </div>
       )}
 
-      {/* ── Summary header ───────────────────────────────────────── */}
+      {/* ── Summary header ───────────────────────────────────── */}
       {studentGrade && (
         <div className="mb-6 bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
           <div className="flex items-center justify-between flex-wrap gap-4">
@@ -169,192 +376,49 @@ export function StudentGradesOverview() {
               <div className={`text-5xl mb-1 font-bold tabular-nums ${getGradeColor(totalScore)}`}>
                 {totalScore.toFixed(1)}
               </div>
-              <div className="text-[var(--color-text-600)] text-sm">/ 100 &nbsp;·&nbsp; {studentGrade.finalGrade}</div>
+              <div className="text-[var(--color-text-600)] text-sm">/ 100</div>
+              {/* Pass/Fail only for CPIS-498 */}
+              {ct === '498' && totalScore > 0 && (
+                <div className={`text-sm font-semibold mt-1 ${is498Pass ? 'text-green-600' : 'text-red-600'}`}>
+                  {is498Pass ? '✓ PASS' : '✗ FAIL (min 60)'}
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Schema-driven grade cards ─────────────────────────────── */}
-      {/* SPEC §12: ALWAYS render schema, even if no grades. Never early return. */}
+      {/* ── Schema-driven grade cards ─────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 mb-6">
-        {schemas.map(schema => {
-          const { componentName, weight } = schema;
-          const lc = componentName.toLowerCase();
-
-          // ── Supervisor Assessment card ──
-          if (lc.includes('supervisor')) {
-            const score = studentGrade?.supervisorAssessment.score;
-            return (
-              <div key={schema.id} className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-[var(--color-text-900)] text-sm font-medium">{componentName}</h3>
-                  <span className="text-xs text-[var(--color-text-600)] bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full">{weight}%</span>
-                </div>
-                <div className="text-3xl font-bold text-[var(--color-text-900)] mb-2 tabular-nums">
-                  {score !== undefined ? score : '—'}<span className="text-lg font-normal text-[var(--color-text-600)]">/{weight}</span>
-                </div>
-                {score !== undefined
-                  ? <ProgressBar value={score} max={weight} color="bg-purple-500" />
-                  : <p className="text-xs text-[var(--color-text-600)]">Not graded yet</p>}
-              </div>
-            );
-          }
-
-          // ── Weekly card ──
-          if (lc.includes('weekly') || lc.includes('progress')) {
-            const score = studentGrade?.weeklyProgressScore ?? 0;
-            return (
-              <div key={schema.id} className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-[var(--color-text-900)] text-sm font-medium">{componentName}</h3>
-                  <div className="flex items-center gap-1.5">
-                    {weeklyIsAtCap && (
-                      <span className="text-xs text-green-700 bg-green-50 border border-green-300 px-2 py-0.5 rounded-full flex items-center gap-1">
-                        <TrendingUp className="w-3 h-3" /> Cap reached
-                      </span>
-                    )}
-                    <span className="text-xs text-[var(--color-text-600)] bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">{weight}%</span>
-                  </div>
-                </div>
-                <div className="text-3xl font-bold text-[var(--color-text-900)] mb-2 tabular-nums">
-                  {score}<span className="text-lg font-normal text-[var(--color-text-600)]">/{weeklyMaxMarks}</span>
-                </div>
-                <ProgressBar value={score} max={weeklyMaxMarks} color={weeklyIsAtCap ? 'bg-green-600' : 'bg-green-500'} />
-                <p className="text-xs text-[var(--color-text-600)] mt-2">
-                  {weeksOpened === 0
-                    ? 'No weekly sessions activated this semester.'
-                    : weeklyIsAtCap
-                      ? `Maximum reached — ${weeksOpened} week${weeksOpened !== 1 ? 's' : ''} activated · ${weeklyTotalRaw} raw marks (capped at ${weeklyMaxMarks})`
-                      : `${weeksOpened} week${weeksOpened !== 1 ? 's' : ''} activated · ${weeklyTotalRaw} / ${weeklyMaxMarks} marks earned`}
-                </p>
-              </div>
-            );
-          }
-
-          // ── Committee (40%) card ──
-          if (lc.includes('committee') || lc.includes('examination')) {
-            const score = studentGrade?.committeeEvaluation.score;
-            return (
-              <div key={schema.id} className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-[var(--color-text-900)] text-sm font-medium">{componentName}</h3>
-                  <span className="text-xs text-[var(--color-text-600)] bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full">{weight}%</span>
-                </div>
-                <div className="text-3xl font-bold text-[var(--color-text-900)] mb-2 tabular-nums">
-                  {score !== undefined ? score.toFixed(1) : '—'}<span className="text-lg font-normal text-[var(--color-text-600)]">/{weight}</span>
-                </div>
-                {score !== undefined
-                  ? <ProgressBar value={score} max={weight} color="bg-orange-500" />
-                  : <p className="text-xs text-[var(--color-text-600)]">Not evaluated yet</p>}
-              </div>
-            );
-          }
-
-          // ── Deliverables (CPIS-498 only) card ──
-          if (lc.includes('deliverable') && ct === '498') {
-            const total = studentGrade?.deliverablesTotal ?? 0;
-            return (
-              <div key={schema.id} className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-[var(--color-text-900)] text-sm font-medium">{componentName}</h3>
-                  <span className="text-xs text-[var(--color-text-600)] bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">{weight}%</span>
-                </div>
-                <div className="text-3xl font-bold text-[var(--color-text-900)] mb-2 tabular-nums">
-                  {total}<span className="text-lg font-normal text-[var(--color-text-600)]">/{weight}</span>
-                </div>
-                <ProgressBar value={total} max={weight} color="bg-blue-500" />
-                <p className="text-xs text-[var(--color-text-600)] mt-2">Group grade</p>
-              </div>
-            );
-          }
-
-          // ── Peer Feedback (CPIS-498 only) card ──
-          if (lc.includes('peer') && ct === '498') {
-            const score = studentGrade?.peerFeedback.score;
-            return (
-              <div key={schema.id} className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-[var(--color-text-900)] text-sm font-medium">{componentName}</h3>
-                  <span className="text-xs text-[var(--color-text-600)] bg-pink-50 border border-pink-200 px-2 py-0.5 rounded-full">{weight}%</span>
-                </div>
-                <div className="text-3xl font-bold text-[var(--color-text-900)] mb-2 tabular-nums">
-                  {score !== undefined ? score.toFixed(1) : '—'}<span className="text-lg font-normal text-[var(--color-text-600)]">/{weight}</span>
-                </div>
-                {score !== undefined
-                  ? <ProgressBar value={score} max={weight} color="bg-pink-500" />
-                  : <p className="text-xs text-[var(--color-text-600)]">Not submitted yet</p>}
-              </div>
-            );
-          }
-
-          // ── Senior Project Committee (CPIS-499 only) card ──
-          if (lc.includes('senior') || lc.includes('project committee')) {
-            if (ct !== '499') return null;
-            const ac = adminScore;
-            return (
-              <div key={schema.id} className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-[var(--color-text-900)] text-sm font-medium">{componentName}</h3>
-                  <span className="text-xs text-[var(--color-text-600)] bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">{weight}%</span>
-                </div>
-                <div className="text-3xl font-bold text-[var(--color-text-900)] mb-2 tabular-nums">
-                  {ac ? ac.totalScore.toFixed(1) : '—'}<span className="text-lg font-normal text-[var(--color-text-600)]">/{weight}</span>
-                </div>
-                {ac ? (
-                  <>
-                    <ProgressBar value={ac.totalScore} max={weight} color="bg-indigo-500" />
-                    <div className="mt-3 space-y-1 text-xs text-[var(--color-text-600)]">
-                      <div className="flex justify-between"><span>Poster Day</span><span>{ac.posterDayScore}/5</span></div>
-                      <div className="flex justify-between"><span>Implementation Chapter</span><span>{ac.implementationScore}/5</span></div>
-                      <div className="flex justify-between"><span>Testing Chapter</span><span>{ac.testingScore}/5</span></div>
-                    </div>
-                  </>
-                ) : (
-                  <p className="text-xs text-[var(--color-text-600)]">Not graded yet</p>
-                )}
-              </div>
-            );
-          }
-
-          // Generic fallback for any unrecognised component
-          return (
-            <div key={schema.id} className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-[var(--color-text-900)] text-sm font-medium">{componentName}</h3>
-                <span className="text-xs text-[var(--color-text-600)] bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full">{weight}%</span>
-              </div>
-              <div className="text-3xl font-bold text-[var(--color-text-900)] mb-2 tabular-nums">
-                —<span className="text-lg font-normal text-[var(--color-text-600)]">/{weight}</span>
-              </div>
-              <p className="text-xs text-[var(--color-text-600)]">Not graded yet</p>
-            </div>
-          );
-        })}
+        {schemas.map(renderSchemaCard)}
 
         {/* Total Score card — always last */}
-        <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl border-2 border-blue-300 p-5">
+        <div className={`rounded-xl border-2 p-5 ${is498Fail ? 'bg-red-50 border-red-300' : 'bg-gradient-to-br from-blue-50 to-blue-100 border-blue-300'}`}>
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-[var(--color-text-900)] text-sm font-medium">Total Score</h3>
-            <span className="text-xs text-blue-700 bg-blue-200 border border-blue-300 px-2 py-0.5 rounded-full">100%</span>
+            <span className="text-xs text-blue-700 bg-blue-200 border border-blue-300 px-2 py-0.5 rounded-full">100 marks</span>
           </div>
           <div className={`text-4xl font-bold mb-1 tabular-nums ${getGradeColor(totalScore)}`}>
-            {totalScore.toFixed(1)}<span className="text-xl font-normal text-[var(--color-text-600)]">/100</span>
+            {totalScore.toFixed(1)}
+            <span className="text-xl font-normal text-[var(--color-text-600)]">/100</span>
           </div>
           <div className="text-sm font-medium text-[var(--color-text-900)]">
             Grade: {studentGrade?.finalGrade ?? 'In Progress'}
           </div>
-          {totalScore < 60 && totalScore > 0 && (
-            <p className="text-xs text-red-600 mt-1">Below passing threshold (60%)</p>
+          {is498Fail && (
+            <p className="text-xs text-red-600 mt-1">Below passing threshold (60)</p>
           )}
         </div>
       </div>
 
-      {/* ── CPIS-498: Deliverables detail table ──────────────────── */}
+      {/* ── CPIS-498: Deliverables detail table ──────────────── */}
       {ct === '498' && (
         <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] mb-6">
           <div className="p-5 border-b border-[var(--color-border)]">
             <h3 className="text-[var(--color-text-900)] font-medium">Course Deliverables — Detail</h3>
+            <p className="text-xs text-[var(--color-text-600)] mt-0.5">
+              Graded by Course Coordinator · max 15 marks
+            </p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -367,19 +431,19 @@ export function StudentGradesOverview() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--color-border)]">
-                {Object.entries(DELIVERABLE_LABELS).map(([key, label]) => {
+                {Object.entries(DELIVERABLE_LABELS_498).map(([key, label]) => {
                   const d = (studentGrade as any)?._groupDeliverables?.[key] ?? { status: 'not-submitted', maxScore: 0 };
                   const scoreVal: number | undefined = d.score;
-                  const statusIcon = d.status === 'graded'
-                    ? <CheckCircle className="w-4 h-4 text-green-600" />
-                    : d.status === 'submitted'
-                      ? <Clock className="w-4 h-4 text-yellow-500" />
-                      : <XCircle className="w-4 h-4 text-gray-400" />;
-                  const statusBadge = d.status === 'graded'
-                    ? <span className="px-2 py-0.5 text-xs rounded-full bg-green-50 text-green-600 border border-green-200">Graded</span>
-                    : d.status === 'submitted'
-                      ? <span className="px-2 py-0.5 text-xs rounded-full bg-yellow-50 text-yellow-600 border border-yellow-200">Pending</span>
-                      : <span className="px-2 py-0.5 text-xs rounded-full bg-gray-50 text-gray-500 border border-gray-200">Not Submitted</span>;
+                  const statusIcon =
+                    d.status === 'graded'   ? <CheckCircle className="w-4 h-4 text-green-600" /> :
+                    d.status === 'submitted' ? <Clock       className="w-4 h-4 text-yellow-500" /> :
+                                              <XCircle     className="w-4 h-4 text-gray-400" />;
+                  const statusBadge =
+                    d.status === 'graded'
+                      ? <span className="px-2 py-0.5 text-xs rounded-full bg-green-50 text-green-600 border border-green-200">Graded</span>
+                      : d.status === 'submitted'
+                        ? <span className="px-2 py-0.5 text-xs rounded-full bg-yellow-50 text-yellow-600 border border-yellow-200">Pending</span>
+                        : <span className="px-2 py-0.5 text-xs rounded-full bg-gray-50 text-gray-500 border border-gray-200">Not Submitted</span>;
                   return (
                     <tr key={key}>
                       <td className="p-4 flex items-center gap-2 text-[var(--color-text-900)]">
@@ -399,7 +463,7 @@ export function StudentGradesOverview() {
         </div>
       )}
 
-      {/* ── 16-Week Breakdown ────────────────────────────────────── */}
+      {/* ── 16-Week Breakdown ────────────────────────────────── */}
       <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] mb-6">
         <button
           className="w-full p-5 flex items-center justify-between border-b border-[var(--color-border)] hover:bg-[var(--color-surface-alt)] transition-colors"
@@ -414,7 +478,9 @@ export function StudentGradesOverview() {
                 : ' · No sessions activated this semester'}
             </p>
           </div>
-          {weeklyExpanded ? <ChevronUp className="w-5 h-5 text-[var(--color-text-600)]" /> : <ChevronDown className="w-5 h-5 text-[var(--color-text-600)]" />}
+          {weeklyExpanded
+            ? <ChevronUp className="w-5 h-5 text-[var(--color-text-600)]" />
+            : <ChevronDown className="w-5 h-5 text-[var(--color-text-600)]" />}
         </button>
 
         {weeklyExpanded && (
@@ -424,12 +490,14 @@ export function StudentGradesOverview() {
               <Info className="w-3.5 h-3.5 flex-shrink-0" />
               Each open week = 2 marks (1 submission + 1 supervisor response).
               Maximum weekly grade: <strong className="ml-1">{weeklyMaxMarks} marks</strong>.
-              {weeklyIsAtCap && <span className="ml-1 font-semibold text-green-700"> Cap reached — no further marks added.</span>}
+              {weeklyIsAtCap && (
+                <span className="ml-1 font-semibold text-green-700"> Cap reached — no further marks added.</span>
+              )}
             </div>
             <table className="w-full text-sm">
               <thead className="bg-[var(--color-surface-alt)]">
                 <tr>
-                  <th className="p-3 text-left text-[var(--color-text-700)]">Week</th>
+                  <th className="p-3 text-left  text-[var(--color-text-700)]">Week</th>
                   <th className="p-3 text-center text-[var(--color-text-700)]">Status</th>
                   <th className="p-3 text-center text-[var(--color-text-700)]">Submission</th>
                   <th className="p-3 text-center text-[var(--color-text-700)]">Supervisor</th>
@@ -443,15 +511,16 @@ export function StudentGradesOverview() {
                   return Array.from({ length: 16 }, (_, i) => i + 1).map(wn => {
                     const ws = weekStatuses.find(s => s.weekNumber === wn);
                     const displayStatus = ws ? getDisplayStatus(ws) : 'Not Opened';
-                    const wasOpened = ws?.wasOpened ?? false;
-                    const marks = weekMarks?.[wn];
-                    const studentMark     = wasOpened ? (marks?.studentMark    ?? 0) : null;
-                    const supervisorMark  = wasOpened ? (marks?.supervisorMark ?? 0) : null;
-                    const weekTotal       = wasOpened ? (studentMark ?? 0) + (supervisorMark ?? 0) : null;
+                    const wasOpened     = ws?.wasOpened ?? false;
+                    const marks         = weekMarks?.[wn];
+                    const studentMark   = wasOpened ? (marks?.studentMark    ?? 0) : null;
+                    const supervisorMark = wasOpened ? (marks?.supervisorMark ?? 0) : null;
+                    const weekTotal     = wasOpened ? ((studentMark ?? 0) + (supervisorMark ?? 0)) : null;
 
                     if (wasOpened && weekTotal !== null) running += weekTotal;
-                    const cappedRunning = Math.min(running, weeklyMaxMarks);
-                    const capHitThisWeek = wasOpened && running > weeklyMaxMarks && (running - (weekTotal ?? 0)) < weeklyMaxMarks;
+                    const cappedRunning  = Math.min(running, weeklyMaxMarks);
+                    const capHitThisWeek = wasOpened && running > weeklyMaxMarks &&
+                      (running - (weekTotal ?? 0)) < weeklyMaxMarks;
 
                     const statusClass = WEEK_STATUS_STYLES[displayStatus] ?? WEEK_STATUS_STYLES['Not Opened'];
 
@@ -459,7 +528,9 @@ export function StudentGradesOverview() {
                       <tr key={wn} className={!wasOpened ? 'opacity-50' : capHitThisWeek ? 'bg-green-50' : ''}>
                         <td className="p-3 text-[var(--color-text-900)]">
                           Week {wn}
-                          {capHitThisWeek && <span className="ml-2 text-xs text-green-600 font-medium">(cap reached)</span>}
+                          {capHitThisWeek && (
+                            <span className="ml-2 text-xs text-green-600 font-medium">(cap reached)</span>
+                          )}
                         </td>
                         <td className="p-3 text-center">
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full border ${statusClass}`}>

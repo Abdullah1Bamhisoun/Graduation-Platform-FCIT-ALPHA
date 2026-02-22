@@ -6,13 +6,18 @@ import { getWeekStatuses, countOpenedWeeks } from './week-statuses';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * CPIS-498 deliverable keys.
+ * Max scores are read from the DB (group_deliverable_grades.max_score).
+ * These fallbacks are used only when no DB row exists yet for a key.
+ */
 const DELIVERABLE_KEYS = [
   'chapter1', 'chapter2', 'chapter3', 'chapter4',
   'finalReport', 'revisedFinalReport', 'presentation',
 ] as const;
 
-/** Default max scores per deliverable key; coordinator can override via DB. */
-const DELIVERABLE_MAX_SCORES: Record<string, number> = {
+/** Fallback max scores — used only when the DB row has no max_score stored yet. */
+const DELIVERABLE_MAX_SCORES_FALLBACK: Record<string, number> = {
   chapter1: 5, chapter2: 1, chapter3: 1, chapter4: 3,
   finalReport: 3, revisedFinalReport: 2, presentation: 0,
 };
@@ -153,7 +158,10 @@ export async function getGroupGrade(
 
       for (const key of DELIVERABLE_KEYS) {
         const grade = deliverableMap.get(key);
-        const maxScore = DELIVERABLE_MAX_SCORES[key] ?? 0;
+        // Prefer max_score from DB row; fall back to constant only when no row exists
+        const maxScore = grade
+          ? Number(grade.max_score ?? DELIVERABLE_MAX_SCORES_FALLBACK[key] ?? 0)
+          : (DELIVERABLE_MAX_SCORES_FALLBACK[key] ?? 0);
         if (grade) {
           const score = grade.score != null ? Number(grade.score) : undefined;
           deliverables[key] = { score, maxScore, status: mapDeliverableStatus(grade.status) };
@@ -314,7 +322,9 @@ export async function getStudentGrade(
 
     // Group-level grades
     let deliverablesTotal: number | undefined;
+    let adminCommitteeTotal: number | undefined;
     let weeklyProgressScore: number | undefined;
+    let cachedGroupGrade: any = null;
 
     let weeklyMaxMarks = courseType === '499' ? 22 : 20;
     let weekMarks: Record<number, { studentMark: number; supervisorMark: number }> | undefined;
@@ -322,16 +332,33 @@ export async function getStudentGrade(
     let weeklyIsAtCap = false;
 
     if (groupId) {
-      const groupGrade = await getGroupGrade(groupId, courseCode, semester);
-      // Deliverables only for CPIS-498
+      cachedGroupGrade = await getGroupGrade(groupId, courseCode, semester);
+      // Deliverables only for CPIS-498 (chapter-based)
       if (courseType === '498') {
-        deliverablesTotal = groupGrade?.deliverablesTotal;
+        deliverablesTotal = cachedGroupGrade?.deliverablesTotal;
       }
-      weeklyProgressScore = groupGrade?.weeklyProgress.score;
-      weeklyMaxMarks     = (groupGrade?.weeklyProgress as any)?.maxWeeklyMarks ?? weeklyMaxMarks;
-      weekMarks          = (groupGrade?.weeklyProgress as any)?.weekMarks;
-      weeklyTotalRaw     = (groupGrade?.weeklyProgress as any)?.reportsSubmitted;
-      weeklyIsAtCap      = (groupGrade?.weeklyProgress as any)?.isAtCap ?? false;
+      weeklyProgressScore = cachedGroupGrade?.weeklyProgress.score;
+      weeklyMaxMarks     = cachedGroupGrade?.weeklyProgress?.maxWeeklyMarks ?? weeklyMaxMarks;
+      weekMarks          = cachedGroupGrade?.weeklyProgress?.weekMarks;
+      weeklyTotalRaw     = cachedGroupGrade?.weeklyProgress?.reportsSubmitted;
+      weeklyIsAtCap      = cachedGroupGrade?.weeklyProgress?.isAtCap ?? false;
+
+      // CPIS-499: Course Deliverables (15) come from admin_committee_scores
+      if (courseType === '499') {
+        const { data: acRow } = await supabase
+          .from('admin_committee_scores')
+          .select('poster_day_score, implementation_score, testing_score')
+          .eq('group_id', groupId)
+          .eq('semester', semester)
+          .maybeSingle();
+
+        if (acRow) {
+          adminCommitteeTotal =
+            (Number(acRow.poster_day_score)     ?? 0) +
+            (Number(acRow.implementation_score) ?? 0) +
+            (Number(acRow.testing_score)        ?? 0);
+        }
+      }
     }
 
     const schemas = await getGradingSchemas(courseType, semester);
@@ -342,17 +369,25 @@ export async function getStudentGrade(
       : undefined;
 
     // Total — only sum defined components to avoid inflating score with zeroes
+    // CPIS-498: supervisorAssessment(20) + committee(40) + peer(5) + deliverables(15) + weekly(20) = 100
+    // CPIS-499: supervisorGroupEval(23) + committee(40) + adminCommittee(15) + weekly(22) = 100
     const totalScore =
-      (supScore           ?? 0) +
-      (commScore          ?? 0) +
-      (peerScore          ?? 0) +
-      (deliverablesTotal  ?? 0) +
-      (weeklyProgressScore ?? 0);
+      (supScore              ?? 0) +
+      (commScore             ?? 0) +
+      (peerScore             ?? 0) +   // CPIS-498 only
+      (deliverablesTotal     ?? 0) +   // CPIS-498 only (chapters)
+      (adminCommitteeTotal   ?? 0) +   // CPIS-499 only (coordinator 15)
+      (weeklyProgressScore   ?? 0);
 
     const finalGradeLetterOf = (score: number) =>
       score >= 95 ? 'A+' : score >= 90 ? 'A' : score >= 85 ? 'B+'
       : score >= 80 ? 'B' : score >= 75 ? 'C+' : score >= 70 ? 'C'
       : score >= 65 ? 'D+' : score >= 60 ? 'D' : score > 0 ? 'F' : 'In Progress';
+
+    // Expose deliverables detail for student view (CPIS-498)
+    const groupDeliverables = courseType === '498'
+      ? (cachedGroupGrade?.deliverables as Record<string, any> | undefined)
+      : undefined;
 
     return {
       studentId,
@@ -378,6 +413,7 @@ export async function getStudentGrade(
         maxScore: 5 as const,
       },
       deliverablesTotal,
+      adminCommitteeTotal,        // CPIS-499 Course Deliverables (15)
       weeklyProgressScore,
       totalScore,
       finalGrade: finalGradeLetterOf(totalScore),
@@ -386,6 +422,8 @@ export async function getStudentGrade(
       _weeklyTotalRaw:   weeklyTotalRaw,
       _weeklyIsAtCap:    weeklyIsAtCap,
       _weekMarks:        weekMarks,
+      // Group deliverables detail (CPIS-498 only)
+      _groupDeliverables: groupDeliverables,
       // Pass through schema weights for rendering
       _schemas: schemas,
     } as any;

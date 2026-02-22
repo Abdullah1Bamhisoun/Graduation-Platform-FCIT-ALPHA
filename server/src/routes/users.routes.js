@@ -6,7 +6,7 @@ const { authenticate, requireAdmin, requireCoordinatorOrAdmin } = require('../mi
 // Admin: list all profiles; coordinators see only users in their course
 router.get('/', authenticate, requireCoordinatorOrAdmin, controller.listUsers);
 
-// Admin: delete a user by ID
-router.delete('/:id', authenticate, requireAdmin, controller.deleteUser);
+// Coordinator or Admin: delete a user by ID (coordinators cannot delete admin users)
+router.delete('/:id', authenticate, requireCoordinatorOrAdmin, controller.deleteUser);
 
 module.exports = router;

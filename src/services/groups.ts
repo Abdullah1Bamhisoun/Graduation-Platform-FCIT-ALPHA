@@ -290,6 +290,63 @@ export async function deleteGroup(groupId: string): Promise<void> {
   }
 }
 
+export interface EvaluationGroup {
+  id: string;
+  groupNumber: number | null;
+  projectName: string;
+  courseNumber: string | null;
+  courseCode: string;
+  /** ISO timestamp of the presentation. Null if not yet scheduled. */
+  scheduledAt: string | null;
+  /**
+   * Server-computed: true when scheduledAt exists and is in the past.
+   * Evaluation form must remain locked until this is true.
+   */
+  evaluationActive: boolean;
+}
+
+export interface EvaluationGroupsResult {
+  /** Groups the supervisor is permitted to evaluate. */
+  groups: EvaluationGroup[];
+  /**
+   * True when the system uses an evaluation_assignments table.
+   * In this mode the supervisor may NOT start evaluation until a group is
+   * officially assigned to them — an empty list means "not yet assigned".
+   */
+  assignmentMode: boolean;
+}
+
+/**
+ * Supervisor: fetches groups available for committee evaluation.
+ * The backend:
+ *   - Always excludes the supervisor's own supervised group.
+ *   - If evaluation_assignments table is active, returns only officially
+ *     assigned groups (empty list = not yet assigned, cannot start).
+ *   - Otherwise returns all groups except the supervised one.
+ */
+export async function getGroupsForEvaluation(): Promise<EvaluationGroupsResult> {
+  try {
+    const session = await supabase.auth.getSession();
+    const token = session.data.session?.access_token;
+
+    const response = await fetch('/api/evaluations/groups', {
+      headers: {
+        Authorization: `Bearer ${token ?? ''}`,
+      },
+    });
+
+    if (!response.ok) {
+      console.error('getGroupsForEvaluation error:', response.status);
+      return { groups: [], assignmentMode: false };
+    }
+
+    return response.json();
+  } catch (error) {
+    console.error('Error fetching evaluation groups:', error);
+    return { groups: [], assignmentMode: false };
+  }
+}
+
 /** Admin updates group project name, removes members, and/or adds members */
 export async function updateGroup(
   groupId: string,

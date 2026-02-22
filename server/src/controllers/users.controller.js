@@ -101,6 +101,12 @@ async function deleteUser(req, res) {
       return res.status(404).json({ error: 'User not found' });
     }
 
+    // Coordinators cannot delete admin users
+    const isCoordinatorOnly = req.user.roles.includes('coordinator') && !req.user.roles.includes('admin');
+    if (isCoordinatorOnly && profile.role === 'admin') {
+      return res.status(403).json({ error: 'Coordinators cannot delete admin users' });
+    }
+
     // Delete from Supabase Auth (cascades to profile via DB trigger if configured)
     const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(id);
     if (authError) throw authError;
