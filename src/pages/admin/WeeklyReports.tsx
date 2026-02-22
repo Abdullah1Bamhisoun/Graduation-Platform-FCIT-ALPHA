@@ -6,7 +6,7 @@ import { getProfilesByRole } from '../../services/profiles';
 import { getAllGroups } from '../../services/groups';
 import type { GroupData } from '../../services/groups';
 import { Button } from '../../components/ui/button';
-import { Eye, ChevronDown, ChevronRight, Unlock, EyeOff, Lock, ChevronUp } from 'lucide-react';
+import { Eye, ChevronDown, ChevronRight, Unlock, EyeOff, Lock, ChevronUp, CheckCircle, Clock } from 'lucide-react';
 import { WeeklyReport } from '../../types';
 import type { User, WeekStatus, WeekDisplayStatus } from '../../types';
 import {
@@ -17,14 +17,15 @@ import {
 } from '../../services/week-statuses';
 import { toast } from 'sonner';
 
-type CourseTab = '498' | '499';
-
-const WEEK_STATUS_STYLES: Record<WeekDisplayStatus, string> = {
-  'Open':       'bg-green-100 text-green-700 border-green-300',
-  'Closed':     'bg-gray-100 text-gray-600 border-gray-300',
-  'Locked':     'bg-red-100 text-red-700 border-red-300',
+const GROUP_WEEK_STATUS_STYLES: Record<WeekDisplayStatus, string> = {
+  'Open':       'bg-green-100 text-green-700 border-green-200',
+  'Closed':     'bg-gray-100 text-gray-600 border-gray-200',
+  'Locked':     'bg-red-100 text-red-700 border-red-200',
   'Not Opened': 'bg-slate-100 text-slate-400 border-slate-200',
 };
+
+type CourseTab = '498' | '499';
+
 
 export function AdminWeeklyReports() {
   const { user } = useAuth();
@@ -42,6 +43,9 @@ export function AdminWeeklyReports() {
   const [weekError, setWeekError]                 = useState<string | null>(null);
   const [weekActionLoading, setWeekActionLoading] = useState<string | null>(null);
   const [weekPanelOpen, setWeekPanelOpen]         = useState(true);
+
+  // ── Group-level week statuses (for selected group's week cards) ──────────
+  const [groupWeekStatuses, setGroupWeekStatuses] = useState<WeekStatus[]>([]);
 
   useEffect(() => {
     Promise.all([
@@ -74,6 +78,15 @@ export function AdminWeeklyReports() {
   useEffect(() => {
     if (user) loadWeekStatuses(activeCourse);
   }, [user, activeCourse, loadWeekStatuses]);
+
+  // Load week statuses for the selected group's course type
+  useEffect(() => {
+    if (!selectedGroup) { setGroupWeekStatuses([]); return; }
+    const group = allGroups.find(g => g.id === selectedGroup);
+    if (!group) return;
+    const ct: '498' | '499' = group.courseCode?.includes('499') ? '499' : '498';
+    getWeekStatuses(ct).then(setGroupWeekStatuses).catch(() => setGroupWeekStatuses([]));
+  }, [selectedGroup, allGroups]);
 
   // ── Week actions ─────────────────────────────────────────────────────────
   const handleOpen = async (ws: WeekStatus) => {
@@ -220,12 +233,40 @@ export function AdminWeeklyReports() {
               <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
                 <p className="font-semibold mb-1">Database setup required</p>
                 <p className="mb-3 text-red-600">Run this SQL once in your <strong>Supabase SQL Editor</strong>:</p>
-                <pre className="bg-red-100 rounded p-3 text-xs font-mono overflow-x-auto whitespace-pre">{`ALTER TABLE week_statuses
-  ADD COLUMN course_type TEXT NOT NULL DEFAULT '498',
-  ADD COLUMN was_opened  BOOLEAN NOT NULL DEFAULT FALSE;
+                <pre className="bg-red-100 rounded p-3 text-xs font-mono overflow-x-auto whitespace-pre">{`-- Create the table if it doesn't exist yet
+CREATE TABLE IF NOT EXISTS week_statuses (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_type text NOT NULL CHECK (course_type IN ('498','499')),
+  week_number integer NOT NULL CHECK (week_number BETWEEN 1 AND 16),
+  is_open     boolean NOT NULL DEFAULT false,
+  is_locked   boolean NOT NULL DEFAULT false,
+  was_opened  boolean NOT NULL DEFAULT false,
+  updated_by  uuid,
+  updated_at  timestamptz DEFAULT now()
+);
 
-ALTER TABLE week_statuses
-  ADD CONSTRAINT week_statuses_unique_week UNIQUE (course_type, week_number);`}</pre>
+-- If the table already existed, add any missing columns
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+    WHERE table_name='week_statuses' AND column_name='is_locked') THEN
+    ALTER TABLE week_statuses ADD COLUMN is_locked boolean NOT NULL DEFAULT false;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+    WHERE table_name='week_statuses' AND column_name='was_opened') THEN
+    ALTER TABLE week_statuses ADD COLUMN was_opened boolean NOT NULL DEFAULT false;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+    WHERE table_name='week_statuses' AND column_name='updated_by') THEN
+    ALTER TABLE week_statuses ADD COLUMN updated_by uuid;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+    WHERE conname='week_statuses_unique_week') THEN
+    ALTER TABLE week_statuses
+      ADD CONSTRAINT week_statuses_unique_week UNIQUE (course_type, week_number);
+  END IF;
+END;
+$$;`}</pre>
                 <p className="mt-3 text-xs text-red-500">Then refresh this page.</p>
               </div>
             ) : weekLoading ? (
@@ -366,38 +407,73 @@ ALTER TABLE week_statuses
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {weeks.map((weekNum) => {
                   const report = getReportForWeek(weekNum);
+                  const ws = groupWeekStatuses.find(s => s.weekNumber === weekNum);
+                  const display: WeekDisplayStatus = ws ? getDisplayStatus(ws) : 'Not Opened';
+                  const studentSubmitted = report?.submissionStatus === 'submitted';
+                  const supervisorResponded = report?.supervisorResponseStatus === 'responded';
+
                   return (
                     <div
                       key={weekNum}
-                      className={`bg-[var(--color-surface-white)] rounded-xl border shadow-sm p-6 transition-all ${
+                      className={`bg-[var(--color-surface-white)] rounded-xl border shadow-sm p-5 transition-all ${
                         report
                           ? 'border-[var(--color-border)] hover:shadow-md cursor-pointer'
                           : 'border-[var(--color-border)]'
                       }`}
                       onClick={() => report && setSelectedReport(report)}
                     >
-                      <div className="text-center">
-                        <div className="text-4xl mb-2 text-[var(--color-text-900)]">{weekNum}</div>
-                        <div className="mb-4 text-[var(--color-text-600)]">Week {weekNum}</div>
-                        {report ? (
-                          <>
-                            <div className={`inline-block px-3 py-1 rounded-full border text-xs mb-3 ${getProgressStatusColor(report.progressStatus)}`}>
-                              {getProgressStatusText(report.progressStatus)}
-                            </div>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="w-full"
-                              onClick={(e) => { e.stopPropagation(); setSelectedReport(report); }}
-                            >
-                              <Eye className="w-4 h-4 mr-2" />
-                              View Report
-                            </Button>
-                          </>
-                        ) : (
-                          <div className="text-xs text-[var(--color-text-600)]">Not Submitted</div>
-                        )}
+                      {/* Header: week number + week open/closed status */}
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-lg font-bold text-[var(--color-text-900)]">Week {weekNum}</span>
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full border ${GROUP_WEEK_STATUS_STYLES[display]}`}>
+                          {ws?.isLocked && <Lock className="w-3 h-3" />}
+                          {display}
+                        </span>
                       </div>
+
+                      {/* Marks badges */}
+                      <div className="flex gap-2 mb-3">
+                        <span className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${
+                          report?.studentMark === 1 ? 'bg-green-50 text-green-600 border-green-200' : 'bg-gray-50 text-gray-400 border-gray-200'
+                        }`}>
+                          {report?.studentMark === 1 ? <CheckCircle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                          Student
+                        </span>
+                        <span className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${
+                          report?.supervisorMark === 1 ? 'bg-green-50 text-green-600 border-green-200' : 'bg-gray-50 text-gray-400 border-gray-200'
+                        }`}>
+                          {report?.supervisorMark === 1 ? <CheckCircle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                          Supervisor
+                        </span>
+                      </div>
+
+                      {/* Submission/review status */}
+                      {report ? (
+                        <>
+                          <div className="mb-3">
+                            {supervisorResponded ? (
+                              <div className={`inline-block px-2 py-0.5 rounded-full border text-xs ${getProgressStatusColor(report.progressStatus)}`}>
+                                {getProgressStatusText(report.progressStatus)}
+                              </div>
+                            ) : studentSubmitted ? (
+                              <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                                Submitted
+                              </span>
+                            ) : null}
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full"
+                            onClick={(e) => { e.stopPropagation(); setSelectedReport(report); }}
+                          >
+                            <Eye className="w-4 h-4 mr-2" />
+                            View Report
+                          </Button>
+                        </>
+                      ) : (
+                        <div className="text-xs text-[var(--color-text-600)]">Not Submitted</div>
+                      )}
                     </div>
                   );
                 })}
@@ -420,10 +496,22 @@ ALTER TABLE week_statuses
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="bg-[var(--color-surface-white)] rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
               <div className="sticky top-0 bg-[var(--color-surface-white)] border-b border-[var(--color-border)] p-6">
-                <h2 className="text-[var(--color-text-900)] mb-2">Week {selectedReport.weekNumber} Progress Report</h2>
-                <p className="text-[var(--color-text-600)]">
-                  {currentGroup ? `${currentGroup.groupCode} — ${currentGroup.projectName}` : ''}
-                </p>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h2 className="text-[var(--color-text-900)] mb-1">Week {selectedReport.weekNumber} Progress Report</h2>
+                    <p className="text-[var(--color-text-600)]">
+                      {currentGroup ? `${currentGroup.groupCode} — ${currentGroup.projectName}` : ''}
+                    </p>
+                  </div>
+                  <div className="flex gap-2 ml-4 shrink-0">
+                    <span className={`text-xs px-2 py-1 rounded-full border ${
+                      selectedReport.studentMark === 1 ? 'bg-green-50 text-green-600 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200'
+                    }`}>Student +{selectedReport.studentMark ?? 0}</span>
+                    <span className={`text-xs px-2 py-1 rounded-full border ${
+                      selectedReport.supervisorMark === 1 ? 'bg-green-50 text-green-600 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200'
+                    }`}>Supervisor +{selectedReport.supervisorMark ?? 0}</span>
+                  </div>
+                </div>
               </div>
               <div className="p-6">
                 <div className="border border-[var(--color-border)] rounded-lg overflow-hidden">

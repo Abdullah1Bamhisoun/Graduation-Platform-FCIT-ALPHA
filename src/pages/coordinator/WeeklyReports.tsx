@@ -2,32 +2,34 @@ import { useState, useEffect, useCallback } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
 import { supabase } from '../../lib/supabase';
-import { FileText, RefreshCw, Unlock, EyeOff, Lock, ChevronDown, ChevronUp } from 'lucide-react';
-import { Button } from '../../components/ui/button';
-import { toast } from 'sonner';
+import { getAllGroups } from '../../services/groups';
+import type { GroupData } from '../../services/groups';
+import { getWeeklyReportsByGroup } from '../../services/weekly-reports';
 import {
   getWeekStatuses,
   getDisplayStatus,
   openWeek,
   closeWeek,
 } from '../../services/week-statuses';
-import type { WeekStatus, WeekDisplayStatus } from '../../types';
+import { Button } from '../../components/ui/button';
+import {
+  Eye, ChevronDown, ChevronRight, Unlock, EyeOff,
+  Lock, ChevronUp, CheckCircle, Clock,
+} from 'lucide-react';
+import type { WeeklyReport, WeekStatus, WeekDisplayStatus } from '../../types';
+import { toast } from 'sonner';
 
-interface Report {
-  id: string;
-  groupId: string;
-  groupCode: string | null;
-  weekNumber: number;
-  dateRange: string;
-  progressStatus: string;
-  status: string;
-  submittedAt: string;
-}
-
-const STATUS_STYLES: Record<WeekDisplayStatus, string> = {
+const WEEK_STATUS_STYLES: Record<WeekDisplayStatus, string> = {
   'Open':       'bg-green-100 text-green-700 border-green-300',
   'Closed':     'bg-gray-100 text-gray-600 border-gray-300',
   'Locked':     'bg-red-100 text-red-700 border-red-300',
+  'Not Opened': 'bg-slate-100 text-slate-400 border-slate-200',
+};
+
+const CARD_STATUS_STYLES: Record<WeekDisplayStatus, string> = {
+  'Open':       'bg-green-100 text-green-700 border-green-200',
+  'Closed':     'bg-gray-100 text-gray-600 border-gray-200',
+  'Locked':     'bg-red-100 text-red-700 border-red-200',
   'Not Opened': 'bg-slate-100 text-slate-400 border-slate-200',
 };
 
@@ -36,66 +38,40 @@ const SEMESTER = 'DEFAULT';
 export function CoordinatorWeeklyReports() {
   const { user } = useAuth();
 
-  // ── Reports state ────────────────────────────────────────────────────────
-  const [reports, setReports] = useState<Report[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  // ── Week control state ───────────────────────────────────────────────────
+  // ── Week control state ────────────────────────────────────────────────────
   const [weekStatuses, setWeekStatuses]           = useState<WeekStatus[]>([]);
   const [weekLoading, setWeekLoading]             = useState(true);
+  const [weekError, setWeekError]                 = useState<string | null>(null);
   const [courseType, setCourseType]               = useState<'498' | '499' | null>(null);
   const [weekActionLoading, setWeekActionLoading] = useState<string | null>(null);
   const [weekPanelOpen, setWeekPanelOpen]         = useState(true);
 
-  // ── Load reports ─────────────────────────────────────────────────────────
-  const loadReports = useCallback(async () => {
-    if (!user?.coordinatorCourseId) return;
-    setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('weekly_reports')
-        .select('id, group_id, week_number, date_range, progress_status, status, submitted_at, groups(group_code)')
-        .eq('course_id', user.coordinatorCourseId)
-        .order('submitted_at', { ascending: false })
-        .limit(100);
+  // ── Groups & report state ─────────────────────────────────────────────────
+  const [allGroups, setAllGroups]                         = useState<GroupData[]>([]);
+  const [expandedSupervisors, setExpandedSupervisors]     = useState<Set<string>>(new Set());
+  const [selectedGroup, setSelectedGroup]                 = useState<string>('');
+  const [groupReports, setGroupReports]                   = useState<WeeklyReport[]>([]);
+  const [reportsLoading, setReportsLoading]               = useState(false);
+  const [selectedReport, setSelectedReport]               = useState<WeeklyReport | null>(null);
 
-      if (error) throw error;
-
-      setReports(
-        (data || []).map((r: any) => ({
-          id: r.id,
-          groupId: r.group_id,
-          groupCode: r.groups?.group_code ?? null,
-          weekNumber: r.week_number,
-          dateRange: r.date_range,
-          progressStatus: r.progress_status,
-          status: r.status,
-          submittedAt: r.submitted_at,
-        }))
-      );
-    } catch (err) {
-      console.error('Error loading weekly reports:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [user?.coordinatorCourseId]);
-
-  // ── Load week statuses ───────────────────────────────────────────────────
+  // ── Load week statuses ────────────────────────────────────────────────────
   const loadWeekStatuses = useCallback(async (ct: '498' | '499') => {
     setWeekLoading(true);
+    setWeekError(null);
     try {
       const dept = user?.department ?? 'IS';
       const statuses = await getWeekStatuses(ct, SEMESTER, dept);
       setWeekStatuses(statuses);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load week statuses:', err);
+      setWeekError(err?.message || 'Failed to load week statuses');
       setWeekStatuses([]);
     } finally {
       setWeekLoading(false);
     }
   }, [user?.department]);
 
-  // ── Resolve course type from coordinator's course UUID ───────────────────
+  // ── Resolve course type + load groups ────────────────────────────────────
   useEffect(() => {
     if (!user?.coordinatorCourseId) return;
     (async () => {
@@ -107,12 +83,23 @@ export function CoordinatorWeeklyReports() {
 
       const ct: '498' | '499' = data?.code?.includes('499') ? '499' : '498';
       setCourseType(ct);
-      loadReports();
       loadWeekStatuses(ct);
-    })();
-  }, [user?.coordinatorCourseId, loadReports, loadWeekStatuses]);
 
-  // ── Week actions ─────────────────────────────────────────────────────────
+      const groups = await getAllGroups();
+      setAllGroups(groups.filter(g => g.courseId === user.coordinatorCourseId));
+    })();
+  }, [user?.coordinatorCourseId, loadWeekStatuses]);
+
+  // ── Load reports on group select ──────────────────────────────────────────
+  useEffect(() => {
+    if (!selectedGroup) { setGroupReports([]); return; }
+    setReportsLoading(true);
+    getWeeklyReportsByGroup(selectedGroup)
+      .then(setGroupReports)
+      .finally(() => setReportsLoading(false));
+  }, [selectedGroup]);
+
+  // ── Week control actions ──────────────────────────────────────────────────
   const handleOpen = async (ws: WeekStatus) => {
     if (!user) return;
     setWeekActionLoading(ws.id);
@@ -140,21 +127,58 @@ export function CoordinatorWeeklyReports() {
     }
   };
 
-  const statusColor: Record<string, string> = {
-    excellent:         'text-green-700 bg-green-100',
-    good:              'text-blue-700 bg-blue-100',
-    satisfactory:      'text-amber-700 bg-amber-100',
-    needs_improvement: 'text-red-700 bg-red-100',
+  const toggleSupervisor = (supervisorId: string) => {
+    const next = new Set(expandedSupervisors);
+    if (next.has(supervisorId)) next.delete(supervisorId);
+    else next.add(supervisorId);
+    setExpandedSupervisors(next);
   };
 
-  const openedCount = weekStatuses.filter(ws => ws.wasOpened).length;
+  const getProgressStatusColor = (status: string) => {
+    switch (status) {
+      case 'excellent':         return 'text-green-600 bg-green-50 border-green-200';
+      case 'good':              return 'text-blue-600 bg-blue-50 border-blue-200';
+      case 'satisfactory':      return 'text-yellow-600 bg-yellow-50 border-yellow-200';
+      case 'needs-improvement': return 'text-red-600 bg-red-50 border-red-200';
+      default:                  return 'text-gray-600 bg-gray-50 border-gray-200';
+    }
+  };
+
+  const getProgressStatusText = (status: string) => {
+    switch (status) {
+      case 'excellent':         return 'Excellent Progress';
+      case 'good':              return 'Good Progress';
+      case 'satisfactory':      return 'Satisfactory';
+      case 'needs-improvement': return 'Needs Improvement';
+      default:                  return status;
+    }
+  };
+
+  if (!user) return null;
+
+  const weeks        = Array.from({ length: 16 }, (_, i) => i + 1);
+  const openedCount  = weekStatuses.filter(ws => ws.wasOpened).length;
+  const currentGroup = allGroups.find(g => g.id === selectedGroup) ?? null;
+  const getReportForWeek = (wn: number) => groupReports.find(r => r.weekNumber === wn);
+
+  // Build supervisor → groups tree
+  const supervisorMap = new Map<string, { id: string; name: string; groups: GroupData[] }>();
+  allGroups.forEach(g => {
+    if (!supervisorMap.has(g.supervisorId)) {
+      supervisorMap.set(g.supervisorId, { id: g.supervisorId, name: g.supervisorName, groups: [] });
+    }
+    supervisorMap.get(g.supervisorId)!.groups.push(g);
+  });
+  const supervisorTree = Array.from(supervisorMap.values());
 
   return (
-    <Layout user={user!} pageTitle="Weekly Reports">
+    <Layout user={user} pageTitle="Weekly Reports">
       <div className="space-y-6">
 
-        {/* ── Week Control Panel ─────────────────────────────────────── */}
-        <div className="bg-[var(--color-surface-white)] border border-[var(--color-border)] rounded-xl overflow-hidden">
+        {/* ── Week Control Panel ──────────────────────────────────────── */}
+        <div className="bg-[var(--color-surface-white)] border border-[var(--color-border)] rounded-xl overflow-hidden shadow-sm">
+
+          {/* Header */}
           <button
             className="w-full flex items-center justify-between px-5 py-4 hover:bg-[var(--color-surface-alt)] transition-colors"
             onClick={() => setWeekPanelOpen(v => !v)}
@@ -162,55 +186,100 @@ export function CoordinatorWeeklyReports() {
             <div className="flex items-center gap-3">
               <Lock className="w-4 h-4 text-[var(--color-text-600)]" />
               <span className="font-medium text-[var(--color-text-900)]">Week Control</span>
-              <span className="text-xs text-[var(--color-text-600)] bg-[var(--color-surface-alt)] border border-[var(--color-border)] px-2 py-0.5 rounded-full">
-                {openedCount} / 16 activated
-              </span>
               {courseType && (
-                <span className="text-xs text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
                   CPIS-{courseType}
                 </span>
               )}
+              <span className="text-xs text-[var(--color-text-500)] bg-[var(--color-surface-alt)] border border-[var(--color-border)] px-2 py-0.5 rounded-full">
+                {weekLoading ? '…' : `${openedCount} / 16 activated`}
+              </span>
             </div>
             {weekPanelOpen
               ? <ChevronUp className="w-4 h-4 text-[var(--color-text-600)]" />
               : <ChevronDown className="w-4 h-4 text-[var(--color-text-600)]" />}
           </button>
 
+          {/* 16-week grid */}
           {weekPanelOpen && (
             <div className="border-t border-[var(--color-border)] p-5">
               {weekLoading ? (
-                <p className="text-sm text-[var(--color-text-600)] text-center py-4">
-                  Loading week statuses…
-                </p>
+                <div className="grid grid-cols-8 gap-2">
+                  {Array.from({ length: 16 }).map((_, i) => (
+                    <div key={i} className="h-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-alt)] animate-pulse" />
+                  ))}
+                </div>
+              ) : weekError ? (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  <p className="font-semibold mb-1">Failed to load weeks</p>
+                  <p className="mb-3 font-mono text-xs bg-red-100 rounded px-2 py-1 break-all">{weekError}</p>
+                  <p className="mb-2 text-red-600">If the error mentions a missing table or column, run this SQL in your <strong>Supabase SQL Editor</strong>:</p>
+                  <pre className="bg-red-100 rounded p-3 text-xs font-mono overflow-x-auto whitespace-pre">{`-- Create the table if it doesn't exist yet
+CREATE TABLE IF NOT EXISTS week_statuses (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_type text NOT NULL CHECK (course_type IN ('498','499')),
+  week_number integer NOT NULL CHECK (week_number BETWEEN 1 AND 16),
+  is_open     boolean NOT NULL DEFAULT false,
+  is_locked   boolean NOT NULL DEFAULT false,
+  was_opened  boolean NOT NULL DEFAULT false,
+  updated_by  uuid,
+  updated_at  timestamptz DEFAULT now()
+);
+
+-- If the table already existed, add any missing columns
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+    WHERE table_name='week_statuses' AND column_name='is_locked') THEN
+    ALTER TABLE week_statuses ADD COLUMN is_locked boolean NOT NULL DEFAULT false;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+    WHERE table_name='week_statuses' AND column_name='was_opened') THEN
+    ALTER TABLE week_statuses ADD COLUMN was_opened boolean NOT NULL DEFAULT false;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+    WHERE table_name='week_statuses' AND column_name='updated_by') THEN
+    ALTER TABLE week_statuses ADD COLUMN updated_by uuid;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+    WHERE conname='week_statuses_unique_week') THEN
+    ALTER TABLE week_statuses
+      ADD CONSTRAINT week_statuses_unique_week UNIQUE (course_type, week_number);
+  END IF;
+END;
+$$;`}</pre>
+                  <p className="mt-3 text-xs text-red-500">Then refresh this page.</p>
+                </div>
               ) : weekStatuses.length === 0 ? (
                 <p className="text-sm text-[var(--color-text-600)] text-center py-4">
-                  No week data found.
+                  No weeks found for this course. Ask the admin to initialize weeks from the Admin dashboard.
                 </p>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
-                  {Array.from({ length: 16 }, (_, i) => i + 1).map(wn => {
-                    const ws = weekStatuses.find(s => s.weekNumber === wn);
+                  {weeks.map(wn => {
+                    const ws      = weekStatuses.find(s => s.weekNumber === wn);
                     const display: WeekDisplayStatus = ws ? getDisplayStatus(ws) : 'Not Opened';
-                    const busy = ws && weekActionLoading === ws.id;
+                    const busy    = ws ? weekActionLoading === ws.id : false;
 
                     return (
                       <div
                         key={wn}
-                        className="flex flex-col items-center gap-1.5 p-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-alt)]"
+                        className={`flex flex-col items-center gap-1.5 p-2 rounded-lg border bg-[var(--color-surface-alt)] transition-colors ${
+                          display === 'Open'   ? 'border-green-300 bg-green-50' :
+                          display === 'Locked' ? 'border-red-200'               :
+                          'border-[var(--color-border)]'
+                        }`}
                       >
                         <span className="text-xs font-semibold text-[var(--color-text-700)]">W{wn}</span>
-                        {ws?.isOpen && !ws?.isLocked && (
-                          <span className="text-xs px-1.5 py-0.5 rounded-full border font-medium leading-tight text-center bg-green-100 text-green-700 border-green-300">
-                            Open
-                          </span>
-                        )}
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full border font-medium leading-tight text-center ${WEEK_STATUS_STYLES[display]}`}>
+                          {display}
+                        </span>
 
-                        {/* Actions */}
                         {ws && !ws.isLocked && !ws.isOpen && (
                           <button
-                            disabled={!!busy}
+                            disabled={busy}
                             onClick={() => handleOpen(ws)}
-                            className="w-full text-xs flex items-center justify-center gap-1 px-1.5 py-1 rounded border border-green-300 text-green-700 bg-green-50 hover:bg-green-100 disabled:opacity-50 transition-colors"
+                            className="w-full text-xs flex items-center justify-center gap-1 px-1.5 py-1 rounded border border-green-300 text-green-700 bg-white hover:bg-green-50 disabled:opacity-50 transition-colors"
                           >
                             <Unlock className="w-2.5 h-2.5" />
                             Open
@@ -218,18 +287,21 @@ export function CoordinatorWeeklyReports() {
                         )}
                         {ws && !ws.isLocked && ws.isOpen && (
                           <button
-                            disabled={!!busy}
+                            disabled={busy}
                             onClick={() => handleClose(ws)}
-                            className="w-full text-xs flex items-center justify-center gap-1 px-1.5 py-1 rounded border border-gray-300 text-gray-600 bg-gray-50 hover:bg-gray-100 disabled:opacity-50 transition-colors"
+                            className="w-full text-xs flex items-center justify-center gap-1 px-1.5 py-1 rounded border border-gray-300 text-gray-600 bg-white hover:bg-gray-50 disabled:opacity-50 transition-colors"
                           >
                             <EyeOff className="w-2.5 h-2.5" />
                             Close
                           </button>
                         )}
-                        {(!ws || ws.isLocked) && (
-                          <span className="text-xs text-[var(--color-text-500)] italic">
-                            {ws?.isLocked ? 'Locked' : '—'}
+                        {ws?.isLocked && (
+                          <span className="text-xs text-red-500 italic flex items-center gap-0.5">
+                            <Lock className="w-2.5 h-2.5" /> Locked
                           </span>
+                        )}
+                        {!ws && (
+                          <span className="text-xs text-[var(--color-text-400)] italic">—</span>
                         )}
                       </div>
                     );
@@ -240,75 +312,248 @@ export function CoordinatorWeeklyReports() {
           )}
         </div>
 
-        {/* ── Reports Table ─────────────────────────────────────────── */}
-        <div>
-          <div className="flex justify-end mb-3">
-            <Button variant="outline" size="sm" onClick={loadReports} disabled={loading}>
-              <RefreshCw className={`w-4 h-4 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
+        {/* ── Main Layout ─────────────────────────────────────────────── */}
+        <div className="grid grid-cols-12 gap-6">
+
+          {/* Sidebar — Groups */}
+          <div className="col-span-3">
+            <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] shadow-sm">
+              <div className="p-4 border-b border-[var(--color-border)]">
+                <h3 className="text-[var(--color-text-900)]">Groups</h3>
+                {courseType && (
+                  <p className="text-xs text-[var(--color-text-600)] mt-0.5">CPIS-{courseType}</p>
+                )}
+              </div>
+              <div className="divide-y divide-[var(--color-border)]">
+                {supervisorTree.length === 0 && (
+                  <p className="p-4 text-[var(--color-text-600)] text-sm">No groups found</p>
+                )}
+                {supervisorTree.map(supervisor => (
+                  <div key={supervisor.id}>
+                    <div
+                      className="p-4 flex items-center justify-between cursor-pointer hover:bg-[var(--color-surface-alt)] transition-colors"
+                      onClick={() => toggleSupervisor(supervisor.id)}
+                    >
+                      <span className="text-sm text-[var(--color-text-900)]">{supervisor.name}</span>
+                      {expandedSupervisors.has(supervisor.id)
+                        ? <ChevronDown className="w-4 h-4 text-[var(--color-text-600)]" />
+                        : <ChevronRight className="w-4 h-4 text-[var(--color-text-600)]" />}
+                    </div>
+                    {expandedSupervisors.has(supervisor.id) && (
+                      <div className="bg-[var(--color-surface-alt)] divide-y divide-[var(--color-border)]">
+                        {supervisor.groups.length === 0 && (
+                          <p className="p-3 pl-8 text-[var(--color-text-600)] text-xs">No groups assigned</p>
+                        )}
+                        {supervisor.groups.map(group => (
+                          <div
+                            key={group.id}
+                            className={`p-3 pl-8 cursor-pointer hover:bg-[var(--color-border)] transition-colors ${
+                              selectedGroup === group.id
+                                ? 'bg-[var(--color-primary-100)] border-l-4 border-[var(--color-primary-600)]'
+                                : ''
+                            }`}
+                            onClick={() => setSelectedGroup(group.id)}
+                          >
+                            <div className="text-sm font-medium text-[var(--color-text-900)]">{group.groupCode}</div>
+                            <div className="text-xs text-[var(--color-text-600)] mt-0.5 truncate">{group.projectName}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
-          {loading ? (
-            <div className="text-center py-12 text-[var(--color-text-600)]">Loading reports…</div>
-          ) : reports.length === 0 ? (
-            <div className="text-center py-12 text-[var(--color-text-600)]">No weekly reports for this course yet.</div>
-          ) : (
-            <div className="bg-[var(--color-surface-white)] border border-[var(--color-border)] rounded-xl overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-[var(--color-surface-alt)] border-b border-[var(--color-border)]">
-                  <tr>
-                    <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-600)]">Group</th>
-                    <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-600)]">Week</th>
-                    <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-600)]">Week Status</th>
-                    <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-600)]">Date Range</th>
-                    <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-600)]">Progress</th>
-                    <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-600)]">Status</th>
-                    <th className="text-left px-4 py-3 font-semibold text-[var(--color-text-600)]">Submitted</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[var(--color-border)]">
-                  {reports.map((r) => {
-                    const ws = weekStatuses.find(s => s.weekNumber === r.weekNumber);
-                    const display: WeekDisplayStatus = ws ? getDisplayStatus(ws) : 'Not Opened';
-                    return (
-                      <tr key={r.id} className="hover:bg-[var(--color-surface-alt)] transition-colors">
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <FileText className="w-4 h-4 text-[var(--color-text-600)]" />
-                            <span className="font-medium">{r.groupCode ?? r.groupId.slice(0, 8)}</span>
+          {/* Main content — 16 week cards */}
+          <div className="col-span-9">
+            {selectedGroup ? (
+              <>
+                <div className="mb-4">
+                  <h2 className="text-[var(--color-text-900)] mb-1">
+                    {currentGroup ? `${currentGroup.groupCode} — ${currentGroup.projectName}` : ''}
+                  </h2>
+                  <p className="text-[var(--color-text-600)] text-sm">View weekly progress reports</p>
+                </div>
+
+                {reportsLoading ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {weeks.map(wn => (
+                      <div key={wn} className="h-44 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-alt)] animate-pulse" />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {weeks.map(weekNum => {
+                      const report            = getReportForWeek(weekNum);
+                      const ws                = weekStatuses.find(s => s.weekNumber === weekNum);
+                      const display: WeekDisplayStatus = ws ? getDisplayStatus(ws) : 'Not Opened';
+                      const studentSubmitted  = report?.submissionStatus === 'submitted';
+                      const supervisorResponded = report?.supervisorResponseStatus === 'responded';
+
+                      return (
+                        <div
+                          key={weekNum}
+                          className={`bg-[var(--color-surface-white)] rounded-xl border shadow-sm p-5 transition-all ${
+                            report
+                              ? 'border-[var(--color-border)] hover:shadow-md cursor-pointer'
+                              : 'border-[var(--color-border)]'
+                          }`}
+                          onClick={() => report && setSelectedReport(report)}
+                        >
+                          {/* Header: week number + open/closed badge */}
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="text-lg font-bold text-[var(--color-text-900)]">Week {weekNum}</span>
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full border ${CARD_STATUS_STYLES[display]}`}>
+                              {ws?.isLocked && <Lock className="w-3 h-3" />}
+                              {display}
+                            </span>
+                          </div>
+
+                          {/* Marks badges */}
+                          <div className="flex gap-2 mb-3">
+                            <span className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${
+                              report?.studentMark === 1 ? 'bg-green-50 text-green-600 border-green-200' : 'bg-gray-50 text-gray-400 border-gray-200'
+                            }`}>
+                              {report?.studentMark === 1 ? <CheckCircle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                              Student
+                            </span>
+                            <span className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${
+                              report?.supervisorMark === 1 ? 'bg-green-50 text-green-600 border-green-200' : 'bg-gray-50 text-gray-400 border-gray-200'
+                            }`}>
+                              {report?.supervisorMark === 1 ? <CheckCircle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                              Supervisor
+                            </span>
+                          </div>
+
+                          {/* Submission / review status */}
+                          {report ? (
+                            <>
+                              <div className="mb-3">
+                                {supervisorResponded ? (
+                                  <div className={`inline-block px-2 py-0.5 rounded-full border text-xs ${getProgressStatusColor(report.progressStatus)}`}>
+                                    {getProgressStatusText(report.progressStatus)}
+                                  </div>
+                                ) : studentSubmitted ? (
+                                  <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                                    Submitted
+                                  </span>
+                                ) : null}
+                              </div>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="w-full"
+                                onClick={(e) => { e.stopPropagation(); setSelectedReport(report); }}
+                              >
+                                <Eye className="w-4 h-4 mr-2" />
+                                View Report
+                              </Button>
+                            </>
+                          ) : (
+                            <div className="text-xs text-[var(--color-text-600)]">Not Submitted</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-12 text-center">
+                <p className="text-[var(--color-text-600)]">
+                  Select a group from the sidebar to view weekly reports
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Report Detail Modal ──────────────────────────────────────── */}
+      {selectedReport && (
+        <>
+          <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setSelectedReport(null)} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="bg-[var(--color-surface-white)] rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="sticky top-0 bg-[var(--color-surface-white)] border-b border-[var(--color-border)] p-6">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h2 className="text-[var(--color-text-900)] mb-1">Week {selectedReport.weekNumber} Progress Report</h2>
+                    <p className="text-[var(--color-text-600)]">
+                      {currentGroup ? `${currentGroup.groupCode} — ${currentGroup.projectName}` : ''}
+                    </p>
+                  </div>
+                  <div className="flex gap-2 ml-4 shrink-0">
+                    <span className={`text-xs px-2 py-1 rounded-full border ${
+                      selectedReport.studentMark === 1 ? 'bg-green-50 text-green-600 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200'
+                    }`}>Student +{selectedReport.studentMark ?? 0}</span>
+                    <span className={`text-xs px-2 py-1 rounded-full border ${
+                      selectedReport.supervisorMark === 1 ? 'bg-green-50 text-green-600 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200'
+                    }`}>Supervisor +{selectedReport.supervisorMark ?? 0}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="p-6">
+                <div className="border border-[var(--color-border)] rounded-lg overflow-hidden">
+                  <table className="w-full">
+                    <tbody className="divide-y divide-[var(--color-border)]">
+                      <tr>
+                        <td className="p-4 bg-[var(--color-surface-alt)] text-[var(--color-text-900)] w-1/3">Week #</td>
+                        <td className="p-4 text-[var(--color-text-900)]">{selectedReport.weekNumber}</td>
+                      </tr>
+                      <tr>
+                        <td className="p-4 bg-[var(--color-surface-alt)] text-[var(--color-text-900)]">All members attended?</td>
+                        <td className="p-4 text-[var(--color-text-900)]">{selectedReport.allMembersAttended ? 'Yes' : 'No'}</td>
+                      </tr>
+                      {selectedReport.absentStudentName && (
+                        <tr>
+                          <td className="p-4 bg-[var(--color-surface-alt)] text-[var(--color-text-900)]">Absent student</td>
+                          <td className="p-4 text-[var(--color-text-900)]">{selectedReport.absentStudentName}</td>
+                        </tr>
+                      )}
+                      {selectedReport.studentProgress && (
+                        <tr>
+                          <td className="p-4 bg-[var(--color-surface-alt)] text-[var(--color-text-900)] align-top">Student Progress</td>
+                          <td className="p-4 text-[var(--color-text-900)]">{selectedReport.studentProgress}</td>
+                        </tr>
+                      )}
+                      {selectedReport.futureWork && (
+                        <tr>
+                          <td className="p-4 bg-[var(--color-surface-alt)] text-[var(--color-text-900)] align-top">Future Work</td>
+                          <td className="p-4 text-[var(--color-text-900)]">{selectedReport.futureWork}</td>
+                        </tr>
+                      )}
+                      {selectedReport.discussionPoints && (
+                        <tr>
+                          <td className="p-4 bg-[var(--color-surface-alt)] text-[var(--color-text-900)] align-top">Discussion Points</td>
+                          <td className="p-4 text-[var(--color-text-900)]">{selectedReport.discussionPoints}</td>
+                        </tr>
+                      )}
+                      <tr>
+                        <td className="p-4 bg-[var(--color-surface-alt)] text-[var(--color-text-900)]">Progress Status</td>
+                        <td className="p-4">
+                          <div className={`inline-block px-3 py-1 rounded-full border text-xs ${getProgressStatusColor(selectedReport.progressStatus)}`}>
+                            {getProgressStatusText(selectedReport.progressStatus)}
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-[var(--color-text-600)]">Week {r.weekNumber}</td>
-                        <td className="px-4 py-3">
-                          <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${STATUS_STYLES[display]}`}>
-                            {display}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-[var(--color-text-600)]">{r.dateRange}</td>
-                        <td className="px-4 py-3">
-                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full capitalize ${statusColor[r.progressStatus] ?? 'bg-gray-100 text-gray-700'}`}>
-                            {r.progressStatus.replace('_', ' ')}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-[var(--color-surface-alt)] text-[var(--color-text-600)] capitalize">
-                            {r.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-[var(--color-text-600)]">
-                          {new Date(r.submittedAt).toLocaleDateString()}
-                        </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                      <tr>
+                        <td className="p-4 bg-[var(--color-surface-alt)] text-[var(--color-text-900)] align-top">Supervisor Comments</td>
+                        <td className="p-4 text-[var(--color-text-900)]">{selectedReport.supervisorComments || '—'}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-6 flex justify-end">
+                  <Button onClick={() => setSelectedReport(null)}>Close</Button>
+                </div>
+              </div>
             </div>
-          )}
-        </div>
-
-      </div>
+          </div>
+        </>
+      )}
     </Layout>
   );
 }

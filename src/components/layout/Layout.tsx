@@ -14,7 +14,7 @@ interface LayoutProps {
 export function Layout({ user, pageTitle, children, unreadCount }: LayoutProps) {
   return (
     <div className="min-h-screen bg-[var(--color-surface-alt)]">
-      <Sidebar role={user.activeRole} />
+      <Sidebar user={user} />
       <Topbar user={user} pageTitle={pageTitle} unreadCount={unreadCount} />
 
       <div className="mt-16">

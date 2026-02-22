@@ -3,7 +3,8 @@ import {
   Home, FileText, Calendar, Bell, Settings,
   Users, BarChart3, CheckSquare, FolderOpen, Lock,
 } from 'lucide-react';
-import { UserRole } from '../../types';
+import { User, UserRole } from '../../types';
+import { useUnreadAnnouncements } from '../../hooks/useUnreadAnnouncements';
 import gppLogo from '/gpp-logo.png';
 
 interface NavItem {
@@ -66,13 +67,14 @@ const navItems: Record<UserRole, NavItem[]> = {
 };
 
 interface SidebarProps {
-  /** The active role determines which navigation set is shown */
-  role: UserRole;
+  user: User;
 }
 
-export function Sidebar({ role }: SidebarProps) {
+export function Sidebar({ user }: SidebarProps) {
   const location = useLocation();
+  const role = user.activeRole;
   const items = navItems[role] ?? navItems['student'];
+  const { unreadCount } = useUnreadAnnouncements(user);
 
   return (
     <div className="w-[280px] h-screen bg-[var(--color-surface-white)] border-r border-[var(--color-border)] flex flex-col fixed left-0 top-0">
@@ -91,6 +93,9 @@ export function Sidebar({ role }: SidebarProps) {
                 ? location.pathname === item.href
                 : location.pathname.startsWith(item.href);
 
+            // Show unread badge only on the plain "Announcements" item (consumers, not managers)
+            const showBadge = item.label === 'Announcements' && unreadCount > 0;
+
             return (
               <li key={item.href}>
                 <Link
@@ -102,7 +107,12 @@ export function Sidebar({ role }: SidebarProps) {
                   }`}
                 >
                   <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-[var(--color-primary-600)]' : 'text-[var(--color-text-600)]'}`} />
-                  <span>{item.label}</span>
+                  <span className="flex-1">{item.label}</span>
+                  {showBadge && (
+                    <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-xs font-semibold leading-none">
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </span>
+                  )}
                 </Link>
               </li>
             );

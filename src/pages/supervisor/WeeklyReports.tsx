@@ -10,11 +10,19 @@ import {
   getWeeklyReportsByGroup,
   supervisorRespondToWeeklyReport,
 } from '../../services/weekly-reports';
-import { Eye, X, MessageSquare } from 'lucide-react';
-import { WeeklyReport } from '../../types';
+import { getWeekStatuses, getDisplayStatus } from '../../services/week-statuses';
+import { Eye, X, MessageSquare, Lock, CheckCircle, Clock } from 'lucide-react';
+import { WeeklyReport, WeekStatus, WeekDisplayStatus } from '../../types';
 import { toast } from 'sonner';
 import { useLockStatus } from '../../hooks/useLockStatus';
 import { LockedBanner } from '../../components/ui/LockedBanner';
+
+const WEEK_STATUS_STYLES: Record<WeekDisplayStatus, string> = {
+  'Open':       'bg-green-100 text-green-700 border-green-200',
+  'Closed':     'bg-gray-100 text-gray-600 border-gray-200',
+  'Locked':     'bg-red-100 text-red-700 border-red-200',
+  'Not Opened': 'bg-slate-100 text-slate-400 border-slate-200',
+};
 
 export function SupervisorWeeklyReports() {
   const { user } = useAuth();
@@ -25,6 +33,7 @@ export function SupervisorWeeklyReports() {
   const [respondingWeek, setRespondingWeek] = useState<number | null>(null);
   const [groups, setGroups] = useState<{ id: string; name: string; course: string; students: string[] }[]>([]);
   const [reports, setReports] = useState<WeeklyReport[]>([]);
+  const [weekStatuses, setWeekStatuses] = useState<WeekStatus[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -47,15 +56,24 @@ export function SupervisorWeeklyReports() {
   }, [user]);
 
   useEffect(() => {
-    if (!selectedGroup) { setReports([]); return; }
-    getWeeklyReportsByGroup(selectedGroup).then(setReports);
-  }, [selectedGroup]);
+    if (!selectedGroup) { setReports([]); setWeekStatuses([]); return; }
+    const group = groups.find(g => g.id === selectedGroup);
+    const ct: '498' | '499' = group?.course?.includes('499') ? '499' : '498';
+    Promise.all([
+      getWeeklyReportsByGroup(selectedGroup),
+      getWeekStatuses(ct),
+    ]).then(([rpts, statuses]) => {
+      setReports(rpts);
+      setWeekStatuses(statuses);
+    });
+  }, [selectedGroup, groups]);
 
   if (!user) return null;
 
   const currentGroup = groups.find(g => g.id === selectedGroup);
-  const weeks = Array.from({ length: 14 }, (_, i) => i + 1);
+  const weeks = Array.from({ length: 16 }, (_, i) => i + 1);
   const getReportForWeek = (weekNum: number) => reports.find(r => r.weekNumber === weekNum);
+  const getWeekStatus = (weekNum: number) => weekStatuses.find(s => s.weekNumber === weekNum);
 
   const openRespondForm = (weekNum: number) => {
     setRespondingWeek(weekNum);
@@ -151,68 +169,83 @@ export function SupervisorWeeklyReports() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {weeks.map((weekNum) => {
             const report = getReportForWeek(weekNum);
+            const ws = getWeekStatus(weekNum);
+            const display: WeekDisplayStatus = ws ? getDisplayStatus(ws) : 'Not Opened';
             const studentSubmitted = report?.submissionStatus === 'submitted';
             const supervisorResponded = report?.supervisorResponseStatus === 'responded';
-            const canRespond = studentSubmitted && !supervisorResponded;
-            const isDisabled = !report && weekNum > 9;
+            const canRespond = studentSubmitted && !supervisorResponded && !isLocked;
 
             return (
               <div
                 key={weekNum}
-                className={`bg-[var(--color-surface-white)] rounded-xl border shadow-sm p-6 transition-all ${
-                  isDisabled
-                    ? 'border-gray-200 opacity-50 cursor-not-allowed'
-                    : report
+                className={`bg-[var(--color-surface-white)] rounded-xl border shadow-sm p-5 transition-all ${
+                  report
                     ? 'border-[var(--color-border)] hover:shadow-md cursor-pointer'
                     : 'border-[var(--color-border)]'
                 }`}
-                onClick={() => report && !isDisabled && setSelectedReport(report)}
+                onClick={() => report && setSelectedReport(report)}
               >
-                <div className="text-center">
-                  <div className={`text-4xl mb-2 ${isDisabled ? 'text-gray-400' : 'text-[var(--color-text-900)]'}`}>
-                    {weekNum}
-                  </div>
-                  <div className={`mb-4 ${isDisabled ? 'text-gray-400' : 'text-[var(--color-text-600)]'}`}>
-                    Week {weekNum}
-                  </div>
+                {/* Header: week number + status badge */}
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-lg font-bold text-[var(--color-text-900)]">Week {weekNum}</span>
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full border ${WEEK_STATUS_STYLES[display]}`}>
+                    {ws?.isLocked && <Lock className="w-3 h-3" />}
+                    {display}
+                  </span>
+                </div>
 
+                {/* Marks badges */}
+                <div className="flex gap-2 mb-3">
+                  <span className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${
+                    report?.studentMark === 1 ? 'bg-green-50 text-green-600 border-green-200' : 'bg-gray-50 text-gray-400 border-gray-200'
+                  }`}>
+                    {report?.studentMark === 1 ? <CheckCircle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                    Student
+                  </span>
+                  <span className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${
+                    report?.supervisorMark === 1 ? 'bg-green-50 text-green-600 border-green-200' : 'bg-gray-50 text-gray-400 border-gray-200'
+                  }`}>
+                    {report?.supervisorMark === 1 ? <CheckCircle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                    Supervisor
+                  </span>
+                </div>
+
+                {/* Submission status label */}
+                <div className="mb-3">
                   {supervisorResponded ? (
-                    <>
-                      <div className={`inline-block px-3 py-1 rounded-full border text-xs mb-3 ${getProgressStatusColor(report!.progressStatus)}`}>
-                        {getProgressStatusText(report!.progressStatus)}
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedReport(report!);
-                        }}
-                      >
-                        <Eye className="w-4 h-4 mr-2" />
-                        View Report
-                      </Button>
-                    </>
-                  ) : canRespond ? (
-                    <Button
-                      size="sm"
-                      className="w-full bg-[#10B981] text-black hover:bg-[#0ea572]"
-                      disabled={isLocked}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openRespondForm(weekNum);
-                      }}
-                    >
-                      <MessageSquare className="w-4 h-4 mr-2" />
-                      Respond
-                    </Button>
-                  ) : studentSubmitted && supervisorResponded ? null : (
-                    <div className={`text-xs ${isDisabled ? 'text-gray-400' : 'text-[var(--color-text-600)]'}`}>
-                      {isDisabled ? 'Not Available' : studentSubmitted ? 'Awaiting your response' : 'Not Submitted'}
+                    <div className={`inline-block px-2 py-0.5 rounded-full border text-xs ${getProgressStatusColor(report!.progressStatus)}`}>
+                      {getProgressStatusText(report!.progressStatus)}
                     </div>
+                  ) : studentSubmitted ? (
+                    <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                      Submitted — awaiting response
+                    </span>
+                  ) : (
+                    <span className="text-xs text-gray-400">Not Submitted</span>
                   )}
                 </div>
+
+                {/* Actions */}
+                {supervisorResponded ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={(e) => { e.stopPropagation(); setSelectedReport(report!); }}
+                  >
+                    <Eye className="w-4 h-4 mr-2" />
+                    View Report
+                  </Button>
+                ) : canRespond ? (
+                  <Button
+                    size="sm"
+                    className="w-full bg-[#10B981] text-black hover:bg-[#0ea572]"
+                    onClick={(e) => { e.stopPropagation(); openRespondForm(weekNum); }}
+                  >
+                    <MessageSquare className="w-4 h-4 mr-2" />
+                    Respond
+                  </Button>
+                ) : null}
               </div>
             );
           })}

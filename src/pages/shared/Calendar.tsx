@@ -69,8 +69,8 @@ export function Calendar() {
       toast.success('Event added successfully');
       setIsDialogOpen(false);
       setFormData({ title: '', date: '', type: 'deadline', time: '', location: '' });
-    } catch {
-      toast.error('Failed to add event');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to add event');
     }
   };
 
@@ -85,7 +85,7 @@ export function Calendar() {
         <p className="text-[var(--color-text-600)]">
           View important dates, deadlines, and events
         </p>
-        {user.role === 'admin' && (
+        {(user.role === 'admin' || user.activeRole === 'coordinator') && (
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
               <Button variant="primary">
@@ -97,7 +97,9 @@ export function Calendar() {
               <DialogHeader>
                 <DialogTitle>Add New Event</DialogTitle>
                 <DialogDescription>
-                  Create a new calendar event for all users
+                  {user.role === 'admin'
+                    ? 'Create a new calendar event for all users'
+                    : 'Create a new calendar event for your assigned course'}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
@@ -251,7 +253,7 @@ export function Calendar() {
                 <div key={event.id} className={`p-4 border rounded-lg ${eventTypeColors[event.type]}`}>
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="mb-1">{event.title}</h3>
-                    {user.role === 'admin' && (
+                    {(user.role === 'admin' || (user.activeRole === 'coordinator' && event.courseId === user.coordinatorCourseId)) && (
                       <button
                         onClick={() => handleDeleteEvent(event.id)}
                         className="flex-shrink-0 p-1 rounded hover:bg-red-100 text-red-500 hover:text-red-700 transition-colors"

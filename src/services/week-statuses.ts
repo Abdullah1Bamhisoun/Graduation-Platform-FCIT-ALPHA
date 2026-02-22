@@ -52,7 +52,7 @@ export async function getWeekStatuses(
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Failed to fetch week statuses: HTTP ${res.status}`);
+    throw new Error(body.error || body.message || `Failed to fetch week statuses: HTTP ${res.status}`);
   }
   const rows: any[] = await res.json();
   return rows.map(mapRow);

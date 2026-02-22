@@ -64,8 +64,9 @@ async function getWeekStatuses(req, res) {
 
     res.json(data || []);
   } catch (err) {
-    console.error('Error fetching week statuses:', err);
-    res.status(500).json({ error: err.message || 'Failed to fetch week statuses' });
+    console.error('Error fetching week statuses:', JSON.stringify(err));
+    const msg = err?.message || err?.details || JSON.stringify(err) || 'Failed to fetch week statuses';
+    res.status(500).json({ error: msg });
   }
 }
 

@@ -7,12 +7,11 @@ import { Label } from '../../components/ui/label';
 import { useAuth } from '../../lib/AuthContext';
 import { getWeeklyReportsByGroup, submitStudentWeeklyReport } from '../../services/weekly-reports';
 import { getWeekStatuses, getDisplayStatus } from '../../services/week-statuses';
-import { submitLateRequest, getGroupLateRequests } from '../../services/late-requests';
 import { getGroupForStudent } from '../../services/groups';
-import { Eye, Plus, Lock, AlertTriangle, Clock, CheckCircle, Send } from 'lucide-react';
+import { Eye, Plus, Lock, AlertTriangle, Clock, CheckCircle } from 'lucide-react';
 import { useLockStatus } from '../../hooks/useLockStatus';
 import { LockedBanner } from '../../components/ui/LockedBanner';
-import type { WeeklyReport, WeekStatus, LateRequest } from '../../types';
+import type { WeeklyReport, WeekStatus } from '../../types';
 import { toast } from 'sonner';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -22,12 +21,6 @@ const WEEK_STATUS_STYLES: Record<string, string> = {
   'Closed':     'bg-gray-100 text-gray-600 border-gray-200',
   'Locked':     'bg-red-100 text-red-700 border-red-200',
   'Not Opened': 'bg-slate-100 text-slate-400 border-slate-200',
-};
-
-const LATE_REQUEST_STYLES: Record<string, string> = {
-  pending:  'bg-yellow-50 text-yellow-700 border-yellow-200',
-  approved: 'bg-green-50 text-green-700 border-green-200',
-  rejected: 'bg-red-50 text-red-600 border-red-200',
 };
 
 function courseTypeFromCode(code: string): '498' | '499' {
@@ -41,29 +34,22 @@ export function StudentWeeklyReports() {
   const { isLocked: isAdminLocked } = useLockStatus('weekly_reports');
 
   const [groupId, setGroupId]           = useState<string | null>(null);
-  const [courseCode, setCourseCode]     = useState('CPIS-498');
   const [courseId, setCourseId]         = useState<string | null>(null);
   const [groupReports, setGroupReports] = useState<WeeklyReport[]>([]);
   const [weekStatuses, setWeekStatuses] = useState<WeekStatus[]>([]);
-  const [lateRequests, setLateRequests] = useState<LateRequest[]>([]);
   const [loading, setLoading]           = useState(true);
+  const [loadError, setLoadError]       = useState<string | null>(null);
 
   // Submit report dialog
-  const [showSubmitDialog, setShowSubmitDialog]     = useState(false);
-  const [selectedWeek, setSelectedWeek]             = useState<number | null>(null);
-  const [progress, setProgress]                     = useState('');
-  const [futureWork, setFutureWork]                 = useState('');
-  const [discussionPoints, setDiscussionPoints]     = useState('');
-  const [submitting, setSubmitting]                 = useState(false);
+  const [showSubmitDialog, setShowSubmitDialog] = useState(false);
+  const [selectedWeek, setSelectedWeek]         = useState<number | null>(null);
+  const [progress, setProgress]                 = useState('');
+  const [futureWork, setFutureWork]             = useState('');
+  const [discussionPoints, setDiscussionPoints] = useState('');
+  const [submitting, setSubmitting]             = useState(false);
 
   // View report dialog
-  const [selectedReport, setSelectedReport]         = useState<WeeklyReport | null>(null);
-
-  // Late request dialog
-  const [showLateDialog, setShowLateDialog]         = useState(false);
-  const [lateWeek, setLateWeek]                     = useState<number | null>(null);
-  const [lateReason, setLateReason]                 = useState('');
-  const [submittingLate, setSubmittingLate]         = useState(false);
+  const [selectedReport, setSelectedReport] = useState<WeeklyReport | null>(null);
 
   const SEMESTER = 'DEFAULT';
 
@@ -75,22 +61,24 @@ export function StudentWeeklyReports() {
         const group = await getGroupForStudent(user.id);
         if (!group) { setLoading(false); return; }
 
-        const cc = group.courseCode || 'CPIS-498';
+        // courseCode may be empty if the courses join is blocked by RLS for students.
+        // Fall back to courseNumber, then groupCode, then the generic default.
+        const cc = group.courseCode || group.courseNumber || group.groupCode || 'CPIS-498';
         const ct = courseTypeFromCode(cc);
 
         setGroupId(group.id);
-        setCourseCode(cc);
-        setCourseId((group as any).courseId ?? null);
+        setCourseId(group.courseId ? group.courseId : null);
 
-        const [reports, statuses, requests] = await Promise.all([
+        const [reports, statuses] = await Promise.all([
           getWeeklyReportsByGroup(group.id),
           getWeekStatuses(ct, SEMESTER),
-          getGroupLateRequests(group.id, SEMESTER),
         ]);
 
         setGroupReports(reports);
         setWeekStatuses(statuses);
-        setLateRequests(requests);
+      } catch (err: any) {
+        console.error('Failed to load weekly reports data:', err);
+        setLoadError(err?.message || 'Failed to load weekly report data. Please refresh.');
       } finally {
         setLoading(false);
       }
@@ -98,9 +86,8 @@ export function StudentWeeklyReports() {
   }, [user]);
 
   // ── Derived lookups ────────────────────────────────────────────────────────
-  const getReportForWeek   = (wn: number) => groupReports.find(r => r.weekNumber === wn);
-  const getStatusForWeek   = (wn: number) => weekStatuses.find(s => s.weekNumber === wn);
-  const getLateReqForWeek  = (wn: number) => lateRequests.find(r => r.weekNumber === wn);
+  const getReportForWeek = (wn: number) => groupReports.find(r => r.weekNumber === wn);
+  const getStatusForWeek = (wn: number) => weekStatuses.find(s => s.weekNumber === wn);
 
   // ── Submit weekly report ────────────────────────────────────────────────────
   const openSubmitDialog = (wn: number) => {
@@ -140,41 +127,17 @@ export function StudentWeeklyReports() {
     }
   };
 
-  // ── Late request ────────────────────────────────────────────────────────────
-  const openLateDialog = (wn: number) => {
-    setLateWeek(wn);
-    setLateReason('');
-    setShowLateDialog(true);
-  };
-
-  const handleSubmitLateRequest = async () => {
-    if (!groupId || !lateWeek || !user) return;
-    const ct = courseTypeFromCode(courseCode);
-
-    setSubmittingLate(true);
-    try {
-      await submitLateRequest({
-        groupId,
-        weekNumber: lateWeek,
-        courseType: ct,
-        semester: SEMESTER,
-        reason: lateReason || undefined,
-        requestedBy: user.id,
-      });
-      const updated = await getGroupLateRequests(groupId, SEMESTER);
-      setLateRequests(updated);
-      toast.success('Late submission request submitted');
-      setShowLateDialog(false);
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to submit late request');
-    } finally {
-      setSubmittingLate(false);
-    }
-  };
-
   // ── Render ─────────────────────────────────────────────────────────────────
   if (!user) return null;
   if (loading) return <Layout user={user} pageTitle="Weekly Reports"><div className="p-6">Loading...</div></Layout>;
+  if (loadError) return (
+    <Layout user={user} pageTitle="Weekly Reports">
+      <div className="flex items-center gap-3 rounded-xl border border-red-300 bg-red-50 p-4 m-6">
+        <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0" />
+        <p className="text-red-800 text-sm">{loadError}</p>
+      </div>
+    </Layout>
+  );
 
   return (
     <Layout user={user} pageTitle="Weekly Reports">
@@ -197,16 +160,12 @@ export function StudentWeeklyReports() {
         {Array.from({ length: 16 }, (_, i) => i + 1).map(wn => {
           const report    = getReportForWeek(wn);
           const ws        = getStatusForWeek(wn);
-          const lateReq   = getLateReqForWeek(wn);
           const display   = ws ? getDisplayStatus(ws) : 'Not Opened';
           const isOpen    = ws?.isOpen ?? false;
           const isLocked  = ws?.isLocked ?? false;
           const wasOpened = ws?.wasOpened ?? false;
 
-          // Can submit: week is Open AND no report yet (or it was approved for late)
           const canSubmit = isOpen && !report;
-          // Late request eligible: week was opened+closed, no report, not locked, no existing request
-          const canRequestLate = wasOpened && !isOpen && !isLocked && !report && !lateReq;
 
           return (
             <div
@@ -264,21 +223,6 @@ export function StudentWeeklyReports() {
                     <Plus className="w-4 h-4 mr-2" />
                     Submit Report
                   </Button>
-                ) : canRequestLate ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full text-orange-600 border-orange-300 hover:bg-orange-50"
-                    onClick={() => openLateDialog(wn)}
-                    disabled={isAdminLocked}
-                  >
-                    <Send className="w-4 h-4 mr-2" />
-                    Request Late Submission
-                  </Button>
-                ) : lateReq ? (
-                  <span className={`flex items-center justify-center gap-1 w-full text-xs px-2 py-1.5 rounded-md border ${LATE_REQUEST_STYLES[lateReq.status]}`}>
-                    Late Request: {lateReq.status.charAt(0).toUpperCase() + lateReq.status.slice(1)}
-                  </span>
                 ) : wasOpened && !isOpen && !report ? (
                   <span className="text-xs text-red-600 text-center block">Missed — 0/2</span>
                 ) : (
@@ -377,37 +321,6 @@ export function StudentWeeklyReports() {
               <Button variant="outline" onClick={() => setShowSubmitDialog(false)}>Cancel</Button>
               <Button onClick={handleSubmitReport} disabled={submitting || isAdminLocked} className="bg-[#10B981] text-black hover:bg-[#0ea572]">
                 {submitting ? 'Submitting…' : 'Submit Report'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Late Submission Request Dialog ────────────────────────── */}
-      <Dialog open={showLateDialog} onOpenChange={setShowLateDialog}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Request Late Submission — Week {lateWeek}</DialogTitle>
-            <DialogDescription>
-              Submit a request to your coordinator to re-open this week for your group. Only one request per week is allowed.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="lateReason">Reason (optional)</Label>
-              <Textarea
-                id="lateReason"
-                value={lateReason}
-                onChange={e => setLateReason(e.target.value)}
-                rows={4}
-                className="resize-none"
-                placeholder="Explain why the submission was missed…"
-              />
-            </div>
-            <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setShowLateDialog(false)}>Cancel</Button>
-              <Button onClick={handleSubmitLateRequest} disabled={submittingLate} className="bg-orange-500 text-white hover:bg-orange-600">
-                {submittingLate ? 'Submitting…' : 'Submit Request'}
               </Button>
             </div>
           </div>

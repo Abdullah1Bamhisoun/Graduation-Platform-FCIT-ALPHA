@@ -7,6 +7,7 @@ export interface CalendarEvent {
   type: 'deadline' | 'demo' | 'presentation' | 'meeting';
   time?: string;
   location?: string;
+  courseId?: string;
 }
 
 async function getToken(): Promise<string> {

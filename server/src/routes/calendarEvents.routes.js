@@ -1,13 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/calendarEvents.controller');
-const { authenticate, requireAdmin } = require('../middleware/auth.middleware');
+const { authenticate, requireAdmin, requireCoordinatorOrAdmin } = require('../middleware/auth.middleware');
 
-// Authenticated — list all calendar events
+// Authenticated — list calendar events (auto-filtered by role)
 router.get('/', authenticate, controller.listEvents);
 
-// Admin only — create, delete
-router.post('/', authenticate, requireAdmin, controller.createEvent);
-router.delete('/:id', authenticate, requireAdmin, controller.deleteEvent);
+// Coordinator or Admin — create, delete
+router.post('/', authenticate, requireCoordinatorOrAdmin, controller.createEvent);
+router.delete('/:id', authenticate, requireCoordinatorOrAdmin, controller.deleteEvent);
 
 module.exports = router;

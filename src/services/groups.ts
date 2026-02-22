@@ -126,7 +126,7 @@ export async function getGroupForStudent(studentId: string): Promise<GroupData |
     // Step 2: fetch the group row (flat, no FK joins for members)
     const { data: groupRow, error: groupError } = await supabase
       .from('groups')
-      .select('id, group_code, group_number, department, gender, course_number, project_name, project_description, is_locked, status, created_at, supervisor_id')
+      .select('id, group_code, group_number, department, gender, course_number, course_id, project_name, project_description, is_locked, status, created_at, supervisor_id')
       .eq('id', groupId)
       .single();
 

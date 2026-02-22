@@ -1,6 +1,7 @@
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
 import { getAnnouncementsForRole } from '../../services/announcements';
+import { useUnreadAnnouncements } from '../../hooks/useUnreadAnnouncements';
 import { Bell, Calendar as CalendarIcon } from 'lucide-react';
 import { Card } from '../../components/ui/card';
 import { useState, useEffect } from 'react';
@@ -10,6 +11,7 @@ export function Announcements() {
   const { user } = useAuth();
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
+  const { markAllRead } = useUnreadAnnouncements(user);
 
   useEffect(() => {
     if (!user) return;
@@ -17,6 +19,11 @@ export function Announcements() {
       .then(setAnnouncements)
       .finally(() => setLoading(false));
   }, [user]);
+
+  // Mark all announcements as read whenever this page is opened
+  useEffect(() => {
+    if (!loading) markAllRead();
+  }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filteredAnnouncements = announcements;
 

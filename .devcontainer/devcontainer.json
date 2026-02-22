@@ -4,6 +4,9 @@
   "service": "app",
   "workspaceFolder": "/workspace",
   "forwardPorts": [3000, 5173, 5000, 6379, 9000, 9001],
+  "otherPortsAttributes": {
+    "onAutoForward": "ignore"
+  },
   "portsAttributes": {
     "3000": {
       "label": "Frontend (Vite)",

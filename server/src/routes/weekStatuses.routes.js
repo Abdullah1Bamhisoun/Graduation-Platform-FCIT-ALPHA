@@ -4,7 +4,8 @@ const { authenticate, requireCoordinatorOrAdmin } = require('../middleware/auth.
 const controller = require('../controllers/weekStatuses.controller');
 
 // GET /api/week-statuses?courseType=498&semester=DEFAULT&department=IS
-router.get('/', authenticate, requireCoordinatorOrAdmin, controller.getWeekStatuses);
+// Any authenticated user (students, supervisors, coordinators) needs to read week statuses.
+router.get('/', authenticate, controller.getWeekStatuses);
 
 // PATCH /api/week-statuses/:id/open
 router.patch('/:id/open', authenticate, requireCoordinatorOrAdmin, controller.openWeek);
