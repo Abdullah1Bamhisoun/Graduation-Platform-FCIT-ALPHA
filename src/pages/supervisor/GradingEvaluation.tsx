@@ -1,591 +1,503 @@
+/**
+ * Supervisor/Committee Grading Evaluation
+ *
+ * Committee members evaluate assigned groups using the official rubric.
+ * CPIS-498: 8 criteria × 0–5 = 40 marks
+ * CPIS-499: 8 criteria × 0–5 = 40 marks
+ *
+ * Rules:
+ * - Members cannot see each other's scores before submitting
+ * - Final score = average of all submitted member totals
+ * - Once submitted → locked
+ */
+
 import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { Button } from '../../components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Textarea } from '../../components/ui/textarea';
 import { Label } from '../../components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '../../components/ui/dialog';
 import { useAuth } from '../../lib/AuthContext';
 import { getGroupsForEvaluation } from '../../services/groups';
 import { useLockStatus } from '../../hooks/useLockStatus';
 import { LockedBanner } from '../../components/ui/LockedBanner';
 import {
-  Save,
-  AlertCircle,
-  CheckCircle,
-  FileText,
-  Send,
-  XCircle,
-} from 'lucide-react';
+  getRubricCriteria,
+  getCommitteeRubricScores,
+  saveCommitteeRubricScores,
+  type RubricCriterion,
+} from '../../services/grading-rubric';
+import { supabase } from '../../lib/supabase';
+import { Save, Send, CheckCircle, AlertCircle, Info, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 
-interface Group {
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function courseTypeFromCode(code: string): '498' | '499' {
+  return code.includes('499') ? '499' : '498';
+}
+
+async function getCourseIdByCode(courseCode: string): Promise<string | null> {
+  const { data } = await supabase
+    .from('courses')
+    .select('id')
+    .ilike('code', '%' + (courseCode.includes('499') ? '499' : '498') + '%')
+    .limit(1);
+  return data?.[0]?.id ?? null;
+}
+
+// ─── Committee Criterion Row ──────────────────────────────────────────────────
+
+interface CommitteeRowProps {
+  criterion: RubricCriterion;
+  value: number | null;
+  onChange: (v: number) => void;
+  disabled?: boolean;
+}
+
+function CommitteeRow({ criterion, value, onChange, disabled }: CommitteeRowProps) {
+  const descriptions: Record<number, string | undefined> = {
+    0: 'Not demonstrated',
+    1: criterion.description1,
+    2: criterion.description2,
+    3: criterion.description3,
+    4: criterion.description4,
+    5: criterion.description5,
+  };
+
+  return (
+    <tr className={`border-b border-[var(--color-border)] hover:bg-gray-50 transition-colors`}>
+      <td className="py-4 px-4">
+        <div>
+          <div className="font-medium text-[var(--color-text-900)] text-sm">{criterion.criterionName}</div>
+          {value !== null && descriptions[value] && (
+            <div className="text-xs text-[var(--color-text-600)] mt-0.5 italic">{descriptions[value]}</div>
+          )}
+        </div>
+      </td>
+      {[0, 1, 2, 3, 4, 5].map(score => (
+        <td key={score} className="text-center py-4 px-2">
+          <label className="flex justify-center cursor-pointer">
+            <input
+              type="radio"
+              name={`criterion-${criterion.criterionKey}`}
+              checked={value === score}
+              onChange={() => onChange(score)}
+              disabled={disabled}
+              className="w-6 h-6 cursor-pointer appearance-none rounded-full border-2 border-gray-300 checked:border-green-600 checked:border-[6px] checked:bg-white hover:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-1 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ WebkitAppearance: 'none', MozAppearance: 'none' }}
+            />
+          </label>
+        </td>
+      ))}
+      <td className="text-center py-4 px-4 font-semibold tabular-nums text-[var(--color-text-900)] w-16">
+        {value !== null ? value : '—'}/5
+      </td>
+    </tr>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+
+interface GroupOption {
   id: string;
   groupNumber: number;
   course: string;
   projectTitle: string;
-  /** Server-computed: evaluation unlocks when presentation time has passed. */
   evaluationActive: boolean;
 }
-
-interface ChapterGrade {
-  chapter: string;
-  score: number | null;
-}
-
-interface CommitteeCriterion {
-  id: string;
-  name: string;
-  maxScore: 5;
-  score: number | null;
-}
-
 
 export function SupervisorGradingEvaluation() {
   const { user } = useAuth();
   const { isLocked } = useLockStatus('grades');
 
-  const [groups, setGroups] = useState<Group[]>([]);
+  const [groups, setGroups]           = useState<GroupOption[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'chapters' | 'committee'>('chapters');
-  const [status, setStatus] = useState<'draft' | 'submitted'>('draft');
-  // True when the backend uses evaluation_assignments; empty list means not yet assigned.
   const [assignmentMode, setAssignmentMode] = useState(false);
+  const [loading, setLoading]         = useState(true);
+  const [saving, setSaving]           = useState(false);
+
+  // Rubric
+  const [criteria, setCriteria]       = useState<RubricCriterion[]>([]);
+  const [scores, setScores]           = useState<Record<string, number>>({});  // criterionKey → 0-5
+  const [comment, setComment]         = useState('');
+  const [submissionStatus, setSubmissionStatus] = useState<'draft' | 'submitted' | 'locked'>('draft');
+  const [courseId, setCourseId]       = useState<string | null>(null);
+
+  // Confirm modal
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [showIP, setShowIP]           = useState(false);
+  const [ipReason, setIpReason]       = useState('');
+
+  // ── Load assigned groups ───────────────────────────────────────────────────
 
   useEffect(() => {
     if (!user) return;
-    // Backend enforces: supervised group excluded; in assignment mode only
-    // officially assigned groups are returned (empty = not yet assigned).
     getGroupsForEvaluation().then(({ groups: data, assignmentMode: mode }) => {
       setAssignmentMode(mode);
-      setGroups(data.map((g) => ({
+      setGroups(data.map(g => ({
         id: g.id,
         groupNumber: g.groupNumber ?? 0,
         course: g.courseCode,
         projectTitle: g.projectName,
         evaluationActive: g.evaluationActive,
       })));
-    });
+    }).finally(() => setLoading(false));
   }, [user?.id]);
 
-  // Chapter grades (CPIS-498 - 20 marks total)
-  const [chapterGrades, setChapterGrades] = useState<ChapterGrade[]>([
-    { chapter: 'Chapter-1 Introduction', score: null },
-    { chapter: 'Chapter-2 Related Work', score: null },
-    { chapter: 'Chapter-3 Data Analysis', score: null },
-    { chapter: 'Chapter-4 Design', score: null },
-    { chapter: 'Chapter-5 Conclusion', score: null },
-  ]);
+  // ── Load criteria + existing scores when group changes ────────────────────
 
-  const [chapterComments, setChapterComments] = useState('');
+  useEffect(() => {
+    if (!selectedGroup || !user) return;
+    const group = groups.find(g => g.id === selectedGroup);
+    if (!group) return;
+    const ct = courseTypeFromCode(group.course);
 
-  // Committee criteria (CPIS-498 - 40 marks total)
-  const [committeeCriteria, setCommitteeCriteria] = useState<CommitteeCriterion[]>([
-    { id: 'technical', name: 'Technical Work Level', maxScore: 5, score: null },
-    { id: 'complexity', name: 'Project Complexity', maxScore: 5, score: null },
-    { id: 'presentation', name: 'Presentation (Style & Format)', maxScore: 5, score: null },
-    { id: 'conclusion', name: 'Conclusion & Future Work', maxScore: 5, score: null },
-    { id: 'document', name: 'Document (Style & Format)', maxScore: 5, score: null },
-    { id: 'testing', name: 'Testing Results', maxScore: 5, score: null },
-    { id: 'code', name: 'Code Check', maxScore: 5, score: null },
-    { id: 'finalReport', name: 'Final Report Submission', maxScore: 5, score: null },
-  ]);
-  
-  const [committeeComments, setCommitteeComments] = useState('');
-  
-  // IP Modal
-  const [showIPModal, setShowIPModal] = useState(false);
-  const [ipReason, setIpReason] = useState('');
-  const [isIP, setIsIP] = useState(false);
-  
-  // Confirm Submit Modal
-  const [showSubmitModal, setShowSubmitModal] = useState(false);
+    ;(async () => {
+      const cid = await getCourseIdByCode(group.course);
+      setCourseId(cid);
 
-  const currentGroup = groups.find(g => g.id === selectedGroup);
+      const [crit, existingScores] = await Promise.all([
+        getRubricCriteria(ct, 'committee_eval'),
+        cid ? getCommitteeRubricScores(selectedGroup, cid, user.id) : Promise.resolve([]),
+      ]);
+      setCriteria(crit);
+
+      const scoreMap: Record<string, number> = {};
+      let status: 'draft' | 'submitted' | 'locked' = 'draft';
+      for (const s of existingScores) {
+        scoreMap[s.criterionKey] = s.score;
+        if (s.submissionStatus === 'locked') status = 'locked';
+        else if (s.submissionStatus === 'submitted' && status !== 'locked') status = 'submitted';
+      }
+      setScores(scoreMap);
+      setSubmissionStatus(status);
+
+      // Get comment
+      if (cid) {
+        const { data } = await supabase
+          .from('committee_evaluations')
+          .select('comment')
+          .eq('group_id', selectedGroup)
+          .eq('course_id', cid)
+          .eq('evaluator_id', user.id)
+          .maybeSingle();
+        setComment(data?.comment ?? '');
+      }
+    })();
+  }, [selectedGroup, groups, user]);
 
   if (!user) return null;
 
-  // Calculate totals
-  const calculateChapterTotal = () => {
-    return chapterGrades.reduce((sum, grade) => {
-      if (grade.score !== null) {
-        // Each chapter is worth 4 marks (score 1-5 mapped to /4)
-        return sum + ((grade.score / 5) * 4);
-      }
-      return sum;
-    }, 0);
+  const currentGroup   = groups.find(g => g.id === selectedGroup);
+  const ct             = currentGroup ? courseTypeFromCode(currentGroup.course) : null;
+  const total          = Object.values(scores).reduce((s, v) => s + v, 0);
+  const maxTotal       = criteria.length * 5;
+  const allFilled      = criteria.length > 0 && criteria.every(c => scores[c.criterionKey] !== undefined);
+  const isReadOnly     = submissionStatus === 'submitted' || submissionStatus === 'locked' || isLocked;
+  const pct            = maxTotal > 0 ? Math.round((total / maxTotal) * 100) : 0;
+
+  // ── Save draft ─────────────────────────────────────────────────────────────
+
+  const saveDraft = async () => {
+    if (!currentGroup || !courseId || !user) return;
+    setSaving(true);
+    try {
+      await saveCommitteeRubricScores({
+        groupId: selectedGroup, courseId, evaluatorId: user.id,
+        scores, submissionStatus: 'draft',
+      });
+      toast.success('Draft saved.');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to save draft.');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const calculateCommitteeTotal = () => {
-    return committeeCriteria.reduce((sum, criterion) => sum + (criterion.score || 0), 0);
+  // ── Submit ─────────────────────────────────────────────────────────────────
+
+  const doSubmit = async () => {
+    if (!currentGroup || !courseId || !user) return;
+    setShowConfirm(false);
+    setSaving(true);
+    try {
+      await saveCommitteeRubricScores({
+        groupId: selectedGroup, courseId, evaluatorId: user.id,
+        scores, submissionStatus: 'submitted',
+      });
+      // Save comment separately
+      await supabase.from('committee_evaluations').upsert({
+        group_id: selectedGroup, course_id: courseId,
+        evaluator_id: user.id, score: total, max_score: 40, comment,
+      }, { onConflict: 'group_id,course_id,evaluator_id' });
+
+      setSubmissionStatus('submitted');
+      toast.success(`Committee evaluation submitted. Total: ${total}/40`);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to submit.');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const hasUnfilledChapters = () => {
-    return chapterGrades.some(g => g.score === null);
+  // ── Mark IP ────────────────────────────────────────────────────────────────
+
+  const doMarkIP = async () => {
+    if (!ipReason.trim()) { toast.error('Reason required.'); return; }
+    setShowIP(false);
+    toast.success('Marked as IP (Not Ready).');
   };
 
-  const hasUnfilledCommittee = () => {
-    return committeeCriteria.some(c => c.score === null);
-  };
-
-  // Handle chapter score change
-  const handleChapterScoreChange = (index: number, score: number) => {
-    const newGrades = [...chapterGrades];
-    newGrades[index].score = score;
-    setChapterGrades(newGrades);
-  };
-
-  // Handle committee score change
-  const handleCommitteeScoreChange = (id: string, score: number) => {
-    const newCriteria = committeeCriteria.map(c =>
-      c.id === id ? { ...c, score } : c
+  if (loading) {
+    return (
+      <Layout user={user} pageTitle="Committee Evaluation">
+        <div className="p-6 text-[var(--color-text-600)]">Loading…</div>
+      </Layout>
     );
-    setCommitteeCriteria(newCriteria);
-  };
-
-  // Handle save draft
-  const handleSaveDraft = () => {
-    toast.success('Draft saved successfully');
-  };
-
-  // Handle submit grades
-  const handleSubmitGrades = () => {
-    if (activeTab === 'chapters' && hasUnfilledChapters()) {
-      toast.error('Please grade all chapters before submitting');
-      return;
-    }
-    if (activeTab === 'committee' && hasUnfilledCommittee()) {
-      toast.error('Please score all criteria before submitting');
-      return;
-    }
-    setShowSubmitModal(true);
-  };
-
-  const confirmSubmitGrades = () => {
-    setStatus('submitted');
-    setShowSubmitModal(false);
-    toast.success('Grades submitted successfully');
-  };
-
-  // Handle Mark IP
-  const handleMarkIP = () => {
-    setShowIPModal(true);
-  };
-
-  const confirmMarkIP = () => {
-    if (!ipReason.trim()) {
-      toast.error('Please provide a reason for marking as IP');
-      return;
-    }
-    setIsIP(true);
-    setShowIPModal(false);
-    toast.success('Marked as IP (Not Ready)');
-  };
+  }
 
   return (
-    <Layout user={user} pageTitle="Grading & Evaluation">
+    <Layout user={user} pageTitle="Committee Evaluation">
       {isLocked && <LockedBanner />}
+
       <div className="mb-6">
-        {/* Group Selection */}
-        <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6 mb-6">
-          {/* Assignment-mode banner: no groups assigned yet → evaluation blocked */}
-          {assignmentMode && groups.length === 0 ? (
-            <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-              <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm text-amber-900 font-medium">No groups assigned for evaluation</p>
-                <p className="text-sm text-amber-800 mt-1">
-                  Evaluation cannot start until a group is officially assigned to you by the coordinator or admin.
-                </p>
-              </div>
+        {assignmentMode && groups.length === 0 ? (
+          <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+            <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm text-amber-900 font-medium">No groups assigned for evaluation</p>
+              <p className="text-sm text-amber-800 mt-1">
+                Coordinator must assign you to a group before evaluation can start.
+              </p>
             </div>
-          ) : (
-            <div className="max-w-md">
-              <Label htmlFor="group-select" className="mb-2 block text-[var(--color-text-900)]">
-                Select Group to Evaluate
-              </Label>
-              <Select value={selectedGroup} onValueChange={setSelectedGroup}>
-                <SelectTrigger id="group-select">
-                  <SelectValue placeholder="Choose a group..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {groups.map((group) => (
-                    <SelectItem key={group.id} value={group.id}>
-                      Group {group.groupNumber} - {group.projectTitle}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="max-w-md">
+            <Label htmlFor="group-select" className="mb-2 block text-[var(--color-text-900)]">
+              Select Group to Evaluate
+            </Label>
+            <Select value={selectedGroup} onValueChange={v => {
+              setSelectedGroup(v);
+              setScores({});
+              setComment('');
+              setCriteria([]);
+              setSubmissionStatus('draft');
+            }}>
+              <SelectTrigger id="group-select">
+                <SelectValue placeholder="Choose a group…" />
+              </SelectTrigger>
+              <SelectContent>
+                {groups.map(g => (
+                  <SelectItem key={g.id} value={g.id}>
+                    Group {g.groupNumber} — {g.projectTitle} ({g.course})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
 
       {selectedGroup && currentGroup ? (
         <div>
-          {/* Evaluation lock banner — shown until presentation time passes */}
+          {/* Eval not active banner */}
           {!currentGroup.evaluationActive && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 flex items-start gap-3">
               <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
               <div>
                 <p className="text-sm text-amber-900 font-medium">Evaluation not yet active</p>
                 <p className="text-sm text-amber-800 mt-1">
-                  The evaluation form is locked until the presentation date and time has passed. This is enforced by the server.
+                  Evaluation unlocks after the presentation date and time has passed.
                 </p>
               </div>
             </div>
           )}
 
-          {/* Header */}
-          <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6 mb-6">
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <h1 className="text-[var(--color-text-900)]">
-                    Group {currentGroup.groupNumber}
-                  </h1>
-                  <span className="px-3 py-1 text-sm rounded-full bg-blue-100 text-blue-700 border border-blue-200">
-                    {currentGroup.course}
-                  </span>
-                  <span className={`px-3 py-1 text-sm rounded-full ${
-                    status === 'submitted' 
-                      ? 'bg-green-100 text-green-700 border border-green-200'
-                      : 'bg-gray-100 text-gray-700 border border-gray-200'
-                  }`}>
-                    {status === 'submitted' ? 'Submitted' : 'Draft'}
-                  </span>
-                  {isIP && (
-                    <span className="px-3 py-1 text-sm rounded-full bg-red-100 text-red-700 border border-red-200">
-                      IP - Not Ready
-                    </span>
-                  )}
-                </div>
-                <p className="text-[var(--color-text-600)]">{currentGroup.projectTitle}</p>
-              </div>
+          {/* Info banner */}
+          <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800 mb-4">
+            <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
+            <span>
+              CPIS-{ct}: 8 criteria × 0–5 = 40 marks. Each criterion must be scored 0–5.
+              Your scores are independent — you cannot see other evaluators' scores before submission.
+            </span>
+          </div>
 
-              <div className="flex items-center gap-2">
-                <Button variant="outline" onClick={handleSaveDraft} disabled={isLocked || !currentGroup.evaluationActive}>
-                  <Save className="w-4 h-4 mr-2" />
-                  Save Draft
-                </Button>
-                <Button
-                  onClick={handleSubmitGrades}
-                  className="bg-green-600 hover:bg-green-700 text-white"
-                  disabled={isLocked || !currentGroup.evaluationActive || status === 'submitted' || isIP}
-                >
-                  <Send className="w-4 h-4 mr-2" />
-                  Submit Grades
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={handleMarkIP}
-                  className="text-red-600 border-red-300 hover:bg-red-50"
-                  disabled={isIP || !currentGroup.evaluationActive}
-                >
-                  <XCircle className="w-4 h-4 mr-2" />
-                  Mark IP (Not Ready)
-                </Button>
+          {/* Group header */}
+          <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5 mb-4 flex items-start justify-between">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <h2 className="text-[var(--color-text-900)] font-semibold">Group {currentGroup.groupNumber}</h2>
+                <span className="px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700 border border-blue-200">{currentGroup.course}</span>
+                <span className={`px-2 py-0.5 text-xs rounded-full border ${
+                  submissionStatus === 'submitted' ? 'bg-green-100 text-green-700 border-green-200' :
+                  submissionStatus === 'locked'    ? 'bg-red-100 text-red-700 border-red-200' :
+                  'bg-gray-100 text-gray-600 border-gray-200'
+                }`}>
+                  {submissionStatus === 'submitted' ? 'Submitted' : submissionStatus === 'locked' ? 'Locked' : 'Draft'}
+                </span>
+              </div>
+              <p className="text-[var(--color-text-600)] text-sm">{currentGroup.projectTitle}</p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="text-right">
+                <div className="text-2xl font-bold tabular-nums text-[var(--color-text-900)]">
+                  {total}<span className="text-sm font-normal text-[var(--color-text-500)]">/{maxTotal}</span>
+                </div>
+                <div className="text-xs text-[var(--color-text-600)]">{pct}% complete</div>
+              </div>
+              <div className="flex gap-2">
+                {!isReadOnly && (
+                  <>
+                    <Button variant="outline" size="sm" onClick={saveDraft} disabled={saving || !currentGroup.evaluationActive}>
+                      <Save className="w-4 h-4 mr-1" />Draft
+                    </Button>
+                    <Button size="sm" onClick={() => setShowConfirm(true)}
+                      disabled={saving || !allFilled || !currentGroup.evaluationActive}
+                      className="bg-green-600 text-white hover:bg-green-700">
+                      <Send className="w-4 h-4 mr-1" />Submit
+                    </Button>
+                    <Button variant="outline" size="sm"
+                      onClick={() => setShowIP(true)}
+                      className="text-red-600 border-red-300 hover:bg-red-50"
+                      disabled={!currentGroup.evaluationActive}>
+                      Mark IP
+                    </Button>
+                  </>
+                )}
+                {isReadOnly && (
+                  <div className="flex items-center gap-2 text-green-700 text-sm">
+                    <CheckCircle className="w-4 h-4" />Submitted
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Tabs */}
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
-            <TabsList className="mb-6 bg-[var(--color-surface-alt)]">
-              <TabsTrigger value="chapters" className="data-[state=active]:bg-white">
-                CPIS-498 – Chapters (20)
-              </TabsTrigger>
-              <TabsTrigger value="committee" className="data-[state=active]:bg-white">
-                CPIS-498 – Committee (40)
-              </TabsTrigger>
-            </TabsList>
-
-            {/* Chapters Tab */}
-            <TabsContent value="chapters">
-              <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-8">
-                <div className="mb-6">
-                  <h3 className="text-[var(--color-text-900)] mb-2">Chapters Evaluation Matrix</h3>
-                  <p className="text-[var(--color-text-600)]">
-                    Evaluate 5 chapters using Likert scale (1-5). Each chapter is weighted at 4 marks. Total: 20 marks.
-                  </p>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="border-b-2 border-[var(--color-border)]">
-                      <tr>
-                        <th className="text-left py-4 px-4 text-[var(--color-text-900)]">Chapter</th>
-                        <th className="text-center py-4 px-3 text-[var(--color-text-600)] w-16">1</th>
-                        <th className="text-center py-4 px-3 text-[var(--color-text-600)] w-16">2</th>
-                        <th className="text-center py-4 px-3 text-[var(--color-text-600)] w-16">3</th>
-                        <th className="text-center py-4 px-3 text-[var(--color-text-600)] w-16">4</th>
-                        <th className="text-center py-4 px-3 text-[var(--color-text-600)] w-16">5</th>
-                        <th className="text-center py-4 px-4 text-[var(--color-text-900)] w-24">Score /4</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {chapterGrades.map((grade, index) => (
-                        <tr key={index} className="border-b border-[var(--color-border)] hover:bg-gray-50 transition-colors">
-                          <td className="py-4 px-4">
-                            <div className="flex items-center gap-2">
-                              <FileText className="w-4 h-4 text-gray-400" />
-                              <span className="text-[var(--color-text-900)]">{grade.chapter}</span>
-                            </div>
-                          </td>
-                          {[1, 2, 3, 4, 5].map((score) => (
-                            <td key={score} className="text-center py-4 px-3">
-                              <label className="flex justify-center cursor-pointer">
-                                <input
-                                  type="radio"
-                                  name={`chapter-${index}`}
-                                  checked={grade.score === score}
-                                  onChange={() => handleChapterScoreChange(index, score)}
-                                  disabled={isIP || !currentGroup.evaluationActive}
-                                  className="w-6 h-6 cursor-pointer appearance-none rounded-full border-2 border-gray-400 checked:border-green-600 checked:border-[6px] checked:bg-white hover:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                  style={{
-                                    WebkitAppearance: 'none',
-                                    MozAppearance: 'none',
-                                  }}
-                                />
-                              </label>
-                            </td>
-                          ))}
-                          <td className="text-center py-4 px-4 text-[var(--color-text-900)]">
-                            {grade.score ? ((grade.score / 5) * 4).toFixed(1) : '0.0'}
-                          </td>
-                        </tr>
+          {criteria.length > 0 ? (
+            <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] overflow-hidden mb-4">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="border-b-2 border-[var(--color-border)] bg-[var(--color-surface-alt)]">
+                    <tr>
+                      <th className="text-left py-3 px-4 text-sm text-[var(--color-text-700)]">Criterion</th>
+                      {[0,1,2,3,4,5].map(n => (
+                        <th key={n} className="text-center py-3 px-2 text-[var(--color-text-600)] w-12 text-sm">{n}</th>
                       ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="bg-yellow-50 border-t-2 border-yellow-200">
-                        <td colSpan={6} className="py-4 px-4 text-right text-[var(--color-text-900)]">
-                          <strong>Total:</strong>
-                        </td>
-                        <td className="py-4 px-4 text-center text-[var(--color-text-900)]">
-                          <strong>{calculateChapterTotal().toFixed(1)} / 20</strong>
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-
-                {hasUnfilledChapters() && (
-                  <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex gap-2 text-sm text-amber-900">
-                    <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                    <span>Some chapters are not scored yet</span>
-                  </div>
-                )}
-
-                {/* Comments */}
-                <div className="mt-6 pt-6 border-t border-[var(--color-border)]">
-                  <Label htmlFor="chapter-comments" className="mb-2 block text-[var(--color-text-900)]">
-                    Comments for Chapter Grading
-                  </Label>
-                  <Textarea
-                    id="chapter-comments"
-                    value={chapterComments}
-                    onChange={(e) => setChapterComments(e.target.value)}
-                    placeholder="Overall feedback on chapters..."
-                    className="min-h-[120px]"
-                    disabled={isIP || !currentGroup.evaluationActive}
-                  />
-                </div>
+                      <th className="text-center py-3 px-4 text-sm text-[var(--color-text-700)] w-20">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {criteria.map(c => (
+                      <CommitteeRow
+                        key={c.criterionKey}
+                        criterion={c}
+                        value={scores[c.criterionKey] !== undefined ? scores[c.criterionKey] : null}
+                        onChange={v => {
+                          if (isReadOnly || !currentGroup.evaluationActive) return;
+                          setScores(p => ({ ...p, [c.criterionKey]: v }));
+                        }}
+                        disabled={isReadOnly || !currentGroup.evaluationActive}
+                      />
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-yellow-50 border-t-2 border-yellow-200">
+                      <td colSpan={7} className="py-3 px-4 text-right font-bold text-[var(--color-text-900)]">Total:</td>
+                      <td className="py-3 px-4 text-center font-bold text-[var(--color-text-900)] text-lg tabular-nums">
+                        {total}/{maxTotal}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
-            </TabsContent>
+            </div>
+          ) : (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-sm text-amber-800 mb-4">
+              <AlertCircle className="w-5 h-5 inline mr-2" />
+              No committee rubric found. Run docs/sql/001_full_grading_system.sql in Supabase.
+            </div>
+          )}
 
-            {/* Committee Tab */}
-            <TabsContent value="committee">
-              <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-8">
-                <div className="mb-6">
-                  <h3 className="text-[var(--color-text-900)] mb-2">Committee Evaluation Matrix</h3>
-                  <p className="text-[var(--color-text-600)]">
-                    Evaluate 8 criteria using Likert scale (1-5). Each criterion is worth 5 marks. Total: 40 marks.
-                  </p>
-                </div>
+          {/* Comments */}
+          <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5">
+            <Label className="mb-2 block text-[var(--color-text-700)]">Comments / Justification</Label>
+            <Textarea
+              value={comment}
+              onChange={e => setComment(e.target.value)}
+              placeholder="Overall notes and justification for scores…"
+              className="min-h-[120px]"
+              disabled={isReadOnly}
+            />
+          </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="border-b-2 border-[var(--color-border)]">
-                      <tr>
-                        <th className="text-left py-4 px-4 text-[var(--color-text-900)]">Criterion</th>
-                        <th className="text-center py-4 px-3 text-[var(--color-text-600)] w-16">1</th>
-                        <th className="text-center py-4 px-3 text-[var(--color-text-600)] w-16">2</th>
-                        <th className="text-center py-4 px-3 text-[var(--color-text-600)] w-16">3</th>
-                        <th className="text-center py-4 px-3 text-[var(--color-text-600)] w-16">4</th>
-                        <th className="text-center py-4 px-3 text-[var(--color-text-600)] w-16">5</th>
-                        <th className="text-center py-4 px-4 text-[var(--color-text-900)] w-24">Score /5</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {committeeCriteria.map((criterion, index) => (
-                        <tr key={criterion.id} className={`border-b border-[var(--color-border)] hover:bg-gray-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                          <td className="py-4 px-4">
-                            <span className="text-[var(--color-text-900)]">{criterion.name}</span>
-                          </td>
-                          {[1, 2, 3, 4, 5].map((score) => (
-                            <td key={score} className="text-center py-4 px-3">
-                              <label className="flex justify-center cursor-pointer">
-                                <input
-                                  type="radio"
-                                  name={`criterion-${criterion.id}`}
-                                  checked={criterion.score === score}
-                                  onChange={() => handleCommitteeScoreChange(criterion.id, score)}
-                                  disabled={isIP || !currentGroup.evaluationActive}
-                                  className="w-6 h-6 cursor-pointer appearance-none rounded-full border-2 border-gray-400 checked:border-green-600 checked:border-[6px] checked:bg-white hover:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                  style={{
-                                    WebkitAppearance: 'none',
-                                    MozAppearance: 'none',
-                                  }}
-                                />
-                              </label>
-                            </td>
-                          ))}
-                          <td className="text-center py-4 px-4 text-[var(--color-text-900)]">
-                            {criterion.score || 0}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="bg-yellow-50 border-t-2 border-yellow-200">
-                        <td colSpan={6} className="py-4 px-4 text-right text-[var(--color-text-900)]">
-                          <strong>Total:</strong>
-                        </td>
-                        <td className="py-4 px-4 text-center text-[var(--color-text-900)]">
-                          <strong>{calculateCommitteeTotal()} / 40</strong>
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-
-                {hasUnfilledCommittee() && (
-                  <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex gap-2 text-sm text-amber-900">
-                    <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                    <span>Some criteria are not scored yet</span>
-                  </div>
-                )}
-
-                {/* Comments */}
-                <div className="mt-6 pt-6 border-t border-[var(--color-border)]">
-                  <Label htmlFor="committee-comments" className="mb-2 block text-[var(--color-text-900)]">
-                    Comments for Committee Evaluation
-                  </Label>
-                  <Textarea
-                    id="committee-comments"
-                    value={committeeComments}
-                    onChange={(e) => setCommitteeComments(e.target.value)}
-                    placeholder="Overall notes / justification for the scores..."
-                    className="min-h-[150px]"
-                    disabled={isIP || !currentGroup.evaluationActive}
-                  />
-                </div>
-              </div>
-            </TabsContent>
-          </Tabs>
+          {!allFilled && !isReadOnly && criteria.length > 0 && (
+            <div className="mt-3 flex items-center gap-2 text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              {criteria.filter(c => scores[c.criterionKey] === undefined).length} criteria not scored yet.
+            </div>
+          )}
         </div>
       ) : (
         <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-12 text-center">
           <FileText className="w-12 h-12 text-[var(--color-text-400)] mx-auto mb-4" />
-          <p className="text-[var(--color-text-600)]">
-            Please select a group to begin evaluation
-          </p>
+          <p className="text-[var(--color-text-600)]">Select a group to begin evaluation</p>
         </div>
       )}
 
-      {/* Mark IP Modal */}
-      <Dialog open={showIPModal} onOpenChange={setShowIPModal}>
-        <DialogContent className="sm:max-w-[500px]">
+      {/* Submit Confirm Dialog */}
+      <Dialog open={showConfirm} onOpenChange={setShowConfirm}>
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Mark as IP (Not Ready)</DialogTitle>
-            <DialogDescription>
-              This will mark the project as In Progress and not ready for final defense
-            </DialogDescription>
+            <DialogTitle>Submit Committee Evaluation</DialogTitle>
+            <DialogDescription>Once submitted, your evaluation will be locked.</DialogDescription>
           </DialogHeader>
-
-          <div className="py-4">
-            <div className="p-4 bg-red-50 border border-red-200 rounded-lg mb-4 flex gap-3">
-              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-              <div className="text-sm text-red-900">
-                <p className="mb-2"><strong>Warning:</strong> This action will:</p>
-                <ul className="list-disc list-inside space-y-1">
-                  <li>Lock all grading inputs</li>
-                  <li>Prevent submission of grades</li>
-                  <li>Notify the students and admin</li>
-                  <li>Require admin approval to reverse</li>
-                </ul>
-              </div>
+          <div className="py-3 space-y-2 text-sm">
+            <div className="flex justify-between p-3 bg-gray-50 rounded-lg">
+              <span className="text-[var(--color-text-600)]">Criteria scored:</span>
+              <span className="font-medium">{criteria.filter(c => scores[c.criterionKey] !== undefined).length}/{criteria.length}</span>
             </div>
-
-            <Label htmlFor="ip-reason" className="mb-2 block">Reason (Required)</Label>
-            <Textarea
-              id="ip-reason"
-              value={ipReason}
-              onChange={(e) => setIpReason(e.target.value)}
-              placeholder="Explain why this project is not ready for final defense..."
-              className="min-h-[120px]"
-            />
+            <div className="flex justify-between p-3 bg-green-50 rounded-lg border border-green-200">
+              <span className="text-green-800 font-semibold">Total Score:</span>
+              <span className="font-bold text-green-800">{total}/{maxTotal}</span>
+            </div>
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
+              <Info className="w-3.5 h-3.5 inline mr-1" />
+              Final group score = average of all committee members' totals.
+            </div>
           </div>
-
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowIPModal(false)}>
-              Cancel
-            </Button>
-            <Button onClick={confirmMarkIP} className="bg-red-600 hover:bg-red-700 text-white">
-              Confirm Mark IP
+            <Button variant="outline" onClick={() => setShowConfirm(false)}>Cancel</Button>
+            <Button onClick={doSubmit} className="bg-green-600 text-white hover:bg-green-700">
+              <Send className="w-4 h-4 mr-2" />Submit
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Submit Confirmation Modal */}
-      <Dialog open={showSubmitModal} onOpenChange={setShowSubmitModal}>
-        <DialogContent className="sm:max-w-[500px]">
+      {/* IP Modal */}
+      <Dialog open={showIP} onOpenChange={setShowIP}>
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Submit Grades</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to submit these grades?
-            </DialogDescription>
+            <DialogTitle>Mark as IP (Not Ready)</DialogTitle>
+            <DialogDescription>This will mark the project as not ready for defense.</DialogDescription>
           </DialogHeader>
-
-          <div className="py-4">
-            <div className="space-y-3 text-sm">
-              <div className="flex justify-between p-3 bg-gray-50 rounded-lg">
-                <span className="text-[var(--color-text-600)]">Chapters Total:</span>
-                <span className="text-[var(--color-text-900)]">{calculateChapterTotal().toFixed(1)} / 20</span>
-              </div>
-              <div className="flex justify-between p-3 bg-gray-50 rounded-lg">
-                <span className="text-[var(--color-text-600)]">Committee Total:</span>
-                <span className="text-[var(--color-text-900)]">{calculateCommitteeTotal()} / 40</span>
-              </div>
-              <div className="flex justify-between p-3 bg-blue-50 rounded-lg border border-blue-200">
-                <span className="text-blue-900"><strong>Grand Total:</strong></span>
-                <span className="text-blue-900"><strong>{(calculateChapterTotal() + calculateCommitteeTotal()).toFixed(1)} / 60</strong></span>
-              </div>
-            </div>
-
-            <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-900">
-              <CheckCircle className="w-4 h-4 inline mr-2" />
-              Once submitted, grades will be visible to admin and locked from further editing.
-            </div>
+          <div className="py-3">
+            <Label className="mb-2 block">Reason (Required)</Label>
+            <Textarea
+              value={ipReason}
+              onChange={e => setIpReason(e.target.value)}
+              placeholder="Explain why this project is not ready…"
+              className="min-h-[100px]"
+            />
           </div>
-
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowSubmitModal(false)}>
-              Cancel
-            </Button>
-            <Button onClick={confirmSubmitGrades} className="bg-green-600 hover:bg-green-700 text-white">
-              <Send className="w-4 h-4 mr-2" />
-              Submit Grades
-            </Button>
+            <Button variant="outline" onClick={() => setShowIP(false)}>Cancel</Button>
+            <Button onClick={doMarkIP} className="bg-red-600 text-white hover:bg-red-700">Confirm Mark IP</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -32,14 +32,16 @@ import { useNavigate } from 'react-router-dom';
 import { getAllGroups } from '../../services/groups';
 import { getGroupGrade, updateDeliverableGrade } from '../../services/grades';
 import { getGradingSchemas } from '../../services/grading-schemas';
-import {
-  getAdminCommitteeScore,
-  upsertAdminCommitteeScore,
-} from '../../services/admin-committee-scores';
 import { getAuditLog } from '../../services/audit';
 import { supabase } from '../../lib/supabase';
+import {
+  getRubricCriteria,
+  getCoordinatorDeliverableScores,
+  saveAllCoordinatorDeliverables,
+  type RubricCriterion,
+} from '../../services/grading-rubric';
 import type { GroupData } from '../../services/groups';
-import type { GradingSchema, GroupGrade, AdminCommitteeScore, AuditLogEntry } from '../../types';
+import type { GradingSchema, GroupGrade, AuditLogEntry } from '../../types';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -47,15 +49,28 @@ function courseTypeFromCode(code: string): '498' | '499' {
   return code.includes('499') ? '499' : '498';
 }
 
-/** Human-readable labels for CPIS-498 deliverable keys */
+/** Human-readable labels for CPIS-498 deliverable keys (official policy) */
 const DELIVERABLE_LABELS_498: Record<string, string> = {
-  chapter1:           'Chapter 1 — Project Outlines',
-  chapter2:           'Chapter 2 — Literature Review',
-  chapter3:           'Chapter 3 — Analysis',
-  chapter4:           'Chapter 4 — System Design',
-  finalReport:        'Final Report',
-  revisedFinalReport: 'Revised Final Report',
-  presentation:       'Presentation',
+  // New underscore keys (coordinator_deliverables table)
+  chapter1:             'Chapter 1 — Project Outlines',
+  chapter2:             'Chapter 2 — Literature Review',
+  chapter3:             'Chapter 3 — Analysis',
+  chapter4:             'Chapter 4 — System Design',
+  final_report:         'Final Report',
+  revised_final_report: 'Revised Final Report',
+  presentation:         'Presentation',
+  // Legacy camelCase keys (group_deliverable_grades table)
+  finalReport:          'Final Report',
+  revisedFinalReport:   'Revised Final Report',
+};
+
+/** Human-readable labels for CPIS-499 coordinator deliverable keys */
+const DELIVERABLE_LABELS_499: Record<string, string> = {
+  demo1:                  'Demo 1',
+  demo2:                  'Demo 2',
+  poster_day:             'Poster Day',
+  chapter_implementation: 'Chapter Implementation',
+  chapter_testing:        'Chapter Testing',
 };
 
 const SEMESTER = 'DEFAULT';
@@ -74,19 +89,20 @@ export function AdminGradesDeliverables() {
   // Loaded per selection
   const [schemas, setSchemas]           = useState<GradingSchema[]>([]);
   const [groupGrade, setGroupGrade]     = useState<GroupGrade | null>(null);
-  const [adminScore, setAdminScore]     = useState<AdminCommitteeScore | null>(null);
   const [committeeAvg, setCommitteeAvg] = useState<number | undefined>(undefined);
   const [peerAvg, setPeerAvg]           = useState<number | undefined>(undefined);
   const [auditHistory, setAuditHistory] = useState<AuditLogEntry[]>([]);
 
   // Edit state for CPIS-498 deliverables
-  const [editingDeliverables, setEditingDeliverables]     = useState(false);
-  const [deliverableDraft, setDeliverableDraft]           = useState<Record<string, number>>({});
+  const [editingDeliverables, setEditingDeliverables] = useState(false);
+  const [deliverableDraft, setDeliverableDraft]       = useState<Record<string, number>>({});
 
-  // Edit state for CPIS-499 coordinator scores
-  const [editingCoord, setEditingCoord]   = useState(false);
-  const [coordDraft, setCoordDraft]       = useState({ poster: 0, impl: 0, testing: 0 });
-  const [savingCoord, setSavingCoord]     = useState(false);
+  // Edit state for CPIS-499 coordinator deliverables (criteria-driven)
+  const [editingCoord, setEditingCoord]       = useState(false);
+  const [coordDraft, setCoordDraft]           = useState<Record<string, number>>({});
+  const [coordCriteria, setCoordCriteria]     = useState<RubricCriterion[]>([]);
+  const [savingCoord, setSavingCoord]         = useState(false);
+  const [selectedCourseId, setSelectedCourseId] = useState<string>('');
 
   const isCoordinator = user?.activeRole === 'coordinator';
   const isAdmin       = user?.activeRole === 'admin';
@@ -110,11 +126,9 @@ export function AdminGradesDeliverables() {
     Promise.all([
       getGradingSchemas(ct, SEMESTER),
       getGroupGrade(selectedGroup, group.courseCode, SEMESTER),
-      ct === '499' ? getAdminCommitteeScore(selectedGroup, SEMESTER) : Promise.resolve(null),
-    ]).then(([sc, gg, ac]) => {
+    ]).then(([sc, gg]) => {
       setSchemas(sc);
       setGroupGrade(gg);
-      setAdminScore(ac);
 
       // Init draft for 498 deliverables
       if (ct === '498' && gg) {
@@ -124,16 +138,31 @@ export function AdminGradesDeliverables() {
         }
         setDeliverableDraft(draft);
       }
-
-      // Init draft for 499 coordinator scores
-      if (ct === '499' && ac) {
-        setCoordDraft({
-          poster:  ac.posterDayScore,
-          impl:    ac.implementationScore,
-          testing: ac.testingScore,
-        });
-      }
     });
+
+    // Load 499 coordinator deliverables from new rubric table
+    if (ct === '499') {
+      (async () => {
+        const dbCode = group.courseCode.replace('CPIS-', '').trim();
+        const { data: courseRow } = await supabase
+          .from('courses')
+          .select('id')
+          .ilike('code', `%${dbCode}%`)
+          .limit(1)
+          .maybeSingle();
+        if (!courseRow) return;
+        setSelectedCourseId(courseRow.id);
+
+        const crit = await getRubricCriteria('499', 'coordinator_deliverables');
+        setCoordCriteria(crit);
+
+        const scores = await getCoordinatorDeliverableScores(selectedGroup, courseRow.id);
+        const draft: Record<string, number> = {};
+        for (const c of crit) draft[c.criterionKey] = 0;
+        for (const s of scores) draft[s.deliverableKey] = s.score;
+        setCoordDraft(draft);
+      })();
+    }
 
     // Fetch committee average for this group
     fetchCommitteeAvg(selectedGroup, group.courseCode);
@@ -217,13 +246,14 @@ export function AdminGradesDeliverables() {
   };
 
   /** Grand total from all components */
+  const coord499Total = Object.values(coordDraft).reduce((s, v) => s + v, 0);
   const grandTotal = (() => {
     const supW    = supervisorAvg     ?? 0;
     const commW   = committeeAvg      ?? 0;
     const weekW   = groupGrade?.weeklyProgress.score ?? 0;
     const delivW  = ct === '498'
       ? (groupGrade?.deliverablesTotal ?? 0)
-      : (adminScore?.totalScore ?? 0);
+      : coord499Total;
     const peerW   = ct === '498' ? (peerAvg ?? 0) : 0;
     return supW + commW + weekW + delivW + peerW;
   })();
@@ -256,24 +286,22 @@ export function AdminGradesDeliverables() {
 
   // ── Save CPIS-499 coordinator scores ─────────────────────────────────────
   const saveCoord499 = async () => {
-    if (!currentGroup || !user) return;
-    const total = coordDraft.poster + coordDraft.impl + coordDraft.testing;
-    if (total > 15) {
-      toast.error(`Total (${total}) exceeds 15.`);
+    if (!currentGroup || !user || !selectedCourseId) return;
+    const total    = Object.values(coordDraft).reduce((s, v) => s + v, 0);
+    const maxTotal = coordCriteria.reduce((s, c) => s + c.maxRawScore, 0);
+    if (total > maxTotal) {
+      toast.error(`Total (${total}) exceeds maximum (${maxTotal}).`);
       return;
     }
     setSavingCoord(true);
     try {
-      await upsertAdminCommitteeScore({
-        groupId:            selectedGroup,
-        semester:           SEMESTER,
-        posterDayScore:     coordDraft.poster,
-        implementationScore: coordDraft.impl,
-        testingScore:       coordDraft.testing,
-        gradedBy:           user.id,
+      await saveAllCoordinatorDeliverables({
+        groupId:    selectedGroup,
+        courseId:   selectedCourseId,
+        courseType: '499',
+        scores:     coordDraft,
+        gradedBy:   user.id,
       });
-      const ac = await getAdminCommitteeScore(selectedGroup, SEMESTER);
-      setAdminScore(ac);
       setEditingCoord(false);
       toast.success('Course Deliverables saved.');
     } catch (err: any) {
@@ -328,7 +356,7 @@ export function AdminGradesDeliverables() {
       case 'coordinator':
         value = ct === '498'
           ? groupGrade?.deliverablesTotal
-          : adminScore?.totalScore;
+          : coord499Total;
         icon = <FileText className="w-4 h-4" />;
         colorClass = 'bg-blue-50 border-blue-200 text-blue-900';
         break;
@@ -371,9 +399,11 @@ export function AdminGradesDeliverables() {
               setEditingDeliverables(false);
               setEditingCoord(false);
               setGroupGrade(null);
-              setAdminScore(null);
               setCommitteeAvg(undefined);
               setPeerAvg(undefined);
+              setCoordCriteria([]);
+              setCoordDraft({});
+              setSelectedCourseId('');
             }}>
               <SelectTrigger id="group-select">
                 <SelectValue placeholder="Choose a group…" />
@@ -470,8 +500,10 @@ export function AdminGradesDeliverables() {
                     } else if (sc.role === 'coordinator') {
                       const v = ct === '498'
                         ? groupGrade?.deliverablesTotal
-                        : adminScore?.totalScore;
-                      displayValue = v !== undefined ? String(v) : '—';
+                        : coord499Total;
+                      displayValue = ct === '498'
+                        ? (v !== undefined ? String(v) : '—')
+                        : (Object.keys(coordDraft).length > 0 ? coord499Total.toFixed(1) : '—');
                     } else if (sc.role === 'student') {
                       displayValue = peerAvg !== undefined ? peerAvg.toFixed(1) : '—';
                     }
@@ -614,68 +646,77 @@ export function AdminGradesDeliverables() {
                     </div>
                   )}
 
-                  {/* CPIS-499: Poster / Implementation / Testing */}
+                  {/* CPIS-499: Criteria-driven coordinator deliverables */}
                   {ct === '499' && (
                     <>
-                      <div className="px-6 py-3 bg-indigo-50 border-b border-indigo-100 flex items-start gap-2 text-sm text-indigo-800">
-                        <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                        <span>
-                          Each sub-component is out of <strong>5 marks</strong>.
-                          Total must not exceed <strong>15</strong>.
-                          Only the Course Coordinator may enter these scores.
-                        </span>
-                      </div>
+                      {coordCriteria.length > 0 && (
+                        <div className="px-6 py-3 bg-indigo-50 border-b border-indigo-100 flex items-start gap-2 text-sm text-indigo-800">
+                          <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                          <span>
+                            {coordCriteria.length} deliverables · max{' '}
+                            <strong>{coordCriteria.reduce((s, c) => s + c.maxRawScore, 0)} marks</strong>.
+                            Only the Course Coordinator may enter these scores.
+                          </span>
+                        </div>
+                      )}
                       <div className="overflow-x-auto">
                         <table className="w-full">
                           <thead className="bg-[var(--color-surface-alt)]">
                             <tr>
-                              <th className="p-4 text-left text-[var(--color-text-900)]">Component</th>
+                              <th className="p-4 text-left text-[var(--color-text-900)]">Deliverable</th>
                               <th className="p-4 text-center text-[var(--color-text-900)]">Max</th>
                               <th className="p-4 text-center text-[var(--color-text-900)]">Score</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-[var(--color-border)]">
-                            {([
-                              ['Implementation Chapter', 'impl',    5],
-                              ['Testing Chapter',        'testing', 5],
-                              ['Poster Day',             'poster',  5],
-                            ] as [string, 'impl' | 'testing' | 'poster', number][]).map(([label, field, max]) => (
-                              <tr key={field} className="hover:bg-[var(--color-surface-alt)]">
-                                <td className="p-4 text-[var(--color-text-900)]">{label}</td>
-                                <td className="p-4 text-center text-[var(--color-text-600)]">{max}</td>
-                                <td className="p-4 text-center">
-                                  {editingCoord ? (
-                                    <Input
-                                      type="number"
-                                      min={0}
-                                      max={max}
-                                      step={0.5}
-                                      value={coordDraft[field]}
-                                      onChange={e => setCoordDraft(prev => ({
-                                        ...prev,
-                                        [field]: Math.min(max, Math.max(0, parseFloat(e.target.value) || 0)),
-                                      }))}
-                                      className="w-20 mx-auto text-center"
-                                    />
-                                  ) : (
-                                    <span className="tabular-nums text-[var(--color-text-900)]">
-                                      {adminScore
-                                        ? (field === 'poster'   ? adminScore.posterDayScore
-                                          : field === 'impl'    ? adminScore.implementationScore
-                                          : adminScore.testingScore)
-                                        : '—'}
-                                    </span>
-                                  )}
+                            {coordCriteria.length === 0 ? (
+                              <tr>
+                                <td colSpan={3} className="p-6 text-center text-[var(--color-text-600)] text-sm">
+                                  Loading deliverables…
                                 </td>
                               </tr>
-                            ))}
+                            ) : (
+                              coordCriteria.map(c => (
+                                <tr key={c.criterionKey} className="hover:bg-[var(--color-surface-alt)]">
+                                  <td className="p-4 text-[var(--color-text-900)]">
+                                    {DELIVERABLE_LABELS_499[c.criterionKey] ?? c.criterionName}
+                                  </td>
+                                  <td className="p-4 text-center text-[var(--color-text-600)]">{c.maxRawScore}</td>
+                                  <td className="p-4 text-center">
+                                    {editingCoord ? (
+                                      <Input
+                                        type="number"
+                                        min={0}
+                                        max={c.maxRawScore}
+                                        step={0.5}
+                                        value={coordDraft[c.criterionKey] ?? 0}
+                                        onChange={e => setCoordDraft(prev => ({
+                                          ...prev,
+                                          [c.criterionKey]: Math.min(
+                                            c.maxRawScore,
+                                            Math.max(0, parseFloat(e.target.value) || 0),
+                                          ),
+                                        }))}
+                                        className="w-20 mx-auto text-center"
+                                      />
+                                    ) : (
+                                      <span className="tabular-nums text-[var(--color-text-900)]">
+                                        {coordDraft[c.criterionKey] !== undefined
+                                          ? coordDraft[c.criterionKey]
+                                          : '—'}
+                                      </span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))
+                            )}
                             <tr className="bg-[var(--color-primary-100)]">
-                              <td className="p-4 font-semibold" colSpan={1}>Total</td>
-                              <td className="p-4 text-center font-semibold">15</td>
+                              <td className="p-4 font-semibold">Total</td>
+                              <td className="p-4 text-center font-semibold">
+                                {coordCriteria.reduce((s, c) => s + c.maxRawScore, 0)}
+                              </td>
                               <td className="p-4 text-center font-semibold tabular-nums">
-                                {editingCoord
-                                  ? (coordDraft.poster + coordDraft.impl + coordDraft.testing).toFixed(1)
-                                  : (adminScore?.totalScore.toFixed(1) ?? '—')}
+                                {coord499Total.toFixed(1)}
                               </td>
                             </tr>
                           </tbody>

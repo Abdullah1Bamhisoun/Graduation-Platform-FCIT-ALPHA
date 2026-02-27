@@ -1,7 +1,7 @@
 import { useLocation, Link } from 'react-router-dom';
 import {
   Home, FileText, Calendar, Bell, Settings,
-  Users, BarChart3, CheckSquare, FolderOpen, Lock,
+  Users, BarChart3, CheckSquare, FolderOpen, Lock, Sliders,
 } from 'lucide-react';
 import { User, UserRole } from '../../types';
 import { useUnreadAnnouncements } from '../../hooks/useUnreadAnnouncements';
@@ -41,6 +41,7 @@ const navItems: Record<UserRole, NavItem[]> = {
     { icon: CheckSquare,   label: 'Chapter Configuration',   href: '/admin/milestones' },
     { icon: FileText,      label: 'Weekly Reports',          href: '/coordinator/weekly-reports' },
     { icon: BarChart3,     label: 'Deliverables Grading',    href: '/coordinator/grades' },
+    { icon: Sliders,       label: 'Grade Scheme Editor',     href: '/coordinator/grade-scheme' },
     { icon: Calendar,      label: 'Presentation & Committee',href: '/admin/presentation-committee' },
     { icon: Calendar,      label: 'Calendar',                href: '/coordinator/calendar' },
     { icon: Bell,          label: 'Announcements Manager',   href: '/coordinator/announcements' },
@@ -55,6 +56,7 @@ const navItems: Record<UserRole, NavItem[]> = {
     { icon: CheckSquare,   label: 'Chapter Configuration', href: '/admin/milestones' },
     { icon: FileText,      label: 'Weekly Reports',        href: '/admin/weekly-reports' },
     { icon: BarChart3,     label: 'Deliverables Grading',  href: '/admin/grades-deliverables' },
+    { icon: Sliders,       label: 'Grade Scheme Editor',   href: '/coordinator/grade-scheme' },
     { icon: Calendar,      label: 'Presentation & Committee', href: '/admin/presentation-committee' },
     { icon: Calendar,      label: 'Calendar',              href: '/admin/calendar' },
     { icon: Bell,          label: 'Announcements Manager', href: '/admin/announcements' },

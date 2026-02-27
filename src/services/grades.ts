@@ -7,19 +7,27 @@ import { getWeekStatuses, countOpenedWeeks } from './week-statuses';
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * CPIS-498 deliverable keys.
- * Max scores are read from the DB (group_deliverable_grades.max_score).
- * These fallbacks are used only when no DB row exists yet for a key.
+ * CPIS-498 deliverable keys — matches official coordinator_deliverables rubric.
+ * New keys use underscore convention; legacy camelCase keys kept for compat.
+ * Total max = 15 marks per official policy.
  */
 const DELIVERABLE_KEYS = [
   'chapter1', 'chapter2', 'chapter3', 'chapter4',
-  'finalReport', 'revisedFinalReport', 'presentation',
+  'final_report', 'revised_final_report', 'presentation',
 ] as const;
 
-/** Fallback max scores — used only when the DB row has no max_score stored yet. */
+/** Official CPIS-498 coordinator deliverable max scores (total = 15). */
 const DELIVERABLE_MAX_SCORES_FALLBACK: Record<string, number> = {
-  chapter1: 5, chapter2: 1, chapter3: 1, chapter4: 3,
-  finalReport: 3, revisedFinalReport: 2, presentation: 0,
+  chapter1:             2,
+  chapter2:             2,
+  chapter3:             2,
+  chapter4:             2,
+  final_report:         3,
+  revised_final_report: 2,
+  presentation:         2,
+  // Legacy camelCase keys for backward compatibility
+  finalReport:          3,
+  revisedFinalReport:   2,
 };
 
 async function getCourseIdByCode(courseCode: string): Promise<string | null> {

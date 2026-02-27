@@ -168,6 +168,56 @@ export interface GradingSchema {
   isActive: boolean;
 }
 
+// ─── Grading Component (new rubric system) ────────────────────────────────────
+
+export interface GradingComponentDef {
+  id: string;
+  courseType: '498' | '499';
+  componentKey: string;
+  componentName: string;
+  totalMarks: number;
+  evaluatorRole: string;
+  displayOrder: number;
+  isActive: boolean;
+}
+
+export interface RubricCriterionDef {
+  id: string;
+  courseType: '498' | '499';
+  componentKey: string;
+  criterionKey: string;
+  criterionName: string;
+  maxRawScore: number;
+  description1?: string;
+  description2?: string;
+  description3?: string;
+  description4?: string;
+  description5?: string;
+  displayOrder: number;
+  isActive: boolean;
+}
+
+export interface SupervisorRubricEntry {
+  criterionKey: string;
+  rawScore: number;   // 1–5
+  gradedBy?: string;
+  submissionStatus: 'draft' | 'submitted' | 'locked';
+}
+
+export interface CommitteeRubricEntry {
+  criterionKey: string;
+  score: number;      // 0–5
+  evaluatorId: string;
+  submissionStatus: 'draft' | 'submitted' | 'locked';
+}
+
+export interface CoordinatorDeliverableEntry {
+  deliverableKey: string;
+  score: number;
+  maxScore: number;
+  isLocked: boolean;
+}
+
 // ─── Weekly Grade Summary ─────────────────────────────────────────────────────
 
 export interface WeeklyGradeSummary {

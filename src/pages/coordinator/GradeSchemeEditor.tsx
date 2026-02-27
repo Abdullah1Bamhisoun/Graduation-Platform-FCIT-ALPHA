@@ -1,0 +1,557 @@
+/**
+ * Grade Scheme Editor — Coordinator Only
+ *
+ * Allows the course coordinator to:
+ * - View all grading components and their total marks per course
+ * - Edit component names and weights (total must = 100)
+ * - View and edit individual rubric criteria for each component
+ * - Edit criterion names, max scores, and scale descriptions
+ */
+
+import { useState, useEffect, useCallback } from 'react';
+import { Layout } from '../../components/layout/Layout';
+import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
+import { Label } from '../../components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
+import { Textarea } from '../../components/ui/textarea';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '../../components/ui/dialog';
+import { useAuth } from '../../lib/AuthContext';
+import {
+  getGradingComponents,
+  updateGradingComponent,
+  getAllRubricCriteria,
+  updateRubricCriterion,
+  type GradingComponent,
+  type RubricCriterion,
+} from '../../services/grading-rubric';
+import {
+  Save, Edit2, Info, AlertCircle, CheckCircle, ChevronDown, ChevronUp,
+  BookOpen, BarChart3, Award, FileText, Users,
+} from 'lucide-react';
+import { toast } from 'sonner';
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const COMPONENT_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  supervisor_eval:          BookOpen,
+  progress_reports:         BarChart3,
+  committee_eval:           Award,
+  coordinator_deliverables: FileText,
+  peer_review:              Users,
+};
+
+const COMPONENT_COLORS: Record<string, string> = {
+  supervisor_eval:          'border-green-200 bg-green-50',
+  progress_reports:         'border-indigo-200 bg-indigo-50',
+  committee_eval:           'border-orange-200 bg-orange-50',
+  coordinator_deliverables: 'border-blue-200 bg-blue-50',
+  peer_review:              'border-purple-200 bg-purple-50',
+};
+
+const COMPONENT_LABELS_498: Record<string, string> = {
+  supervisor_eval:          'Supervisor Evaluation — 4 criteria (1–5 scale) → normalized to N marks',
+  progress_reports:         'Dynamic weekly normalization: (submissions / open weeks) × 11 + (responses / open weeks) × 11',
+  committee_eval:           '8 criteria (0–5 each) = total marks. Average if multiple evaluators.',
+  coordinator_deliverables: 'Manual entry per deliverable. Max per item enforced. Auto-sum.',
+  peer_review:              'Student-submitted peer evaluations. Auto-averaged. Max 5.',
+};
+
+const COMPONENT_LABELS_499: Record<string, string> = {
+  supervisor_eval:          'Supervisor Group Evaluation — 10 criteria (1–5 scale) → normalized to N marks',
+  progress_reports:         'Dynamic weekly normalization: (submissions / open weeks) × 11 + (responses / open weeks) × 11',
+  committee_eval:           '8 criteria (0–5 each) = total marks. Average if multiple evaluators.',
+  coordinator_deliverables: 'Manual entry per deliverable. Max per item enforced. Auto-sum.',
+  peer_review:              'Student-submitted peer evaluations. Auto-averaged. Max 5.',
+};
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
+interface CriterionRowProps {
+  criterion: RubricCriterion;
+  isDeliverable: boolean;
+  onEdit: (c: RubricCriterion) => void;
+}
+
+function CriterionRow({ criterion, isDeliverable, onEdit }: CriterionRowProps) {
+  return (
+    <tr className="border-b border-[var(--color-border)] hover:bg-gray-50/50 text-sm">
+      <td className="py-3 px-4 text-[var(--color-text-900)] font-medium">
+        {criterion.criterionName}
+      </td>
+      <td className="py-3 px-4 text-center text-[var(--color-text-900)] font-semibold tabular-nums">
+        {criterion.maxRawScore}
+      </td>
+      {!isDeliverable && (
+        <td className="py-3 px-4 text-[var(--color-text-600)] text-xs max-w-[300px]">
+          <div className="space-y-0.5">
+            {[1,2,3,4,5].map(n => {
+              const desc = (criterion as any)[`description${n}`];
+              return desc ? <div key={n}><span className="font-semibold text-[var(--color-text-800)]">{n}:</span> {desc}</div> : null;
+            })}
+          </div>
+        </td>
+      )}
+      <td className="py-3 px-4 text-right">
+        <Button size="sm" variant="outline" onClick={() => onEdit(criterion)}
+          className="h-7 text-xs">
+          <Edit2 className="w-3 h-3 mr-1" />Edit
+        </Button>
+      </td>
+    </tr>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+
+export function CoordinatorGradeSchemeEditor() {
+  const { user } = useAuth();
+
+  const [activeCourse, setActiveCourse] = useState<'498' | '499'>('498');
+
+  // Components state
+  const [components498, setComponents498] = useState<GradingComponent[]>([]);
+  const [components499, setComponents499] = useState<GradingComponent[]>([]);
+  const [criteria498, setCriteria498]     = useState<RubricCriterion[]>([]);
+  const [criteria499, setCriteria499]     = useState<RubricCriterion[]>([]);
+
+  const [loading, setLoading]             = useState(true);
+  const [savingComponents, setSavingComponents] = useState(false);
+
+  // Component editing drafts
+  const [compDraft498, setCompDraft498] = useState<Record<string, { name: string; marks: string }>>({});
+  const [compDraft499, setCompDraft499] = useState<Record<string, { name: string; marks: string }>>({});
+
+  // Expanded component keys
+  const [expanded, setExpanded] = useState<Set<string>>(new Set(['supervisor_eval']));
+
+  // Criterion edit dialog
+  const [editCriterion, setEditCriterion] = useState<RubricCriterion | null>(null);
+  const [criterionDraft, setCriterionDraft] = useState<Partial<RubricCriterion>>({});
+  const [savingCriterion, setSavingCriterion] = useState(false);
+
+  // ── Load data ──────────────────────────────────────────────────────────────
+
+  const loadAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [c498, c499, cr498, cr499] = await Promise.all([
+        getGradingComponents('498'),
+        getGradingComponents('499'),
+        getAllRubricCriteria('498'),
+        getAllRubricCriteria('499'),
+      ]);
+      setComponents498(c498);
+      setComponents499(c499);
+      setCriteria498(cr498);
+      setCriteria499(cr499);
+
+      // Init drafts
+      const d498: Record<string, { name: string; marks: string }> = {};
+      for (const c of c498) d498[c.componentKey] = { name: c.componentName, marks: String(c.totalMarks) };
+      setCompDraft498(d498);
+
+      const d499: Record<string, { name: string; marks: string }> = {};
+      for (const c of c499) d499[c.componentKey] = { name: c.componentName, marks: String(c.totalMarks) };
+      setCompDraft499(d499);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  // ── Component validation ───────────────────────────────────────────────────
+
+  const getTotalMarks = (draft: Record<string, { name: string; marks: string }>) =>
+    Object.values(draft).reduce((sum, v) => sum + (parseInt(v.marks) || 0), 0);
+
+  // ── Save components ────────────────────────────────────────────────────────
+
+  const saveComponents = async (courseType: '498' | '499') => {
+    const components = courseType === '498' ? components498 : components499;
+    const draft      = courseType === '498' ? compDraft498  : compDraft499;
+    const total      = getTotalMarks(draft);
+
+    if (total !== 100) {
+      toast.error(`Total marks must equal 100. Currently: ${total}`);
+      return;
+    }
+
+    setSavingComponents(true);
+    try {
+      await Promise.all(
+        components.map(c =>
+          updateGradingComponent(c.id, {
+            componentName: draft[c.componentKey]?.name ?? c.componentName,
+            totalMarks:    parseInt(draft[c.componentKey]?.marks ?? String(c.totalMarks)),
+          })
+        )
+      );
+      await loadAll();
+      toast.success(`CPIS-${courseType} grade components saved successfully.`);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to save components.');
+    } finally {
+      setSavingComponents(false);
+    }
+  };
+
+  // ── Open criterion editor ──────────────────────────────────────────────────
+
+  const openCriterionEditor = (criterion: RubricCriterion) => {
+    setEditCriterion(criterion);
+    setCriterionDraft({
+      criterionName: criterion.criterionName,
+      maxRawScore:   criterion.maxRawScore,
+      description1:  criterion.description1,
+      description2:  criterion.description2,
+      description3:  criterion.description3,
+      description4:  criterion.description4,
+      description5:  criterion.description5,
+    });
+  };
+
+  // ── Save criterion ─────────────────────────────────────────────────────────
+
+  const saveCriterion = async () => {
+    if (!editCriterion) return;
+    setSavingCriterion(true);
+    try {
+      await updateRubricCriterion(editCriterion.id, criterionDraft);
+      await loadAll();
+      setEditCriterion(null);
+      toast.success('Criterion updated successfully.');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to update criterion.');
+    } finally {
+      setSavingCriterion(false);
+    }
+  };
+
+  // ── Render helpers ─────────────────────────────────────────────────────────
+
+  const toggleExpand = (key: string) =>
+    setExpanded(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+
+  if (!user) return null;
+
+  // ── Course panel ───────────────────────────────────────────────────────────
+
+  const CoursePanel = ({ courseType }: { courseType: '498' | '499' }) => {
+    const components  = courseType === '498' ? components498 : components499;
+    const criteria    = courseType === '498' ? criteria498   : criteria499;
+    const draft       = courseType === '498' ? compDraft498  : compDraft499;
+    const setDraft    = courseType === '498' ? setCompDraft498 : setCompDraft499;
+    const compLabels  = courseType === '498' ? COMPONENT_LABELS_498 : COMPONENT_LABELS_499;
+
+    const total = getTotalMarks(draft);
+    const totalOk = total === 100;
+
+    return (
+      <div className="space-y-6">
+        {/* Total mark indicator */}
+        <div className={`flex items-center gap-3 p-4 rounded-xl border ${
+          totalOk
+            ? 'bg-green-50 border-green-200'
+            : 'bg-red-50 border-red-200'
+        }`}>
+          {totalOk
+            ? <CheckCircle className="w-5 h-5 text-green-600" />
+            : <AlertCircle className="w-5 h-5 text-red-500" />}
+          <div>
+            <p className={`font-semibold text-sm ${totalOk ? 'text-green-800' : 'text-red-700'}`}>
+              {totalOk
+                ? 'Total = 100 marks ✓ Valid scheme'
+                : `Total = ${total} marks — must equal exactly 100`}
+            </p>
+            <p className="text-xs text-[var(--color-text-600)] mt-0.5">
+              Adjust component weights below then click Save Components.
+            </p>
+          </div>
+          <div className="ml-auto">
+            <Button
+              onClick={() => saveComponents(courseType)}
+              disabled={savingComponents || !totalOk}
+              className="bg-[#10B981] text-white hover:bg-[#0ea572]"
+              size="sm"
+            >
+              <Save className="w-4 h-4 mr-2" />
+              {savingComponents ? 'Saving…' : 'Save Components'}
+            </Button>
+          </div>
+        </div>
+
+        {/* Info banner */}
+        <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+          <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <span>
+            Changes to component weights and rubric criteria will take effect immediately for all future grading.
+            Weekly progress is always auto-calculated — its weight controls the denominator only.
+          </span>
+        </div>
+
+        {/* Components list */}
+        {components.map(comp => {
+          const Icon = COMPONENT_ICONS[comp.componentKey] ?? FileText;
+          const colorClass = COMPONENT_COLORS[comp.componentKey] ?? 'border-gray-200 bg-gray-50';
+          const compCriteria = criteria.filter(c => c.componentKey === comp.componentKey);
+          const isExpanded = expanded.has(`${courseType}-${comp.componentKey}`);
+          const isDeliverable = comp.componentKey === 'coordinator_deliverables';
+          const isAutoCalc = comp.componentKey === 'progress_reports' || comp.componentKey === 'peer_review';
+          const label = compLabels[comp.componentKey] ?? '';
+
+          return (
+            <div key={comp.componentKey} className={`rounded-xl border ${colorClass} overflow-hidden`}>
+              {/* Component header */}
+              <div className="p-4 flex items-center gap-3">
+                <Icon className="w-5 h-5 text-[var(--color-text-700)]" />
+                <div className="flex-1">
+                  <Input
+                    value={draft[comp.componentKey]?.name ?? comp.componentName}
+                    onChange={e => setDraft(prev => ({
+                      ...prev,
+                      [comp.componentKey]: { ...prev[comp.componentKey], name: e.target.value }
+                    }))}
+                    className="h-8 text-sm font-medium bg-white border-[var(--color-border)] max-w-xs"
+                    disabled={isAutoCalc}
+                  />
+                  {label && (
+                    <p className="text-xs text-[var(--color-text-600)] mt-1">{label}</p>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="text-right">
+                    <Label className="text-xs text-[var(--color-text-600)]">Total Marks</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={draft[comp.componentKey]?.marks ?? comp.totalMarks}
+                      onChange={e => setDraft(prev => ({
+                        ...prev,
+                        [comp.componentKey]: { ...prev[comp.componentKey], marks: e.target.value }
+                      }))}
+                      className="w-20 text-center h-8 text-sm font-bold bg-white border-[var(--color-border)]"
+                    />
+                  </div>
+
+                  {compCriteria.length > 0 && (
+                    <button
+                      onClick={() => toggleExpand(`${courseType}-${comp.componentKey}`)}
+                      className="p-1.5 rounded-lg hover:bg-white/60 transition-colors"
+                      title={isExpanded ? 'Collapse criteria' : 'Expand criteria'}
+                    >
+                      {isExpanded
+                        ? <ChevronUp className="w-4 h-4 text-[var(--color-text-600)]" />
+                        : <ChevronDown className="w-4 h-4 text-[var(--color-text-600)]" />}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Criteria table (expanded) */}
+              {isExpanded && compCriteria.length > 0 && (
+                <div className="border-t border-[var(--color-border)] bg-white/70">
+                  <div className="px-4 py-2 flex items-center justify-between">
+                    <p className="text-xs font-semibold text-[var(--color-text-700)] uppercase tracking-wide">
+                      Rubric Criteria ({compCriteria.length} items)
+                      {!isDeliverable && ` · Raw max = ${compCriteria.reduce((s, c) => s + c.maxRawScore, 0)}`}
+                      {isDeliverable && ` · Sum max = ${compCriteria.reduce((s, c) => s + c.maxRawScore, 0)}`}
+                    </p>
+                    {!isDeliverable && (
+                      <p className="text-xs text-[var(--color-text-600)]">
+                        Normalized to {draft[comp.componentKey]?.marks ?? comp.totalMarks} marks
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-[var(--color-surface-alt)] border-b border-[var(--color-border)]">
+                        <tr>
+                          <th className="py-2 px-4 text-left text-xs text-[var(--color-text-700)]">Criterion</th>
+                          <th className="py-2 px-4 text-center text-xs text-[var(--color-text-700)] w-24">
+                            {isDeliverable ? 'Max Score' : 'Max Raw (1–5)'}
+                          </th>
+                          {!isDeliverable && (
+                            <th className="py-2 px-4 text-left text-xs text-[var(--color-text-700)]">Scale Descriptions</th>
+                          )}
+                          <th className="py-2 px-4 text-right text-xs text-[var(--color-text-700)] w-20">Edit</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {compCriteria.map(c => (
+                          <CriterionRow
+                            key={c.id}
+                            criterion={c}
+                            isDeliverable={isDeliverable}
+                            onEdit={openCriterionEditor}
+                          />
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-[var(--color-primary-50)] border-t-2 border-[var(--color-border)]">
+                          <td className="py-2 px-4 text-xs font-bold text-[var(--color-text-800)]">Total</td>
+                          <td className="py-2 px-4 text-center text-xs font-bold tabular-nums">
+                            {compCriteria.reduce((s, c) => s + c.maxRawScore, 0)}
+                          </td>
+                          {!isDeliverable && <td />}
+                          <td />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {/* Summary table */}
+        <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-4">
+          <h4 className="text-sm font-semibold text-[var(--color-text-800)] mb-3">
+            CPIS-{courseType} Grade Scheme Summary
+          </h4>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-[var(--color-border)]">
+                <th className="pb-2 text-left text-[var(--color-text-700)]">Component</th>
+                <th className="pb-2 text-center text-[var(--color-text-700)]">Evaluator</th>
+                <th className="pb-2 text-center text-[var(--color-text-700)] w-24">Marks</th>
+              </tr>
+            </thead>
+            <tbody>
+              {components.map(c => (
+                <tr key={c.componentKey} className="border-b border-[var(--color-border)]">
+                  <td className="py-2 text-[var(--color-text-900)]">
+                    {draft[c.componentKey]?.name ?? c.componentName}
+                  </td>
+                  <td className="py-2 text-center text-[var(--color-text-600)] capitalize">{c.evaluatorRole}</td>
+                  <td className="py-2 text-center font-semibold tabular-nums">
+                    {draft[c.componentKey]?.marks ?? c.totalMarks}
+                  </td>
+                </tr>
+              ))}
+              <tr className="bg-[var(--color-primary-50)]">
+                <td className="py-2 font-bold text-[var(--color-text-900)]" colSpan={2}>Grand Total</td>
+                <td className={`py-2 text-center font-bold tabular-nums text-lg ${totalOk ? 'text-green-700' : 'text-red-600'}`}>
+                  {total}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  if (loading) {
+    return (
+      <Layout user={user} pageTitle="Grade Scheme Editor">
+        <div className="p-6 text-[var(--color-text-600)]">Loading grade scheme…</div>
+      </Layout>
+    );
+  }
+
+  return (
+    <Layout user={user} pageTitle="Grade Scheme Editor">
+      <div className="mb-6">
+        <p className="text-[var(--color-text-600)]">
+          Configure the official grading scheme for both courses. All criteria below are the defaults
+          set per the official policy. Adjust marks and descriptions as needed.
+        </p>
+      </div>
+
+      <Tabs value={activeCourse} onValueChange={v => setActiveCourse(v as '498' | '499')}>
+        <TabsList className="mb-6">
+          <TabsTrigger value="498">CPIS-498 — Senior Project I</TabsTrigger>
+          <TabsTrigger value="499">CPIS-499 — Senior Project II</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="498"><CoursePanel courseType="498" /></TabsContent>
+        <TabsContent value="499"><CoursePanel courseType="499" /></TabsContent>
+      </Tabs>
+
+      {/* ── Criterion Edit Dialog ───────────────────────────────────────────── */}
+      <Dialog open={!!editCriterion} onOpenChange={open => { if (!open) setEditCriterion(null); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Criterion — {editCriterion?.criterionName}</DialogTitle>
+          </DialogHeader>
+
+          {editCriterion && (
+            <div className="space-y-4 py-2">
+              <div>
+                <Label className="mb-1 block">Criterion Name</Label>
+                <Input
+                  value={criterionDraft.criterionName ?? ''}
+                  onChange={e => setCriterionDraft(p => ({ ...p, criterionName: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <Label className="mb-1 block">
+                  Max Score{' '}
+                  <span className="text-xs text-[var(--color-text-600)]">
+                    {editCriterion.componentKey === 'coordinator_deliverables'
+                      ? '(max points for this deliverable)'
+                      : '(typically 5 for Likert scale)'}
+                  </span>
+                </Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={criterionDraft.maxRawScore ?? editCriterion.maxRawScore}
+                  onChange={e => setCriterionDraft(p => ({ ...p, maxRawScore: parseInt(e.target.value) || 1 }))}
+                  className="w-28"
+                />
+              </div>
+
+              {editCriterion.componentKey !== 'coordinator_deliverables' && (
+                <div className="space-y-3">
+                  <Label className="block">Scale Descriptions (1–5)</Label>
+                  {[1,2,3,4,5].map(n => (
+                    <div key={n} className="flex items-start gap-3">
+                      <span className="mt-2 w-6 h-6 flex-shrink-0 flex items-center justify-center rounded-full bg-[var(--color-primary-100)] text-xs font-bold text-[var(--color-primary-700)]">
+                        {n}
+                      </span>
+                      <Textarea
+                        value={(criterionDraft as any)[`description${n}`] ?? (editCriterion as any)[`description${n}`] ?? ''}
+                        onChange={e => setCriterionDraft(p => ({ ...p, [`description${n}`]: e.target.value }))}
+                        className="flex-1 min-h-[60px] text-sm"
+                        placeholder={`Description for score ${n}…`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditCriterion(null)}>Cancel</Button>
+            <Button
+              onClick={saveCriterion}
+              disabled={savingCriterion}
+              className="bg-[#10B981] text-white hover:bg-[#0ea572]"
+            >
+              <Save className="w-4 h-4 mr-2" />
+              {savingCriterion ? 'Saving…' : 'Save Criterion'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Layout>
+  );
+}

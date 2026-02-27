@@ -75,68 +75,7 @@ interface AuditEntry {
 }
 
 
-const initialChapterSubmissions: ChapterSubmission[] = [
-  {
-    chapterId: 'chapter1',
-    chapterName: 'Chapter 1 (Project Outlines)',
-    dueDate: 'Nov 1, 2025',
-    adminMarks: 5,
-    supervisorMarks: 5,
-    status: 'graded',
-    submittedAt: 'Oct 28, 2025',
-    supervisorGrade: 5,
-  },
-  {
-    chapterId: 'chapter2',
-    chapterName: 'Chapter 2 (Literature review)',
-    dueDate: 'Nov 1, 2025',
-    adminMarks: 1,
-    supervisorMarks: 3,
-    status: 'needs-grading',
-    submittedAt: 'Nov 1, 2025',
-  },
-  {
-    chapterId: 'chapter3',
-    chapterName: 'Chapter 3 (Analysis)',
-    dueDate: 'Nov 1, 2025',
-    adminMarks: 0,
-    supervisorMarks: 3,
-    status: 'needs-grading',
-    submittedAt: 'Nov 1, 2025',
-  },
-  {
-    chapterId: 'chapter4',
-    chapterName: 'Chapter 4 (System design)',
-    dueDate: 'Nov 8, 2025',
-    adminMarks: 3,
-    supervisorMarks: 3,
-    status: 'upcoming',
-  },
-  {
-    chapterId: 'final',
-    chapterName: 'Final report',
-    dueDate: 'Nov 16, 2025',
-    adminMarks: 3,
-    supervisorMarks: 3,
-    status: 'upcoming',
-  },
-  {
-    chapterId: 'revised',
-    chapterName: 'Revised_final_report',
-    dueDate: 'Dec 2, 2025',
-    adminMarks: 3,
-    supervisorMarks: 3,
-    status: 'upcoming',
-  },
-  {
-    chapterId: 'presentation',
-    chapterName: 'Presentation',
-    dueDate: 'Dec 6, 2025',
-    adminMarks: 'N/A',
-    supervisorMarks: 0,
-    status: 'upcoming',
-  },
-];
+const initialChapterSubmissions: ChapterSubmission[] = [];
 
 export function SupervisorMyGroupsAndReviews() {
   const navigate = useNavigate();
@@ -177,29 +116,7 @@ export function SupervisorMyGroupsAndReviews() {
   const [chapterSubmissions, setChapterSubmissions] = useState<ChapterSubmission[]>(initialChapterSubmissions);
 
   // Audit history
-  const [auditHistory] = useState<AuditEntry[]>([
-    {
-      id: '1',
-      timestamp: '2024-11-25T10:30:00',
-      actor: 'Dr. Ahmad AlKhatib',
-      action: 'Started Review',
-      details: 'Evaluation process initiated',
-    },
-    {
-      id: '2',
-      timestamp: '2024-11-26T14:15:00',
-      actor: 'Dr. Ahmad AlKhatib',
-      action: 'Graded Chapter',
-      details: 'Chapter 1 graded: 5/5 marks',
-    },
-    {
-      id: '3',
-      timestamp: '2024-11-27T09:00:00',
-      actor: 'Dr. Ahmad AlKhatib',
-      action: 'Added Feedback',
-      details: 'Requested improvements on literature review',
-    },
-  ]);
+  const [auditHistory] = useState<AuditEntry[]>([]);
 
   const currentGroup = groups.find(g => g.id === selectedGroup);
 
@@ -328,13 +245,13 @@ export function SupervisorMyGroupsAndReviews() {
 
   return (
     <Layout user={user} pageTitle="Chapter Grading">
-      <div className="mb-6">
-        <p className="text-[var(--color-text-600)] mb-4">
+      <div className="mb-4">
+        <p className="text-[var(--color-text-600)] mb-3">
           Review and grade chapter submissions from your supervised groups
         </p>
 
         {/* Group Selection */}
-        <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6 mb-6">
+        <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6 mb-4">
           <div className="max-w-md">
             <Label htmlFor="group-select" className="mb-2 block text-[var(--color-text-900)]">
               Select Group to Evaluate
@@ -356,11 +273,11 @@ export function SupervisorMyGroupsAndReviews() {
       </div>
 
       {selectedGroup && currentGroup ? (
-        <div className="flex gap-6">
+        <div className="flex gap-6 items-start">
           {/* Main Content Area */}
           <div className="flex-1 max-w-[800px]">
             {/* Header Section */}
-            <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6 mb-6">
+            <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6 mb-4">
               <div className="flex items-start justify-between mb-4">
                 <div>
                   <h1 className="text-[var(--color-text-900)] mb-2">
@@ -402,7 +319,7 @@ export function SupervisorMyGroupsAndReviews() {
               </div>
 
               {/* Information Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                   <div className="flex items-center gap-2 mb-2">
                     <FileText className="w-5 h-5 text-blue-600" />
@@ -427,7 +344,7 @@ export function SupervisorMyGroupsAndReviews() {
               </div>
 
               {/* Action Buttons */}
-              <div className="flex gap-2 pt-4 border-t border-[var(--color-border)]">
+              <div className="flex gap-2 pt-3 border-t border-[var(--color-border)]">
                 <Button variant="outline" onClick={handleSaveDraft} className="gap-2">
                   <Save className="w-4 h-4" />
                   Save Draft
@@ -459,18 +376,32 @@ export function SupervisorMyGroupsAndReviews() {
             </div>
 
             {/* Tabs Section */}
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-              <TabsList className="mb-6">
-                <TabsTrigger value="chapters">Chapter Submissions</TabsTrigger>
-                <TabsTrigger value="collaboration">Collaboration</TabsTrigger>
-                <TabsTrigger value="history">History & Audit</TabsTrigger>
-              </TabsList>
+            <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] overflow-hidden mt-4">
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full flex flex-col">
+                <div className="border-b border-[var(--color-border)]">
+                  <TabsList className="mb-0 w-full justify-start rounded-none bg-transparent p-0 h-auto">
+                    <TabsTrigger value="chapters" className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-transparent">Chapter Submissions</TabsTrigger>
+                    <TabsTrigger value="collaboration" className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-transparent">Collaboration</TabsTrigger>
+                    <TabsTrigger value="history" className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-transparent">History & Audit</TabsTrigger>
+                  </TabsList>
+                </div>
+
+                <div className="p-6">
 
               {/* Tab 1: Chapter Submissions */}
-              <TabsContent value="chapters">
-                <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] shadow-sm overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
+              <TabsContent value="chapters" className="mt-0">
+                <div className="overflow-hidden">
+                  {chapterSubmissions.length === 0 ? (
+                    <div className="flex items-center justify-center min-h-40 p-6">
+                      <div className="text-center">
+                        <FileText className="w-12 h-12 text-[var(--color-text-400)] mx-auto mb-3" />
+                        <p className="text-[var(--color-text-600)] text-lg">No chapter submissions yet</p>
+                        <p className="text-[var(--color-text-500)] text-sm mt-1">Select a group to view their chapter submissions</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
                       <thead className="bg-[var(--color-surface-alt)]">
                         <tr>
                           <th className="p-4 text-left text-[var(--color-text-900)] border-r border-[var(--color-border)]">
@@ -563,21 +494,21 @@ export function SupervisorMyGroupsAndReviews() {
                         </tr>
                       </tfoot>
                     </table>
-                  </div>
+                    </div>
+                  )}
                 </div>
               </TabsContent>
 
               {/* Tab 2: Collaboration */}
-              <TabsContent value="collaboration">
-                <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
-                  <div className="mb-6">
-                    <h3 className="text-[var(--color-text-900)] mb-2">Collaboration & Teamwork</h3>
-                    <p className="text-[var(--color-text-600)]">
-                      Evaluate the group's collaboration and teamwork. This is part of the supervisor's 20 marks total.
-                    </p>
-                  </div>
+              <TabsContent value="collaboration" className="mt-0">
+                <div className="mb-4">
+                  <h3 className="text-[var(--color-text-900)] mb-2">Collaboration & Teamwork</h3>
+                  <p className="text-[var(--color-text-600)] text-sm">
+                    Evaluate the group's collaboration and teamwork. This is part of the supervisor's 20 marks total.
+                  </p>
+                </div>
 
-                  <div className="space-y-4">
+                <div className="space-y-4">
                     <div>
                       <Label htmlFor="collaboration-grade" className="mb-2 block">
                         Collaboration Grade (Part of 20 total)
@@ -608,14 +539,22 @@ export function SupervisorMyGroupsAndReviews() {
                       Save Collaboration Grade
                     </Button>
                   </div>
-                </div>
               </TabsContent>
 
               {/* Tab 3: History & Audit */}
-              <TabsContent value="history">
-                <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
-                  <h3 className="text-[var(--color-text-900)] mb-4">Evaluation History</h3>
-                  <div className="space-y-4">
+              <TabsContent value="history" className="mt-0">
+                <div>
+                  <h3 className="text-[var(--color-text-900)] mb-3">Evaluation History</h3>
+                  {auditHistory.length === 0 ? (
+                    <div className="flex items-center justify-center min-h-40 p-6">
+                      <div className="text-center">
+                        <Clock className="w-12 h-12 text-[var(--color-text-400)] mx-auto mb-3" />
+                        <p className="text-[var(--color-text-600)] text-lg">No history yet</p>
+                        <p className="text-[var(--color-text-500)] text-sm mt-1">Evaluation actions will appear here</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
                     {auditHistory.map((entry) => (
                       <div key={entry.id} className="flex gap-4 pb-4 border-b border-[var(--color-border)] last:border-0">
                         <div className="flex-shrink-0 w-10 h-10 rounded-full bg-[var(--color-primary-100)] flex items-center justify-center">
@@ -638,14 +577,17 @@ export function SupervisorMyGroupsAndReviews() {
                         </button>
                       </div>
                     ))}
-                  </div>
+                    </div>
+                  )}
                 </div>
               </TabsContent>
-            </Tabs>
+                </div>
+              </Tabs>
+            </div>
 
             {/* Decision Panel */}
-            <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6 mt-6">
-              <h3 className="text-[var(--color-text-900)] mb-4">Final Decision</h3>
+            <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6 mt-4">
+              <h3 className="text-[var(--color-text-900)] mb-3">Final Decision</h3>
               <RadioGroup value={decision} onValueChange={(value: any) => setDecision(value)}>
                 <div className="space-y-3">
                   <div className="flex items-center space-x-2">
@@ -701,11 +643,11 @@ export function SupervisorMyGroupsAndReviews() {
 
           {/* Right Sidebar - Rubric Summary (Sticky) */}
           <div className="w-[320px] flex-shrink-0">
-            <div className="sticky top-6 space-y-6">
+            <div className="sticky top-6 space-y-4">
               {/* Rubric Summary Card */}
               <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] shadow-md p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-[var(--color-text-900)]">Grading Summary</h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-[var(--color-text-900)] text-sm font-semibold">Grading Summary</h3>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="outline" size="sm" className="gap-2">
@@ -727,22 +669,22 @@ export function SupervisorMyGroupsAndReviews() {
                 </div>
 
                 {/* Current Total */}
-                <div className="text-center mb-6 p-6 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg border border-blue-200">
-                  <p className="text-[var(--color-text-600)] mb-2">Supervisor Total</p>
-                  <p className="text-5xl text-[var(--color-text-900)] mb-2">
+                <div className="text-center mb-4 p-4 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg border border-blue-200">
+                  <p className="text-[var(--color-text-600)] mb-1 text-sm">Supervisor Total</p>
+                  <p className="text-4xl text-[var(--color-text-900)] mb-1">
                     {calculateSupervisorTotal().toFixed(1)}
                   </p>
-                  <p className="text-[var(--color-text-600)]">out of 20</p>
-                  <div className="mt-3 pt-3 border-t border-blue-200">
-                    <p className="text-2xl text-[var(--color-primary-600)]">
+                  <p className="text-[var(--color-text-600)] text-sm">out of 20</p>
+                  <div className="mt-2 pt-2 border-t border-blue-200">
+                    <p className="text-xl text-[var(--color-primary-600)]">
                       {((calculateSupervisorTotal() / 20) * 100).toFixed(1)}%
                     </p>
                   </div>
                 </div>
 
                 {/* Breakdown */}
-                <div className="space-y-3">
-                  <h4 className="text-[var(--color-text-900)] mb-3">Chapter Breakdown</h4>
+                <div className="space-y-3 mt-3">
+                  <h4 className="text-[var(--color-text-900)] mb-2">Chapter Breakdown</h4>
                   {chapterSubmissions.map((chapter, idx) => (
                     <div key={idx}>
                       <div className="flex items-center justify-between mb-1">
@@ -762,8 +704,8 @@ export function SupervisorMyGroupsAndReviews() {
                 </div>
 
                 {/* Admin Marks Info */}
-                <div className="mt-6 pt-6 border-t border-[var(--color-border)]">
-                  <div className="flex items-center justify-between">
+                <div className="mt-4 pt-4 border-t border-[var(--color-border)]">
+                  <div className="flex items-center justify-between text-sm">
                     <span className="text-[var(--color-text-600)]">Admin Marks</span>
                     <span className="text-[var(--color-text-900)]">{totalAdminMarks} / 15</span>
                   </div>
@@ -771,9 +713,9 @@ export function SupervisorMyGroupsAndReviews() {
               </div>
 
               {/* Quick Links */}
-              <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
-                <h4 className="text-[var(--color-text-900)] mb-3">Quick Links</h4>
-                <div className="space-y-2">
+              <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-4">
+                <h4 className="text-[var(--color-text-900)] mb-2 text-sm font-semibold">Quick Links</h4>
+                <div className="space-y-1">
                   <button
                     onClick={() => navigate('/supervisor/groups')}
                     className="w-full text-left px-3 py-2 rounded-lg hover:bg-[var(--color-surface-alt)] text-[var(--color-text-900)] transition-colors"
