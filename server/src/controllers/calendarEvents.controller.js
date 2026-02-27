@@ -7,6 +7,12 @@ function isMissingCourseIdColumn(err) {
   return msg.includes('course_id') && (err.code === '42703' || msg.includes('does not exist'));
 }
 
+/** True when the error is caused by the table not existing yet (PostgreSQL: undefined_table) */
+function isMissingTable(err) {
+  if (!err) return false;
+  return err.code === '42P01';
+}
+
 /**
  * GET /api/calendar-events
  * Authenticated — returns calendar events.
@@ -39,6 +45,11 @@ async function listEvents(req, res) {
         .from('calendar_events')
         .select('id, title, date, type, time, location, created_at')
         .order('date', { ascending: true }));
+    }
+
+    // ── Fallback: table doesn't exist yet ─────────────────────────────────────
+    if (isMissingTable(error)) {
+      return res.json([]);
     }
 
     if (error) throw error;
@@ -105,7 +116,16 @@ async function createEvent(req, res) {
         .single());
     }
 
-    if (error) throw error;
+    // ── Table does not exist ──────────────────────────────────────────────────
+    if (isMissingTable(error)) {
+      console.error('[calendar-events] The calendar_events table does not exist. Run the migration script: node scripts/create-calendar-events-table.js');
+      return res.status(503).json({ error: 'Calendar events table is not set up. Please contact the administrator.' });
+    }
+
+    if (error) {
+      console.error('[calendar-events] DB error on insert:', error);
+      throw error;
+    }
 
     // ── Auto-create announcement ──────────────────────────────────────────────
     const formattedDate = new Date(date).toLocaleDateString('en-US', {
@@ -123,19 +143,28 @@ async function createEvent(req, res) {
       ? ['student', 'supervisor', 'coordinator']
       : ['student', 'supervisor'];
 
-    await supabaseAdmin.from('announcements').insert({
-      title: `New Event: ${title}`,
-      content: announcementLines,
-      author_id: req.user.id,
-      target_roles: targetRoles,
-      published_at: new Date().toISOString(),
-      expires_at: null,
-    }).catch((err) => console.warn('Failed to auto-create announcement for event:', err));
+    try {
+      await supabaseAdmin.from('announcements').insert({
+        title: `New Event: ${title}`,
+        content: announcementLines,
+        author_id: req.user.id,
+        target_roles: targetRoles,
+        published_at: new Date().toISOString(),
+        expires_at: null,
+      });
+    } catch (annErr) {
+      console.warn('Failed to auto-create announcement for event:', annErr);
+    }
 
     res.json({ success: true, id: data.id });
   } catch (error) {
     console.error('Error creating calendar event:', error);
-    res.status(500).json({ error: 'Failed to create calendar event' });
+    const detail = error?.message || error?.details || '';
+    res.status(500).json({
+      error: detail
+        ? `Failed to create calendar event: ${detail}`
+        : 'Failed to create calendar event',
+    });
   }
 }
 

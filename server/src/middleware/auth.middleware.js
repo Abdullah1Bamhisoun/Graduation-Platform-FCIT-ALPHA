@@ -41,8 +41,25 @@ async function authenticate(req, res, next) {
     const allRoles = roles.length > 0 ? roles : [profile.role];
 
     // 4. Determine coordinatorCourseId
+    //    Priority: user_roles.coordinator_course_id → profiles.coordinator_course_id → platform_locks
+    //    (matches the same fallback chain used in the frontend AuthContext)
     const coordinatorEntry = (userRoles || []).find((ur) => ur.roles?.name === 'coordinator');
-    const coordinatorCourseId = coordinatorEntry?.coordinator_course_id ?? null;
+    let coordinatorCourseId = coordinatorEntry?.coordinator_course_id
+      ?? profile.coordinator_course_id
+      ?? null;
+
+    // Fallback: check platform_locks (for coordinators assigned via the lock system)
+    if (!coordinatorCourseId) {
+      const { data: lockRow } = await supabaseAdmin
+        .from('platform_locks')
+        .select('entity_id')
+        .eq('entity_type', 'coordinator_assignment')
+        .eq('locked_by', user.id)
+        .eq('is_locked', true)
+        .limit(1)
+        .maybeSingle();
+      coordinatorCourseId = lockRow?.entity_id ?? null;
+    }
 
     // 5. Determine active role
     //    Client sends X-Active-Role header when the user has switched roles.
