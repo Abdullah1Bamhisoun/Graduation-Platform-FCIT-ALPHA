@@ -489,4 +489,326 @@ async function createGroup(req, res) {
   }
 }
 
-module.exports = { getAllGroups, getAvailableGroups, assignSupervisor, updateGroupStatus, deleteGroup, updateGroup, createGroup };
+/**
+ * GET /api/groups/supervisor-grades
+ *
+ * Supervisor-only. Returns grade data for every group assigned to the requesting
+ * supervisor — enforced at the DB level via supervisor_id filter.
+ *
+ * For each group the response includes:
+ *  - Basic group metadata (number, project name, course, project_status)
+ *  - Students list
+ *  - Coordinator grading components (from grading_components table — read-only, Coordinator-owned)
+ *  - Coordinator deliverable scores (coordinator_deliverable_scores)
+ *  - This supervisor's evaluation total (supervisor_assessments)
+ *  - Per-criterion rubric scores submitted by this supervisor (supervisor_rubric_scores)
+ *  - Chapter submission approval counts
+ *  - Weekly progress marks
+ *
+ * Grading weights/scheme come from grading_components and are NEVER hardcoded here.
+ * The Coordinator retains exclusive edit rights over the scheme.
+ */
+async function getSupervisorGroupsWithGrades(req, res) {
+  try {
+    const supervisorId = req.user.id;
+
+    // ── Step 1: Groups assigned to this supervisor ──────────────────────────
+    const { data: groupsRaw, error: gError } = await supabaseAdmin
+      .from('groups')
+      .select(`
+        id, group_number, project_name, status, course_id,
+        project_status, ip_marked_by, ip_marked_at, ip_reason,
+        course:courses!course_id(id, code, name),
+        members:group_members(
+          student_id,
+          student:profiles!student_id(id, name)
+        )
+      `)
+      .eq('supervisor_id', supervisorId)
+      .order('group_number', { ascending: true });
+
+    if (gError) {
+      // Graceful fallback if project_status columns haven't been migrated yet
+      if (gError.message && gError.message.includes('project_status')) {
+        console.warn('project_status column missing — run migration 003. Falling back to basic select.');
+        const { data: fallback, error: fbErr } = await supabaseAdmin
+          .from('groups')
+          .select(`
+            id, group_number, project_name, status, course_id,
+            course:courses!course_id(id, code, name),
+            members:group_members(
+              student_id,
+              student:profiles!student_id(id, name)
+            )
+          `)
+          .eq('supervisor_id', supervisorId)
+          .order('group_number', { ascending: true });
+
+        if (fbErr) throw fbErr;
+        // Patch missing fields
+        for (const g of fallback || []) {
+          g.project_status = 'normal';
+          g.ip_marked_by = null;
+          g.ip_marked_at = null;
+          g.ip_reason = null;
+        }
+        return buildGradesResponse(res, fallback || [], supervisorId);
+      }
+      throw gError;
+    }
+
+    return buildGradesResponse(res, groupsRaw || [], supervisorId);
+  } catch (error) {
+    console.error('Error fetching supervisor group grades:', error);
+    res.status(500).json({ error: 'Failed to fetch group grades' });
+  }
+}
+
+/** Shared assembly logic — separated so the fallback path can reuse it. */
+async function buildGradesResponse(res, groupsRaw, supervisorId) {
+  if (!groupsRaw.length) return res.json([]);
+
+  const groupIds   = groupsRaw.map((g) => g.id);
+  const courseIds  = [...new Set(groupsRaw.map((g) => g.course_id).filter(Boolean))];
+
+  // ── Step 2: Grading components (Coordinator-defined, read-only here) ──────
+  const { data: components } = await supabaseAdmin
+    .from('grading_components')
+    .select('course_type, component_key, component_name, total_marks, evaluator_role, display_order')
+    .eq('is_active', true)
+    .order('display_order');
+
+  // ── Step 3: Coordinator deliverable scores ────────────────────────────────
+  const { data: delivScores } = await supabaseAdmin
+    .from('coordinator_deliverable_scores')
+    .select('group_id, course_id, deliverable_key, score, max_score, graded_at')
+    .in('group_id', groupIds);
+
+  // ── Step 4: Supervisor assessment totals (normalized per student) ─────────
+  const { data: supAssessments } = await supabaseAdmin
+    .from('supervisor_assessments')
+    .select('student_id, group_id, course_id, score, max_score, graded_at, submission_status')
+    .in('group_id', groupIds);
+
+  // ── Step 5: Per-criterion rubric scores (this supervisor only) ───────────
+  const { data: rubricScores } = await supabaseAdmin
+    .from('supervisor_rubric_scores')
+    .select('student_id, group_id, course_id, criterion_key, raw_score, submission_status, graded_at')
+    .eq('graded_by', supervisorId)
+    .in('group_id', groupIds);
+
+  // ── Step 6: Chapter submission approval counts ────────────────────────────
+  const { data: submissions } = await supabaseAdmin
+    .from('submissions')
+    .select('group_id, status')
+    .in('group_id', groupIds);
+
+  // ── Step 7: Weekly progress marks ────────────────────────────────────────
+  const { data: weeklyReports } = await supabaseAdmin
+    .from('weekly_reports')
+    .select('group_id, student_mark, supervisor_mark')
+    .in('group_id', groupIds);
+
+  // ── Assemble ──────────────────────────────────────────────────────────────
+  const result = groupsRaw.map((g) => {
+    const courseCode = g.course?.code ?? '';
+    const courseType = courseCode.includes('499') ? '499' : '498';
+    const courseId   = g.course_id;
+
+    const students = (g.members || []).map((m) => ({
+      id:   m.student?.id   ?? m.student_id,
+      name: m.student?.name ?? '',
+    }));
+
+    // Coordinator deliverables
+    const groupDelivs = (delivScores || []).filter(
+      (d) => d.group_id === g.id && d.course_id === courseId
+    );
+    const delivMap = {};
+    for (const d of groupDelivs) delivMap[d.deliverable_key] = {
+      score:    Number(d.score),
+      maxScore: Number(d.max_score),
+      gradedAt: d.graded_at,
+    };
+    const deliverablesTotal = groupDelivs.reduce((s, d) => s + Number(d.score), 0);
+
+    // Supervisor assessment totals
+    const groupAssessments = (supAssessments || []).filter(
+      (a) => a.group_id === g.id && a.course_id === courseId
+    );
+    const supervisorEval = groupAssessments.map((a) => ({
+      studentId:        a.student_id,
+      score:            a.score != null ? Number(a.score) : null,
+      maxScore:         Number(a.max_score),
+      gradedAt:         a.graded_at,
+      submissionStatus: a.submission_status ?? 'draft',
+    }));
+
+    // Total supervisor score (average across students if multiple)
+    const supScoreValues = supervisorEval.map((e) => e.score).filter((s) => s != null);
+    const supervisorTotalScore = supScoreValues.length
+      ? supScoreValues.reduce((s, v) => s + v, 0) / supScoreValues.length
+      : null;
+    const supervisorMaxScore = supervisorEval[0]?.maxScore ?? (courseType === '499' ? 23 : 20);
+
+    // Per-criterion rubric scores
+    const groupRubric = (rubricScores || []).filter((r) => r.group_id === g.id);
+
+    // Submissions / approvals
+    const groupSubs = (submissions || []).filter((s) => s.group_id === g.id);
+    const approvalCounts = {
+      total:    groupSubs.length,
+      pending:  groupSubs.filter((s) => ['submitted', 'under-review'].includes(s.status)).length,
+      approved: groupSubs.filter((s) => s.status === 'approved').length,
+      rejected: groupSubs.filter((s) => s.status === 'changes-requested').length,
+    };
+
+    // Weekly marks
+    const groupWeekly = (weeklyReports || []).filter((r) => r.group_id === g.id);
+    const weeklyScore = groupWeekly.reduce(
+      (s, r) => s + (r.student_mark ?? 0) + (r.supervisor_mark ?? 0),
+      0
+    );
+
+    // Grade components for this course (Coordinator-defined — never hardcoded)
+    const courseComponents = (components || [])
+      .filter((c) => c.course_type === courseType)
+      .sort((a, b) => a.display_order - b.display_order)
+      .map((c) => ({
+        componentKey:  c.component_key,
+        componentName: c.component_name,
+        totalMarks:    Number(c.total_marks),
+        evaluatorRole: c.evaluator_role,
+        // Attach the score this supervisor can see for each component
+        score:
+          c.component_key === 'supervisor_eval'     ? supervisorTotalScore
+          : c.component_key === 'coordinator_deliverables' ? deliverablesTotal
+          : c.component_key === 'progress_reports'  ? weeklyScore
+          : null,
+        maxScore:
+          c.component_key === 'supervisor_eval'            ? supervisorMaxScore
+          : c.component_key === 'coordinator_deliverables' ? Number(c.total_marks)
+          : c.component_key === 'progress_reports'         ? Number(c.total_marks)
+          : Number(c.total_marks),
+      }));
+
+    return {
+      id:            g.id,
+      groupNumber:   g.group_number,
+      projectName:   g.project_name,
+      status:        g.status,
+      projectStatus: g.project_status ?? 'normal',
+      ipMarkedAt:    g.ip_marked_at   ?? null,
+      ipReason:      g.ip_reason      ?? null,
+      courseCode,
+      courseType,
+      courseId,
+      students,
+      components:    courseComponents,
+      coordinatorDeliverables: delivMap,
+      deliverablesTotal,
+      supervisorEvaluation:   supervisorEval,
+      supervisorTotalScore,
+      supervisorMaxScore,
+      rubricScores:  groupRubric.map((r) => ({
+        studentId:        r.student_id,
+        criterionKey:     r.criterion_key,
+        rawScore:         r.raw_score,
+        submissionStatus: r.submission_status,
+        gradedAt:         r.graded_at,
+      })),
+      weeklyScore,
+      approvalCounts,
+    };
+  });
+
+  res.json(result);
+}
+
+/**
+ * PATCH /api/groups/:id/project-status
+ *
+ * Supervisor-only. Marks (or un-marks) a group's project as IP (In Progress).
+ * Backend validates supervisor ownership before updating.
+ * The action is recorded in the audit_log table.
+ *
+ * Body: { status: 'ip' | 'normal', reason?: string }
+ */
+async function markGroupAsIP(req, res) {
+  try {
+    const { id: groupId } = req.params;
+    const { status, reason } = req.body;
+
+    if (!['ip', 'normal'].includes(status)) {
+      return res.status(400).json({ error: 'status must be "ip" or "normal"' });
+    }
+
+    // Fetch group to validate ownership
+    const { data: group, error: gError } = await supabaseAdmin
+      .from('groups')
+      .select('id, supervisor_id, project_name, group_number')
+      .eq('id', groupId)
+      .single();
+
+    if (gError || !group) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+
+    // Backend ownership check — only the assigned supervisor (or admin) may set IP
+    if (!req.user.roles.includes('admin') && group.supervisor_id !== req.user.id) {
+      return res.status(403).json({
+        error: 'Access denied: this group is not assigned to you',
+      });
+    }
+
+    const updatePayload = {
+      project_status: status,
+      ip_marked_by:   status === 'ip' ? req.user.id : null,
+      ip_marked_at:   status === 'ip' ? new Date().toISOString() : null,
+      ip_reason:      status === 'ip' ? (reason?.trim() || null) : null,
+    };
+
+    const { error: updateError } = await supabaseAdmin
+      .from('groups')
+      .update(updatePayload)
+      .eq('id', groupId);
+
+    if (updateError) throw updateError;
+
+    // Audit log
+    try {
+      await supabaseAdmin.from('audit_log').insert({
+        actor_id: req.user.id,
+        action:   status === 'ip' ? 'MARK_GROUP_IP' : 'UNMARK_GROUP_IP',
+        entity:   'group',
+        context:  {
+          groupId,
+          groupNumber:  group.group_number,
+          projectName:  group.project_name,
+          reason:       reason || null,
+          markedBy:     req.user.name,
+          markedAt:     new Date().toISOString(),
+        },
+      });
+    } catch {
+      /* non-fatal */
+    }
+
+    res.json({ success: true, projectStatus: status });
+  } catch (error) {
+    console.error('Error updating group project status:', error);
+    res.status(500).json({ error: error.message || 'Failed to update project status' });
+  }
+}
+
+module.exports = {
+  getAllGroups,
+  getAvailableGroups,
+  assignSupervisor,
+  updateGroupStatus,
+  deleteGroup,
+  updateGroup,
+  createGroup,
+  getSupervisorGroupsWithGrades,
+  markGroupAsIP,
+};

@@ -28,7 +28,7 @@ const navItems: Record<UserRole, NavItem[]> = {
   ],
   supervisor: [
     { icon: Home,          label: 'Dashboard',             href: '/supervisor' },
-    { icon: Users,         label: 'Chapter Grading',       href: '/supervisor/groups' },
+    { icon: Users,         label: 'My Groups',             href: '/supervisor/groups' },
     { icon: FileText,      label: 'Weekly Reports',        href: '/supervisor/weekly-reports' },
     { icon: BarChart3,     label: 'Committee Evaluation',  href: '/supervisor/committee' },
     { icon: Calendar,      label: 'Calendar',              href: '/supervisor/schedule' },

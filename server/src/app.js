@@ -22,6 +22,8 @@ const locksRoutes = require('./routes/locks.routes');
 const settingsRoutes = require('./routes/settings.routes');
 const weekStatusesRoutes = require('./routes/weekStatuses.routes');
 const presentationsRoutes = require('./routes/presentations.routes');
+const gradingRoutes = require('./routes/grading.routes');
+const studentsRoutes = require('./routes/students.routes');
 
 const app = express();
 
@@ -49,6 +51,8 @@ app.use('/api/locks', locksRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/week-statuses', weekStatusesRoutes);
 app.use('/api/presentations', presentationsRoutes);
+app.use('/api/grading', gradingRoutes);
+app.use('/api/students', studentsRoutes);
 
 // Error handling
 app.use(errorHandler);

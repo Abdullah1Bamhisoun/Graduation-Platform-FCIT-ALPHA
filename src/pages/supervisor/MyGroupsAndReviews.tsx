@@ -1,423 +1,712 @@
-import { useState, useEffect } from 'react';
+/**
+ * SupervisorMyGroupsAndReviews
+ *
+ * Replaces the old "Chapter Grading" page with two distinct tabs:
+ *
+ *  Tab 1 — "My Groups"
+ *    Displays every group assigned to the logged-in supervisor.
+ *    Filtered by supervisor_id at the backend (Supabase query in getGroupsForSupervisor).
+ *    Read-only: supervisors cannot edit group data here.
+ *
+ *  Tab 2 — "Chapter Submission"
+ *    Lists all chapter submissions belonging to the supervisor's groups.
+ *    Data is fetched from GET /api/submissions/chapter-submissions which
+ *    enforces supervisor_id at the backend — supervisors can never see another
+ *    supervisor's submissions.
+ *    Supervisors can APPROVE or REJECT submissions with an optional/required comment.
+ *    NO grading happens here — grading is entirely controlled by the Coordinator
+ *    via the Grading Scheme Editor and is logically/structurally separate.
+ *
+ * Design:
+ *    The Chapter Submission tab reuses the same table layout, card containers,
+ *    status badge design, button styles, and right-sidebar pattern from the
+ *    previous Chapter Grading page — only grading controls are replaced by
+ *    approval/rejection controls.
+ */
+
+import { useState, useEffect, useCallback } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { StatusBadge } from '../../features/submissions/components/StatusBadge';
 import { Button } from '../../components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { Textarea } from '../../components/ui/textarea';
 import { Label } from '../../components/ui/label';
-import { Input } from '../../components/ui/input';
-import { RadioGroup, RadioGroupItem } from '../../components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogDescription, 
-  DialogFooter, 
-  DialogHeader, 
-  DialogTitle 
-} from '../../components/ui/dialog';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '../../components/ui/dropdown-menu';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../components/ui/tooltip';
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../../components/ui/dialog';
 import { useAuth } from '../../lib/AuthContext';
 import { getGroupsForSupervisor } from '../../services/groups';
-import { SubmissionStatus } from '../../types';
-import { 
-  Save, 
-  AlertCircle, 
-  CheckCircle, 
-  MessageSquare, 
-  Clock, 
+import {
+  CheckCircle,
+  XCircle,
   FileText,
-  Download,
-  Info,
-  ChevronRight
+  Users,
+  Clock,
+  ChevronRight,
+  AlertCircle,
+  BookOpen,
+  BarChart2,
+  Award,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Group {
   id: string;
   groupNumber: number;
   course: string;
-  year: number;
-  term: string;
-  section: string;
-  students: {
-    id: string;
-    name: string;
-    email: string;
-  }[];
   projectTitle: string;
+  students: { id: string; name: string }[];
+  status: string;
 }
 
 interface ChapterSubmission {
-  chapterId: string;
-  chapterName: string;
-  dueDate: string;
-  adminMarks: number | string;
-  supervisorMarks: number;
-  status: 'graded' | 'needs-grading' | 'upcoming';
-  submittedAt?: string;
-  supervisorGrade?: number;
-}
-
-interface AuditEntry {
   id: string;
-  timestamp: string;
-  actor: string;
-  action: string;
-  details: string;
+  groupId: string;
+  groupNumber: number | null;
+  projectName: string;
+  studentId: string;
+  studentName: string;
+  milestoneId: string;
+  milestoneName: string;
+  milestoneType: string;
+  dueDate: string | null;
+  status: string;
+  currentVersion: number;
+  submittedAt: string;
+  versions: { version: number; file_name: string; file_size: string; uploaded_at: string }[];
+  hasFeedback: boolean;
+  latestFeedback: { overall_comment: string; reviewed_at: string } | null;
 }
 
+interface GradeComponent {
+  componentKey: string;
+  componentName: string;
+  totalMarks: number;
+  evaluatorRole: string;
+  score: number | null;
+  maxScore: number;
+}
 
-const initialChapterSubmissions: ChapterSubmission[] = [];
+interface SupervisorEvalEntry {
+  studentId: string;
+  score: number | null;
+  maxScore: number;
+  gradedAt: string | null;
+  submissionStatus: string;
+}
+
+/**
+ * Shape returned by GET /api/groups/supervisor-grades
+ * Grades are read-only here — the Coordinator owns the grading scheme.
+ */
+interface GroupGradeData {
+  id: string;
+  groupNumber: number;
+  projectName: string;
+  status: string;
+  projectStatus: 'normal' | 'ip';
+  ipMarkedAt: string | null;
+  ipReason: string | null;
+  courseCode: string;
+  students: { id: string; name: string }[];
+  /** Grade components from grading_components — dynamically fetched, never hardcoded */
+  components: GradeComponent[];
+  deliverablesTotal: number;
+  supervisorEvaluation: SupervisorEvalEntry[];
+  supervisorTotalScore: number | null;
+  supervisorMaxScore: number;
+  weeklyScore: number;
+  approvalCounts: {
+    total: number;
+    pending: number;
+    approved: number;
+    rejected: number;
+  };
+}
+
+// ─── API helpers ──────────────────────────────────────────────────────────────
+
+async function fetchChapterSubmissions(token: string): Promise<ChapterSubmission[]> {
+  const res = await fetch('/api/submissions/chapter-submissions', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error('Failed to fetch chapter submissions');
+  return res.json();
+}
+
+async function submitApproval(
+  submissionId: string,
+  action: 'approve' | 'reject',
+  feedback: string,
+  token: string
+): Promise<{ newStatus: string }> {
+  const res = await fetch(`/api/submissions/${submissionId}/approval`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ action, feedback }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(err.error || 'Failed to update submission');
+  }
+  return res.json();
+}
+
+/**
+ * Fetches grade data for all groups assigned to the logged-in supervisor.
+ * Backend enforces supervisor_id — no cross-supervisor access is possible.
+ * Grading scheme (components/weights) is dynamically assembled server-side
+ * from grading_components; this function never hardcodes any weight.
+ */
+async function fetchSupervisorGrades(token: string): Promise<GroupGradeData[]> {
+  const res = await fetch('/api/groups/supervisor-grades', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error('Failed to fetch group grades');
+  return res.json();
+}
+
+/**
+ * Marks (or un-marks) a group's project_status as IP.
+ * Backend validates supervisor ownership before accepting the update.
+ */
+async function requestMarkAsIP(
+  groupId: string,
+  status: 'ip' | 'normal',
+  reason: string,
+  token: string
+): Promise<{ projectStatus: string }> {
+  const res = await fetch(`/api/groups/${groupId}/project-status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ status, reason }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(err.error || 'Failed to update project status');
+  }
+  return res.json();
+}
+
+// ─── Status helpers (same palette as the old chapter submissions tab) ─────────
+
+function getStatusColor(status: string): string {
+  switch (status) {
+    case 'approved':
+      return 'text-green-600 bg-green-50 border-green-200';
+    case 'submitted':
+    case 'under-review':
+      return 'text-yellow-600 bg-yellow-50 border-yellow-200';
+    case 'changes-requested':
+      return 'text-amber-600 bg-amber-50 border-amber-200';
+    case 'draft':
+      return 'text-gray-600 bg-gray-50 border-gray-200';
+    default:
+      return 'text-gray-600 bg-gray-50 border-gray-200';
+  }
+}
+
+function getStatusText(status: string): string {
+  switch (status) {
+    case 'approved':       return 'Approved';
+    case 'submitted':      return 'Pending Review';
+    case 'under-review':   return 'Under Review';
+    case 'changes-requested': return 'Changes Requested';
+    case 'draft':          return 'Draft';
+    default:               return status;
+  }
+}
+
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString('en-US', {
+      year: 'numeric', month: 'short', day: 'numeric',
+    });
+  } catch {
+    return iso;
+  }
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 
 export function SupervisorMyGroupsAndReviews() {
   const navigate = useNavigate();
   const { user } = useAuth();
+
+  // Top-level tab
+  const [activeTab, setActiveTab] = useState('my-groups');
+
+  // Groups (Tab 1)
   const [groups, setGroups] = useState<Group[]>([]);
-  const [selectedGroup, setSelectedGroup] = useState<string>('');
+  const [groupsLoading, setGroupsLoading] = useState(false);
 
-  useEffect(() => {
-    if (!user) return;
-    getGroupsForSupervisor(user.id).then((data) => {
-      setGroups(data.map((g) => ({
-        id: g.id,
-        groupNumber: g.groupNumber ?? 0,
-        course: g.courseCode,
-        year: 0,
-        term: '',
-        section: '',
-        students: g.members.map((m) => ({ id: m.id, name: m.name, email: '' })),
-        projectTitle: g.projectName,
-      })));
-    });
-  }, [user?.id]);
-  const [status, setStatus] = useState<SubmissionStatus>('under-review');
-  const [isIPModalOpen, setIsIPModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState('chapters');
-  const [showGradeDialog, setShowGradeDialog] = useState(false);
-  const [selectedChapter, setSelectedChapter] = useState<ChapterSubmission | null>(null);
-  const [gradeInput, setGradeInput] = useState('');
-  const [collaborationGrade, setCollaborationGrade] = useState('');
-  const [chapterFeedback, setChapterFeedback] = useState('');
-  
-  // Decision state
-  const [decision, setDecision] = useState<'approve' | 'request-changes' | 'mark-ip' | 'draft'>('draft');
-  const [decisionComment, setDecisionComment] = useState('');
+  // Chapter submissions (Tab 2)
+  const [submissions, setSubmissions] = useState<ChapterSubmission[]>([]);
+  const [submissionsLoading, setSubmissionsLoading] = useState(false);
+  const [filterGroup, setFilterGroup] = useState('all');
+
+  // Approval dialogs
+  const [approveTarget, setApproveTarget] = useState<ChapterSubmission | null>(null);
+  const [rejectTarget, setRejectTarget]   = useState<ChapterSubmission | null>(null);
+  const [approveComment, setApproveComment] = useState('');
+  const [rejectFeedback, setRejectFeedback] = useState('');
+  const [processing, setProcessing] = useState(false);
+
+  // Grades tab (Tab 3)
+  const [gradesData, setGradesData] = useState<GroupGradeData[]>([]);
+  const [gradesLoading, setGradesLoading] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+
+  // Mark as IP dialog
+  const [ipTarget, setIpTarget] = useState<GroupGradeData | null>(null);
   const [ipReason, setIpReason] = useState('');
+  const [ipProcessing, setIpProcessing] = useState(false);
 
-  // Chapter submissions state
-  const [chapterSubmissions, setChapterSubmissions] = useState<ChapterSubmission[]>(initialChapterSubmissions);
+  // ── Load groups ───────────────────────────────────────────────────────────
 
-  // Audit history
-  const [auditHistory] = useState<AuditEntry[]>([]);
+  const loadGroups = useCallback(async () => {
+    if (!user) return;
+    setGroupsLoading(true);
+    try {
+      const data = await getGroupsForSupervisor(user.id);
+      setGroups(
+        data.map((g) => ({
+          id: g.id,
+          groupNumber: g.groupNumber ?? 0,
+          course: g.courseCode,
+          projectTitle: g.projectName,
+          students: g.members.map((m) => ({ id: m.id, name: m.name })),
+          status: g.status,
+        }))
+      );
+    } catch {
+      toast.error('Failed to load groups');
+    } finally {
+      setGroupsLoading(false);
+    }
+  }, [user?.id]);
 
-  const currentGroup = groups.find(g => g.id === selectedGroup);
+  // ── Load submissions ──────────────────────────────────────────────────────
+
+  const loadSubmissions = useCallback(async () => {
+    if (!user) return;
+    setSubmissionsLoading(true);
+    try {
+      const session = await import('../../lib/supabase').then((m) =>
+        m.supabase.auth.getSession()
+      );
+      const token = session.data.session?.access_token ?? '';
+      const data = await fetchChapterSubmissions(token);
+      setSubmissions(data);
+    } catch {
+      toast.error('Failed to load chapter submissions');
+    } finally {
+      setSubmissionsLoading(false);
+    }
+  }, [user?.id]);
+
+  // ── Load grades (Tab 3) ───────────────────────────────────────────────────
+
+  const loadGrades = useCallback(async () => {
+    if (!user) return;
+    setGradesLoading(true);
+    try {
+      const session = await import('../../lib/supabase').then((m) =>
+        m.supabase.auth.getSession()
+      );
+      const token = session.data.session?.access_token ?? '';
+      const data = await fetchSupervisorGrades(token);
+      setGradesData(data);
+    } catch {
+      toast.error('Failed to load group grades');
+    } finally {
+      setGradesLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => { loadGroups(); },      [loadGroups]);
+  useEffect(() => { loadSubmissions(); }, [loadSubmissions]);
+  useEffect(() => { loadGrades(); },      [loadGrades]);
+
+  // ── Filtered submissions ──────────────────────────────────────────────────
+
+  const filteredSubmissions =
+    filterGroup === 'all'
+      ? submissions
+      : submissions.filter((s) => s.groupId === filterGroup);
+
+  const stats = {
+    pending:  filteredSubmissions.filter((s) => ['submitted', 'under-review'].includes(s.status)).length,
+    approved: filteredSubmissions.filter((s) => s.status === 'approved').length,
+    rejected: filteredSubmissions.filter((s) => s.status === 'changes-requested').length,
+  };
+
+  // ── Approval handlers ─────────────────────────────────────────────────────
+
+  const handleApprove = async () => {
+    if (!approveTarget || !user) return;
+    setProcessing(true);
+    try {
+      const session = await import('../../lib/supabase').then((m) =>
+        m.supabase.auth.getSession()
+      );
+      const token = session.data.session?.access_token ?? '';
+      await submitApproval(approveTarget.id, 'approve', approveComment.trim(), token);
+      setSubmissions((prev) =>
+        prev.map((s) =>
+          s.id === approveTarget.id ? { ...s, status: 'approved' } : s
+        )
+      );
+      toast.success(`Submission approved for ${approveTarget.milestoneName}`);
+      setApproveTarget(null);
+      setApproveComment('');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to approve submission');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!rejectTarget || !user) return;
+    if (!rejectFeedback.trim()) {
+      toast.error('Feedback is required when rejecting a submission');
+      return;
+    }
+    setProcessing(true);
+    try {
+      const session = await import('../../lib/supabase').then((m) =>
+        m.supabase.auth.getSession()
+      );
+      const token = session.data.session?.access_token ?? '';
+      await submitApproval(rejectTarget.id, 'reject', rejectFeedback.trim(), token);
+      setSubmissions((prev) =>
+        prev.map((s) =>
+          s.id === rejectTarget.id ? { ...s, status: 'changes-requested' } : s
+        )
+      );
+      toast.success(`Changes requested for ${rejectTarget.milestoneName}`);
+      setRejectTarget(null);
+      setRejectFeedback('');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to reject submission');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  // ── Mark as IP / Remove IP ────────────────────────────────────────────────
+
+  const handleMarkAsIP = async () => {
+    if (!ipTarget || !user) return;
+    setIpProcessing(true);
+    try {
+      const session = await import('../../lib/supabase').then((m) =>
+        m.supabase.auth.getSession()
+      );
+      const token = session.data.session?.access_token ?? '';
+      const newStatus = ipTarget.projectStatus === 'ip' ? 'normal' : 'ip';
+      await requestMarkAsIP(ipTarget.id, newStatus, ipReason.trim(), token);
+
+      setGradesData((prev) =>
+        prev.map((g) =>
+          g.id === ipTarget.id
+            ? {
+                ...g,
+                projectStatus: newStatus as 'ip' | 'normal',
+                ipMarkedAt: newStatus === 'ip' ? new Date().toISOString() : null,
+                ipReason:   newStatus === 'ip' ? ipReason.trim() || null : null,
+              }
+            : g
+        )
+      );
+
+      toast.success(
+        newStatus === 'ip'
+          ? `Group ${ipTarget.groupNumber} marked as In Progress`
+          : `IP status removed from Group ${ipTarget.groupNumber}`
+      );
+      setIpTarget(null);
+      setIpReason('');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update project status');
+    } finally {
+      setIpProcessing(false);
+    }
+  };
 
   if (!user) return null;
 
-  // Calculate totals
-  const calculateSupervisorTotal = () => {
-    let total = 0;
-    chapterSubmissions.forEach(chapter => {
-      if (chapter.supervisorGrade !== undefined) {
-        total += chapter.supervisorGrade;
-      }
-    });
-    // Add collaboration grade if it exists
-    if (collaborationGrade) {
-      total += parseFloat(collaborationGrade) || 0;
-    }
-    return total;
-  };
-
-  const calculateAdminTotal = () => {
-    let total = 0;
-    chapterSubmissions.forEach(chapter => {
-      if (typeof chapter.adminMarks === 'number') {
-        total += chapter.adminMarks;
-      }
-    });
-    return total;
-  };
-
-  // Get status styling
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'graded':
-        return 'text-green-600 bg-green-50 border-green-200';
-      case 'needs-grading':
-        return 'text-yellow-600 bg-yellow-50 border-yellow-200';
-      case 'upcoming':
-        return 'text-gray-600 bg-gray-50 border-gray-200';
-      default:
-        return 'text-gray-600 bg-gray-50 border-gray-200';
-    }
-  };
-
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'graded':
-        return 'Graded';
-      case 'needs-grading':
-        return 'Needs Grading';
-      case 'upcoming':
-        return 'Upcoming';
-      default:
-        return status;
-    }
-  };
-
-  const handleGradeClick = (chapter: ChapterSubmission) => {
-    setSelectedChapter(chapter);
-    setGradeInput(chapter.supervisorGrade?.toString() || '');
-    setChapterFeedback('');
-    setShowGradeDialog(true);
-  };
-
-  const handleSubmitGrade = () => {
-    if (!selectedChapter) return;
-
-    const grade = parseFloat(gradeInput);
-    if (isNaN(grade) || grade < 0 || grade > selectedChapter.supervisorMarks) {
-      toast.error(`Grade must be between 0 and ${selectedChapter.supervisorMarks}`);
-      return;
-    }
-
-    // Update the chapter submission
-    setChapterSubmissions(prev => prev.map(ch => 
-      ch.chapterId === selectedChapter.chapterId 
-        ? { ...ch, supervisorGrade: grade, status: 'graded' as const }
-        : ch
-    ));
-
-    toast.success(`Grade submitted for ${selectedChapter.chapterName}`);
-    setShowGradeDialog(false);
-    setGradeInput('');
-    setChapterFeedback('');
-  };
-
-  const handleMarkIP = () => {
-    setIsIPModalOpen(true);
-  };
-
-  const confirmMarkIP = () => {
-    setStatus('approved');
-    setDecision('mark-ip');
-    setIsIPModalOpen(false);
-    toast.success('Project marked as IP (In Progress). Will continue in next term.', {
-      duration: 4000,
-    });
-  };
-
-  const handleSaveDraft = () => {
-    toast.success('Draft saved successfully!');
-  };
-
-  const handleRequestChanges = () => {
-    if (!decisionComment.trim()) {
-      toast.error('Please provide comments when requesting changes.');
-      return;
-    }
-    setDecision('request-changes');
-    setStatus('changes-requested');
-    toast.success('Changes requested. Students will be notified.');
-  };
-
-  const handleApprove = () => {
-    setDecision('approve');
-    setStatus('approved');
-    toast.success('Evaluation approved successfully!');
-  };
-
-  const handleExport = (format: 'pdf' | 'csv') => {
-    toast.success(`Exporting evaluation as ${format.toUpperCase()}...`);
-  };
-
-  const totalAdminMarks = calculateAdminTotal();
-  const totalSupervisorMarks = 20; // Fixed total
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <Layout user={user} pageTitle="Chapter Grading">
-      <div className="mb-4">
-        <p className="text-[var(--color-text-600)] mb-3">
-          Review and grade chapter submissions from your supervised groups
-        </p>
+    <Layout user={user} pageTitle="My Groups">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
 
-        {/* Group Selection */}
-        <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6 mb-4">
-          <div className="max-w-md">
-            <Label htmlFor="group-select" className="mb-2 block text-[var(--color-text-900)]">
-              Select Group to Evaluate
-            </Label>
-            <Select value={selectedGroup} onValueChange={setSelectedGroup}>
-              <SelectTrigger id="group-select">
-                <SelectValue placeholder="Choose a group..." />
-              </SelectTrigger>
-              <SelectContent>
-                {groups.map((group) => (
-                  <SelectItem key={group.id} value={group.id}>
-                    Group {group.groupNumber} - {group.projectTitle}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        {/* ── Top-level tab bar ── */}
+        <div className="mb-4 bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] overflow-hidden">
+          <TabsList className="w-full justify-start rounded-none bg-transparent p-0 h-auto border-b border-[var(--color-border)]">
+            <TabsTrigger
+              value="my-groups"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-transparent px-6 py-3 gap-2"
+            >
+              <Users className="w-4 h-4" />
+              My Groups
+            </TabsTrigger>
+            <TabsTrigger
+              value="chapter-submission"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-transparent px-6 py-3 gap-2"
+            >
+              <BookOpen className="w-4 h-4" />
+              Chapter Submission
+              {stats.pending > 0 && (
+                <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-yellow-500 text-white text-xs font-semibold">
+                  {stats.pending}
+                </span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger
+              value="groups-grades"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-transparent px-6 py-3 gap-2"
+            >
+              <BarChart2 className="w-4 h-4" />
+              Groups Grades &amp; Evaluation
+            </TabsTrigger>
+          </TabsList>
         </div>
-      </div>
 
-      {selectedGroup && currentGroup ? (
-        <div className="flex gap-6 items-start">
-          {/* Main Content Area */}
-          <div className="flex-1 max-w-[800px]">
-            {/* Header Section */}
-            <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6 mb-4">
-              <div className="flex items-start justify-between mb-4">
-                <div>
-                  <h1 className="text-[var(--color-text-900)] mb-2">
-                    Evaluation – Group {currentGroup.groupNumber} – {currentGroup.projectTitle}
-                  </h1>
-                  <div className="flex flex-wrap gap-x-6 gap-y-2 text-[var(--color-text-600)]">
-                    <div className="flex items-center gap-2">
-                      <span>Students:</span>
-                      <span className="text-[var(--color-text-900)]">{currentGroup.students.map(s => s.name).join(', ')}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span>Course:</span>
-                      <span className="text-[var(--color-text-900)]">{currentGroup.course}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span>Year:</span>
-                      <span className="text-[var(--color-text-900)]">{currentGroup.year}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4 mt-2">
-                    <StatusBadge status={status} />
-                    {decision === 'mark-ip' && (
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger>
-                            <div className="px-3 py-1 rounded-full bg-orange-100 text-orange-700 border border-orange-300 flex items-center gap-1 cursor-help">
-                              <Info className="w-3 h-3" />
-                              <span>IP (Not Ready)</span>
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p className="max-w-xs">Students are not ready to enter the final defense; continue in next term.</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    )}
-                  </div>
-                </div>
+        {/* ════════════════════════════════════════
+            TAB 1 — MY GROUPS
+            ════════════════════════════════════════ */}
+        <TabsContent value="my-groups" className="mt-0">
+          <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] overflow-hidden">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-[var(--color-border)] flex items-center justify-between">
+              <div>
+                <h2 className="text-[var(--color-text-900)]">Assigned Groups</h2>
+                <p className="text-[var(--color-text-600)] text-sm mt-0.5">
+                  Groups supervised by you this semester
+                </p>
               </div>
-
-              {/* Information Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <FileText className="w-5 h-5 text-blue-600" />
-                    <span className="text-blue-900">Admin Marks</span>
-                  </div>
-                  <p className="text-blue-900">
-                    Total: {totalAdminMarks} marks
-                  </p>
-                  <p className="text-blue-600 mt-1">Managed by admin for deliverables</p>
-                </div>
-
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <CheckCircle className="w-5 h-5 text-green-600" />
-                    <span className="text-green-900">Supervisor Marks</span>
-                  </div>
-                  <p className="text-green-900">
-                    Total: 20 marks
-                  </p>
-                  <p className="text-green-600 mt-1">Distributed across chapters and collaboration</p>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex gap-2 pt-3 border-t border-[var(--color-border)]">
-                <Button variant="outline" onClick={handleSaveDraft} className="gap-2">
-                  <Save className="w-4 h-4" />
-                  Save Draft
-                </Button>
-                <Button 
-                  variant="outline" 
-                  onClick={handleRequestChanges} 
-                  className="gap-2 text-amber-600 border-amber-300 hover:bg-amber-50"
-                >
-                  <MessageSquare className="w-4 h-4" />
-                  Request Changes
-                </Button>
-                <Button 
-                  onClick={handleApprove} 
-                  className="gap-2 bg-[#10B981] text-[rgb(41,207,36)] hover:bg-[#0ea572]"
-                >
-                  <CheckCircle className="w-4 h-4" />
-                  Approve
-                </Button>
-                <Button 
-                  variant="outline" 
-                  onClick={handleMarkIP} 
-                  className="gap-2 text-orange-600 border-orange-300 hover:bg-orange-50"
-                >
-                  <AlertCircle className="w-4 h-4" />
-                  Mark IP
-                </Button>
-              </div>
+              {!groupsLoading && (
+                <span className="inline-flex items-center px-3 py-1 rounded-full bg-[var(--color-primary-100)] text-[var(--color-primary-700)] text-sm font-medium">
+                  {groups.length} {groups.length === 1 ? 'Group' : 'Groups'}
+                </span>
+              )}
             </div>
 
-            {/* Tabs Section */}
-            <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] overflow-hidden mt-4">
-              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full flex flex-col">
-                <div className="border-b border-[var(--color-border)]">
-                  <TabsList className="mb-0 w-full justify-start rounded-none bg-transparent p-0 h-auto">
-                    <TabsTrigger value="chapters" className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-transparent">Chapter Submissions</TabsTrigger>
-                    <TabsTrigger value="collaboration" className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-transparent">Collaboration</TabsTrigger>
-                    <TabsTrigger value="history" className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-transparent">History & Audit</TabsTrigger>
-                  </TabsList>
+            {/* Groups table */}
+            {groupsLoading ? (
+              <div className="flex items-center justify-center min-h-40 p-6">
+                <div className="text-center">
+                  <Clock className="w-8 h-8 text-[var(--color-text-400)] mx-auto mb-2 animate-spin" />
+                  <p className="text-[var(--color-text-600)]">Loading groups…</p>
                 </div>
+              </div>
+            ) : groups.length === 0 ? (
+              <div className="flex items-center justify-center min-h-40 p-6">
+                <div className="text-center">
+                  <Users className="w-12 h-12 text-[var(--color-text-400)] mx-auto mb-3" />
+                  <p className="text-[var(--color-text-600)] text-lg">No groups assigned</p>
+                  <p className="text-[var(--color-text-500)] text-sm mt-1">
+                    Groups assigned to you will appear here
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-[var(--color-surface-alt)]">
+                    <tr>
+                      <th className="p-4 text-left text-[var(--color-text-900)] border-r border-[var(--color-border)]">
+                        Group
+                      </th>
+                      <th className="p-4 text-left text-[var(--color-text-900)] border-r border-[var(--color-border)]">
+                        Project Title
+                      </th>
+                      <th className="p-4 text-left text-[var(--color-text-900)] border-r border-[var(--color-border)]">
+                        Students
+                      </th>
+                      <th className="p-4 text-center text-[var(--color-text-900)] border-r border-[var(--color-border)]">
+                        Course
+                      </th>
+                      <th className="p-4 text-center text-[var(--color-text-900)]">
+                        Status
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--color-border)]">
+                    {groups.map((group) => (
+                      <tr
+                        key={group.id}
+                        className="hover:bg-[var(--color-surface-alt)] transition-colors"
+                      >
+                        <td className="p-4 border-r border-[var(--color-border)]">
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-[var(--color-primary-100)] text-[var(--color-primary-700)] text-sm font-semibold">
+                            Group {group.groupNumber}
+                          </span>
+                        </td>
+                        <td className="p-4 border-r border-[var(--color-border)]">
+                          <span className="text-[var(--color-text-900)]">
+                            {group.projectTitle}
+                          </span>
+                        </td>
+                        <td className="p-4 border-r border-[var(--color-border)]">
+                          <div className="flex flex-wrap gap-1">
+                            {group.students.map((s) => (
+                              <span
+                                key={s.id}
+                                className="text-[var(--color-text-700)] text-sm bg-[var(--color-surface-alt)] px-2 py-0.5 rounded"
+                              >
+                                {s.name}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="p-4 text-center border-r border-[var(--color-border)]">
+                          <span className="text-[var(--color-text-700)] text-sm">{group.course}</span>
+                        </td>
+                        <td className="p-4 text-center">
+                          <StatusBadge status={group.status as any} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
 
-                <div className="p-6">
+          {/* Quick action */}
+          <div className="mt-4 bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-blue-900 text-sm">
+                Switch to the <strong>Chapter Submission</strong> tab to review and approve chapter submissions
+                from the groups listed here.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="ml-auto flex-shrink-0 border-blue-300 text-blue-700 hover:bg-blue-100"
+              onClick={() => setActiveTab('chapter-submission')}
+            >
+              Go to Submissions
+              <ChevronRight className="w-3 h-3 ml-1" />
+            </Button>
+          </div>
+        </TabsContent>
 
-              {/* Tab 1: Chapter Submissions */}
-              <TabsContent value="chapters" className="mt-0">
-                <div className="overflow-hidden">
-                  {chapterSubmissions.length === 0 ? (
-                    <div className="flex items-center justify-center min-h-40 p-6">
-                      <div className="text-center">
-                        <FileText className="w-12 h-12 text-[var(--color-text-400)] mx-auto mb-3" />
-                        <p className="text-[var(--color-text-600)] text-lg">No chapter submissions yet</p>
-                        <p className="text-[var(--color-text-500)] text-sm mt-1">Select a group to view their chapter submissions</p>
-                      </div>
+        {/* ════════════════════════════════════════
+            TAB 2 — CHAPTER SUBMISSION
+            ════════════════════════════════════════ */}
+        <TabsContent value="chapter-submission" className="mt-0">
+          <p className="text-[var(--color-text-600)] mb-3">
+            Review and approve chapter submissions from your supervised groups.
+            Supervisors may approve or reject submissions — grading is handled separately by the Coordinator.
+          </p>
+
+          {/* Group filter */}
+          <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6 mb-4">
+            <div className="max-w-md">
+              <Label htmlFor="group-filter" className="mb-2 block text-[var(--color-text-900)]">
+                Filter by Group
+              </Label>
+              <Select value={filterGroup} onValueChange={setFilterGroup}>
+                <SelectTrigger id="group-filter">
+                  <SelectValue placeholder="All groups" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All groups</SelectItem>
+                  {groups.map((g) => (
+                    <SelectItem key={g.id} value={g.id}>
+                      Group {g.groupNumber} — {g.projectTitle}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* Two-column layout: submissions table + right sidebar */}
+          <div className="flex gap-6 items-start">
+
+            {/* ── Left: submissions table ── */}
+            <div className="flex-1 max-w-[800px]">
+
+              {/* Stats cards (same visual pattern as old grading summary cards) */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Clock className="w-4 h-4 text-yellow-600" />
+                    <span className="text-yellow-900 text-sm">Pending Review</span>
+                  </div>
+                  <p className="text-2xl text-yellow-900">{stats.pending}</p>
+                </div>
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <CheckCircle className="w-4 h-4 text-green-600" />
+                    <span className="text-green-900 text-sm">Approved</span>
+                  </div>
+                  <p className="text-2xl text-green-900">{stats.approved}</p>
+                </div>
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <XCircle className="w-4 h-4 text-amber-600" />
+                    <span className="text-amber-900 text-sm">Changes Requested</span>
+                  </div>
+                  <p className="text-2xl text-amber-900">{stats.rejected}</p>
+                </div>
+              </div>
+
+              {/* Submissions table */}
+              <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] overflow-hidden">
+                {submissionsLoading ? (
+                  <div className="flex items-center justify-center min-h-40 p-6">
+                    <div className="text-center">
+                      <Clock className="w-8 h-8 text-[var(--color-text-400)] mx-auto mb-2 animate-spin" />
+                      <p className="text-[var(--color-text-600)]">Loading submissions…</p>
                     </div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
+                  </div>
+                ) : filteredSubmissions.length === 0 ? (
+                  <div className="flex items-center justify-center min-h-40 p-6">
+                    <div className="text-center">
+                      <FileText className="w-12 h-12 text-[var(--color-text-400)] mx-auto mb-3" />
+                      <p className="text-[var(--color-text-600)] text-lg">No submissions found</p>
+                      <p className="text-[var(--color-text-500)] text-sm mt-1">
+                        Chapter submissions from your groups will appear here
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
                       <thead className="bg-[var(--color-surface-alt)]">
                         <tr>
                           <th className="p-4 text-left text-[var(--color-text-900)] border-r border-[var(--color-border)]">
                             Chapter Name
                           </th>
+                          <th className="p-4 text-left text-[var(--color-text-900)] border-r border-[var(--color-border)]">
+                            Group
+                          </th>
                           <th className="p-4 text-center text-[var(--color-text-900)] border-r border-[var(--color-border)]">
-                            Due Date
+                            Submitted
                           </th>
                           <th className="p-4 text-center text-[var(--color-text-900)] border-r border-[var(--color-border)]">
                             Status
-                          </th>
-                          <th className="p-4 text-center text-[var(--color-text-900)] border-r border-[var(--color-border)]">
-                            Admin Marks
-                          </th>
-                          <th className="p-4 text-center text-[var(--color-text-900)] border-r border-[var(--color-border)]">
-                            Supervisor Marks
                           </th>
                           <th className="p-4 text-center text-[var(--color-text-900)]">
                             Actions
@@ -425,410 +714,705 @@ export function SupervisorMyGroupsAndReviews() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[var(--color-border)]">
-                        {chapterSubmissions.map((chapter) => (
-                          <tr key={chapter.chapterId} className="hover:bg-[var(--color-surface-alt)] transition-colors">
-                            <td className="p-4 border-r border-[var(--color-border)]">
-                              <span className="text-[var(--color-text-900)]">{chapter.chapterName}</span>
-                            </td>
-                            <td className="p-4 text-center border-r border-[var(--color-border)]">
-                              <span className="text-[var(--color-text-600)]">{chapter.dueDate}</span>
-                            </td>
-                            <td className="p-4 text-center border-r border-[var(--color-border)]">
-                              <span className={`inline-flex items-center px-3 py-1 rounded-full border ${getStatusColor(chapter.status)}`}>
-                                {getStatusText(chapter.status)}
-                              </span>
-                            </td>
-                            <td className="p-4 text-center border-r border-[var(--color-border)]">
-                              <span className="text-[var(--color-text-900)]">{chapter.adminMarks}</span>
-                            </td>
-                            <td className="p-4 text-center border-r border-[var(--color-border)]">
-                              {chapter.supervisorGrade !== undefined ? (
-                                <span className="text-green-600">
-                                  {chapter.supervisorGrade}/{chapter.supervisorMarks}
-                                </span>
-                              ) : (
+                        {filteredSubmissions.map((sub) => {
+                          const isPending =
+                            sub.status === 'submitted' || sub.status === 'under-review';
+                          return (
+                            <tr
+                              key={sub.id}
+                              className="hover:bg-[var(--color-surface-alt)] transition-colors"
+                            >
+                              <td className="p-4 border-r border-[var(--color-border)]">
                                 <span className="text-[var(--color-text-900)]">
-                                  {chapter.supervisorMarks}
+                                  {sub.milestoneName}
                                 </span>
-                              )}
-                            </td>
-                            <td className="p-4 text-center">
-                              {chapter.status === 'needs-grading' && (
-                                <Button
-                                  size="sm"
-                                  variant="primary"
-                                  onClick={() => handleGradeClick(chapter)}
+                                {sub.currentVersion > 1 && (
+                                  <span className="ml-2 text-xs text-[var(--color-text-500)]">
+                                    v{sub.currentVersion}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-4 border-r border-[var(--color-border)]">
+                                <div className="text-[var(--color-text-900)] text-sm">
+                                  Group {sub.groupNumber}
+                                </div>
+                                <div className="text-[var(--color-text-600)] text-xs truncate max-w-[140px]">
+                                  {sub.projectName}
+                                </div>
+                              </td>
+                              <td className="p-4 text-center border-r border-[var(--color-border)]">
+                                <span className="text-[var(--color-text-600)] text-sm">
+                                  {formatDate(sub.submittedAt)}
+                                </span>
+                              </td>
+                              <td className="p-4 text-center border-r border-[var(--color-border)]">
+                                <span
+                                  className={`inline-flex items-center px-3 py-1 rounded-full border text-sm ${getStatusColor(sub.status)}`}
                                 >
-                                  Grade
-                                </Button>
-                              )}
-                              {chapter.status === 'graded' && (
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleGradeClick(chapter)}
-                                >
-                                  Edit Grade
-                                </Button>
-                              )}
-                              {chapter.status === 'upcoming' && (
-                                <span className="text-[var(--color-text-600)]">-</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
+                                  {getStatusText(sub.status)}
+                                </span>
+                              </td>
+                              <td className="p-4 text-center">
+                                {isPending ? (
+                                  <div className="flex items-center justify-center gap-2">
+                                    <Button
+                                      size="sm"
+                                      className="gap-1 bg-[#10B981] text-white hover:bg-[#0ea572]"
+                                      onClick={() => {
+                                        setApproveTarget(sub);
+                                        setApproveComment('');
+                                      }}
+                                    >
+                                      <CheckCircle className="w-3 h-3" />
+                                      Approve
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="gap-1 text-amber-600 border-amber-300 hover:bg-amber-50"
+                                      onClick={() => {
+                                        setRejectTarget(sub);
+                                        setRejectFeedback('');
+                                      }}
+                                    >
+                                      <XCircle className="w-3 h-3" />
+                                      Reject
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <span className="text-[var(--color-text-400)] text-sm">—</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
-                      <tfoot className="bg-[var(--color-surface-alt)]">
-                        <tr>
-                          <td className="p-4 text-right border-r border-[var(--color-border)]" colSpan={3}>
-                            <span className="text-[var(--color-text-900)]">Total:</span>
-                          </td>
-                          <td className="p-4 text-center border-r border-[var(--color-border)]">
-                            <span className="text-[var(--color-text-900)]">{totalAdminMarks}</span>
-                          </td>
-                          <td className="p-4 text-center border-r border-[var(--color-border)]">
-                            <span className="text-[var(--color-text-900)]">
-                              {calculateSupervisorTotal()}/{totalSupervisorMarks}
-                            </span>
-                          </td>
-                          <td className="p-4 text-center"></td>
-                        </tr>
-                      </tfoot>
                     </table>
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
-
-              {/* Tab 2: Collaboration */}
-              <TabsContent value="collaboration" className="mt-0">
-                <div className="mb-4">
-                  <h3 className="text-[var(--color-text-900)] mb-2">Collaboration & Teamwork</h3>
-                  <p className="text-[var(--color-text-600)] text-sm">
-                    Evaluate the group's collaboration and teamwork. This is part of the supervisor's 20 marks total.
-                  </p>
-                </div>
-
-                <div className="space-y-4">
-                    <div>
-                      <Label htmlFor="collaboration-grade" className="mb-2 block">
-                        Collaboration Grade (Part of 20 total)
-                      </Label>
-                      <Input
-                        id="collaboration-grade"
-                        type="number"
-                        min="0"
-                        step="0.5"
-                        value={collaborationGrade}
-                        onChange={(e) => setCollaborationGrade(e.target.value)}
-                        placeholder="Enter collaboration grade"
-                      />
-                    </div>
-
-                    <div>
-                      <Label htmlFor="collaboration-feedback" className="mb-2 block">
-                        Feedback & Comments
-                      </Label>
-                      <Textarea
-                        id="collaboration-feedback"
-                        placeholder="Provide feedback on the group's collaboration and teamwork..."
-                        className="min-h-[120px]"
-                      />
-                    </div>
-
-                    <Button onClick={() => toast.success('Collaboration grade saved!')}>
-                      Save Collaboration Grade
-                    </Button>
                   </div>
-              </TabsContent>
-
-              {/* Tab 3: History & Audit */}
-              <TabsContent value="history" className="mt-0">
-                <div>
-                  <h3 className="text-[var(--color-text-900)] mb-3">Evaluation History</h3>
-                  {auditHistory.length === 0 ? (
-                    <div className="flex items-center justify-center min-h-40 p-6">
-                      <div className="text-center">
-                        <Clock className="w-12 h-12 text-[var(--color-text-400)] mx-auto mb-3" />
-                        <p className="text-[var(--color-text-600)] text-lg">No history yet</p>
-                        <p className="text-[var(--color-text-500)] text-sm mt-1">Evaluation actions will appear here</p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                    {auditHistory.map((entry) => (
-                      <div key={entry.id} className="flex gap-4 pb-4 border-b border-[var(--color-border)] last:border-0">
-                        <div className="flex-shrink-0 w-10 h-10 rounded-full bg-[var(--color-primary-100)] flex items-center justify-center">
-                          <Clock className="w-5 h-5 text-[var(--color-primary-600)]" />
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-[var(--color-text-900)]">{entry.action}</span>
-                            <span className="text-[var(--color-text-600)]">·</span>
-                            <span className="text-[var(--color-text-600)]">
-                              {new Date(entry.timestamp).toLocaleString()}
-                            </span>
-                          </div>
-                          <p className="text-[var(--color-text-600)] mb-1">{entry.details}</p>
-                          <p className="text-[var(--color-text-600)]">by {entry.actor}</p>
-                        </div>
-                        <button className="text-[var(--color-primary-600)] hover:text-[var(--color-primary-700)] flex items-center gap-1">
-                          View
-                          <ChevronRight className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))}
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
-                </div>
-              </Tabs>
+                )}
+              </div>
             </div>
 
-            {/* Decision Panel */}
-            <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6 mt-4">
-              <h3 className="text-[var(--color-text-900)] mb-3">Final Decision</h3>
-              <RadioGroup value={decision} onValueChange={(value: any) => setDecision(value)}>
-                <div className="space-y-3">
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="draft" id="decision-draft" />
-                    <Label htmlFor="decision-draft" className="cursor-pointer">Save as Draft</Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="approve" id="decision-approve" />
-                    <Label htmlFor="decision-approve" className="cursor-pointer">Approve Evaluation</Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="request-changes" id="decision-changes" />
-                    <Label htmlFor="decision-changes" className="cursor-pointer">Request Changes</Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="mark-ip" id="decision-ip" />
-                    <Label htmlFor="decision-ip" className="cursor-pointer">Mark as IP (In Progress)</Label>
-                  </div>
-                </div>
-              </RadioGroup>
+            {/* ── Right sidebar (sticky) ── */}
+            <div className="w-[280px] flex-shrink-0">
+              <div className="sticky top-6 space-y-4">
 
-              {decision === 'request-changes' && (
-                <div className="mt-4">
-                  <Label htmlFor="changes-comment" className="mb-2 block">Comments (Required)</Label>
-                  <Textarea
-                    id="changes-comment"
-                    value={decisionComment}
-                    onChange={(e) => setDecisionComment(e.target.value)}
-                    placeholder="Explain what changes are needed..."
-                    className="min-h-[120px]"
-                    required
-                  />
-                </div>
-              )}
+                {/* Submission summary card */}
+                <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] shadow-md p-5">
+                  <h3 className="text-[var(--color-text-900)] text-sm font-semibold mb-3">
+                    Review Summary
+                  </h3>
 
-              {decision === 'mark-ip' && (
-                <div className="mt-4">
-                  <Label htmlFor="ip-reason" className="mb-2 block">Reason (Optional)</Label>
-                  <Textarea
-                    id="ip-reason"
-                    value={ipReason}
-                    onChange={(e) => setIpReason(e.target.value)}
-                    placeholder="Explain why the project will continue in the next term..."
-                    className="min-h-[100px]"
-                  />
-                  <p className="text-[var(--color-text-600)] text-sm mt-2">
-                    This project will carry into the next term. Students will not proceed to final defense.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Right Sidebar - Rubric Summary (Sticky) */}
-          <div className="w-[320px] flex-shrink-0">
-            <div className="sticky top-6 space-y-4">
-              {/* Rubric Summary Card */}
-              <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] shadow-md p-6">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-[var(--color-text-900)] text-sm font-semibold">Grading Summary</h3>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="outline" size="sm" className="gap-2">
-                        <Download className="w-4 h-4" />
-                        Export
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => handleExport('pdf')}>
-                        <FileText className="w-4 h-4 mr-2" />
-                        Export as PDF
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleExport('csv')}>
-                        <FileText className="w-4 h-4 mr-2" />
-                        Export as CSV
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-
-                {/* Current Total */}
-                <div className="text-center mb-4 p-4 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg border border-blue-200">
-                  <p className="text-[var(--color-text-600)] mb-1 text-sm">Supervisor Total</p>
-                  <p className="text-4xl text-[var(--color-text-900)] mb-1">
-                    {calculateSupervisorTotal().toFixed(1)}
-                  </p>
-                  <p className="text-[var(--color-text-600)] text-sm">out of 20</p>
-                  <div className="mt-2 pt-2 border-t border-blue-200">
-                    <p className="text-xl text-[var(--color-primary-600)]">
-                      {((calculateSupervisorTotal() / 20) * 100).toFixed(1)}%
+                  <div className="text-center mb-4 p-4 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg border border-blue-200">
+                    <p className="text-[var(--color-text-600)] mb-1 text-sm">Total Submissions</p>
+                    <p className="text-4xl text-[var(--color-text-900)]">
+                      {filteredSubmissions.length}
                     </p>
                   </div>
-                </div>
 
-                {/* Breakdown */}
-                <div className="space-y-3 mt-3">
-                  <h4 className="text-[var(--color-text-900)] mb-2">Chapter Breakdown</h4>
-                  {chapterSubmissions.map((chapter, idx) => (
-                    <div key={idx}>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-1.5 text-yellow-700">
+                        <Clock className="w-3.5 h-3.5" />
+                        Pending
+                      </span>
+                      <span className="font-semibold text-[var(--color-text-900)]">
+                        {stats.pending}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-1.5 text-green-700">
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        Approved
+                      </span>
+                      <span className="font-semibold text-[var(--color-text-900)]">
+                        {stats.approved}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-1.5 text-amber-700">
+                        <XCircle className="w-3.5 h-3.5" />
+                        Changes Req.
+                      </span>
+                      <span className="font-semibold text-[var(--color-text-900)]">
+                        {stats.rejected}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Completion bar */}
+                  {filteredSubmissions.length > 0 && (
+                    <div className="mt-4 pt-3 border-t border-[var(--color-border)]">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-[var(--color-text-900)] text-sm truncate">{chapter.chapterName}</span>
-                        <span className="text-[var(--color-text-600)] text-sm">
-                          {chapter.supervisorGrade || 0} / {chapter.supervisorMarks}
+                        <span className="text-xs text-[var(--color-text-600)]">Review progress</span>
+                        <span className="text-xs text-[var(--color-text-900)] font-semibold">
+                          {Math.round(((stats.approved + stats.rejected) / filteredSubmissions.length) * 100)}%
                         </span>
                       </div>
                       <div className="h-2 bg-[var(--color-surface-alt)] rounded-full overflow-hidden">
                         <div
                           className="h-full bg-gradient-to-r from-[var(--color-primary-600)] to-blue-500 transition-all duration-300"
-                          style={{ width: `${chapter.supervisorMarks > 0 ? ((chapter.supervisorGrade || 0) / chapter.supervisorMarks) * 100 : 0}%` }}
+                          style={{
+                            width: `${((stats.approved + stats.rejected) / filteredSubmissions.length) * 100}%`,
+                          }}
                         />
                       </div>
                     </div>
-                  ))}
+                  )}
                 </div>
 
-                {/* Admin Marks Info */}
-                <div className="mt-4 pt-4 border-t border-[var(--color-border)]">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-[var(--color-text-600)]">Admin Marks</span>
-                    <span className="text-[var(--color-text-900)]">{totalAdminMarks} / 15</span>
+                {/* Approval-only reminder */}
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <p className="text-blue-800 text-xs">
+                      Supervisors review and approve chapter submissions only.
+                      Grading is managed exclusively by the Coordinator.
+                    </p>
                   </div>
                 </div>
-              </div>
 
-              {/* Quick Links */}
-              <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-4">
-                <h4 className="text-[var(--color-text-900)] mb-2 text-sm font-semibold">Quick Links</h4>
-                <div className="space-y-1">
-                  <button
-                    onClick={() => navigate('/supervisor/groups')}
-                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-[var(--color-surface-alt)] text-[var(--color-text-900)] transition-colors"
-                  >
-                    Reviews Inbox
-                  </button>
-                  <button
-                    onClick={() => navigate('/student/feedback')}
-                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-[var(--color-surface-alt)] text-[var(--color-text-900)] transition-colors"
-                  >
-                    Student Feedback & Grades
-                  </button>
+                {/* Quick links */}
+                <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-4">
+                  <h4 className="text-[var(--color-text-900)] mb-2 text-sm font-semibold">
+                    Quick Links
+                  </h4>
+                  <div className="space-y-1">
+                    <button
+                      onClick={() => navigate('/supervisor/weekly-reports')}
+                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-[var(--color-surface-alt)] text-[var(--color-text-900)] text-sm transition-colors flex items-center justify-between"
+                    >
+                      Weekly Reports
+                      <ChevronRight className="w-3.5 h-3.5 text-[var(--color-text-400)]" />
+                    </button>
+                    <button
+                      onClick={() => navigate('/supervisor/grading')}
+                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-[var(--color-surface-alt)] text-[var(--color-text-900)] text-sm transition-colors flex items-center justify-between"
+                    >
+                      Supervisor Assessment
+                      <ChevronRight className="w-3.5 h-3.5 text-[var(--color-text-400)]" />
+                    </button>
+                  </div>
                 </div>
+
               </div>
             </div>
           </div>
-        </div>
-      ) : (
-        <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-12 text-center">
-          <FileText className="w-12 h-12 text-[var(--color-text-400)] mx-auto mb-4" />
-          <p className="text-[var(--color-text-600)]">
-            Please select a group to begin evaluation
-          </p>
-        </div>
-      )}
+        </TabsContent>
 
-      {/* Grade Dialog */}
-      <Dialog open={showGradeDialog} onOpenChange={setShowGradeDialog}>
+        {/* ════════════════════════════════════════
+            TAB 3 — GROUPS GRADES & EVALUATION
+            ════════════════════════════════════════ */}
+        <TabsContent value="groups-grades" className="mt-0">
+          <p className="text-[var(--color-text-600)] mb-3 text-sm">
+            View grades and evaluation records for your assigned groups.
+            Grading weights are defined by the Coordinator and cannot be modified here.
+          </p>
+
+          {gradesLoading ? (
+            <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] flex items-center justify-center min-h-52 p-6">
+              <div className="text-center">
+                <Clock className="w-8 h-8 text-[var(--color-text-400)] mx-auto mb-2 animate-spin" />
+                <p className="text-[var(--color-text-600)]">Loading grades…</p>
+              </div>
+            </div>
+          ) : gradesData.length === 0 ? (
+            <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] flex items-center justify-center min-h-52 p-6">
+              <div className="text-center">
+                <BarChart2 className="w-12 h-12 text-[var(--color-text-400)] mx-auto mb-3" />
+                <p className="text-[var(--color-text-600)] text-lg">No grade data available</p>
+                <p className="text-[var(--color-text-500)] text-sm mt-1">
+                  Grade information for your groups will appear here once available
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {gradesData.map((group) => {
+                const isExpanded = expandedGroups.has(group.id);
+                const isIP = group.projectStatus === 'ip';
+                const totalComponentScore = group.components.reduce(
+                  (sum, c) => sum + (c.score ?? 0), 0
+                );
+                const totalComponentMax = group.components.reduce(
+                  (sum, c) => sum + c.totalMarks, 0
+                );
+
+                return (
+                  <div
+                    key={group.id}
+                    className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] overflow-hidden"
+                  >
+                    {/* ── Group header (clickable to expand) ── */}
+                    <div
+                      className="px-6 py-4 flex items-center gap-4 cursor-pointer hover:bg-[var(--color-surface-alt)] transition-colors"
+                      onClick={() =>
+                        setExpandedGroups((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(group.id)) next.delete(group.id);
+                          else next.add(group.id);
+                          return next;
+                        })
+                      }
+                    >
+                      {/* Group badge */}
+                      <span className="inline-flex items-center px-3 py-1 rounded-lg bg-[var(--color-primary-100)] text-[var(--color-primary-700)] text-sm font-semibold flex-shrink-0">
+                        Group {group.groupNumber}
+                      </span>
+
+                      {/* Project name + course */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[var(--color-text-900)] font-medium truncate">
+                          {group.projectName}
+                        </p>
+                        <p className="text-[var(--color-text-500)] text-xs">{group.courseCode}</p>
+                      </div>
+
+                      {/* IP badge */}
+                      {isIP && (
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-orange-100 text-orange-700 border border-orange-300 text-xs font-semibold flex-shrink-0">
+                          <AlertTriangle className="w-3 h-3 mr-1" />
+                          In Progress
+                        </span>
+                      )}
+
+                      {/* Mark as IP / Remove IP button */}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className={
+                          isIP
+                            ? 'flex-shrink-0 border-gray-400 text-gray-700 hover:bg-gray-50'
+                            : 'flex-shrink-0 border-amber-300 text-amber-700 hover:bg-amber-50'
+                        }
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIpTarget(group);
+                          setIpReason('');
+                        }}
+                      >
+                        <AlertTriangle className="w-3 h-3 mr-1" />
+                        {isIP ? 'Remove IP' : 'Mark as IP'}
+                      </Button>
+
+                      {/* Score summary */}
+                      {totalComponentMax > 0 && (
+                        <div className="text-right flex-shrink-0">
+                          <p className="text-[var(--color-text-900)] font-semibold text-sm">
+                            {totalComponentScore.toFixed(1)} / {totalComponentMax}
+                          </p>
+                          <p className="text-[var(--color-text-500)] text-xs">Total Score</p>
+                        </div>
+                      )}
+
+                      {/* Expand/collapse chevron */}
+                      {isExpanded
+                        ? <ChevronUp className="w-5 h-5 text-[var(--color-text-400)] flex-shrink-0" />
+                        : <ChevronDown className="w-5 h-5 text-[var(--color-text-400)] flex-shrink-0" />
+                      }
+                    </div>
+
+                    {/* ── Expanded detail panel ── */}
+                    {isExpanded && (
+                      <div className="border-t border-[var(--color-border)] p-6 space-y-6">
+
+                        {/* Students */}
+                        <div>
+                          <h4 className="text-sm font-semibold text-[var(--color-text-700)] mb-2 flex items-center gap-1.5">
+                            <Users className="w-4 h-4" />
+                            Students
+                          </h4>
+                          <div className="flex flex-wrap gap-2">
+                            {group.students.map((s) => (
+                              <span
+                                key={s.id}
+                                className="text-sm text-[var(--color-text-700)] bg-[var(--color-surface-alt)] px-3 py-1 rounded-full border border-[var(--color-border)]"
+                              >
+                                {s.name}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Grade components table — read-only, from Coordinator's scheme */}
+                        <div>
+                          <h4 className="text-sm font-semibold text-[var(--color-text-700)] mb-2 flex items-center gap-1.5">
+                            <BarChart2 className="w-4 h-4" />
+                            Grade Components
+                            <span className="ml-1 text-xs font-normal text-[var(--color-text-500)]">
+                              (Coordinator-defined — read-only)
+                            </span>
+                          </h4>
+                          <div className="rounded-lg border border-[var(--color-border)] overflow-hidden">
+                            <table className="w-full text-sm">
+                              <thead className="bg-[var(--color-surface-alt)]">
+                                <tr>
+                                  <th className="px-4 py-2.5 text-left text-[var(--color-text-700)] font-medium border-r border-[var(--color-border)]">
+                                    Component
+                                  </th>
+                                  <th className="px-4 py-2.5 text-center text-[var(--color-text-700)] font-medium border-r border-[var(--color-border)]">
+                                    Evaluator
+                                  </th>
+                                  <th className="px-4 py-2.5 text-center text-[var(--color-text-700)] font-medium border-r border-[var(--color-border)]">
+                                    Weight
+                                  </th>
+                                  <th className="px-4 py-2.5 text-center text-[var(--color-text-700)] font-medium">
+                                    Score
+                                  </th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-[var(--color-border)]">
+                                {group.components.map((comp) => (
+                                  <tr
+                                    key={comp.componentKey}
+                                    className="hover:bg-[var(--color-surface-alt)]"
+                                  >
+                                    <td className="px-4 py-3 text-[var(--color-text-900)] border-r border-[var(--color-border)]">
+                                      {comp.componentName}
+                                    </td>
+                                    <td className="px-4 py-3 text-center border-r border-[var(--color-border)]">
+                                      <span className="capitalize text-[var(--color-text-600)] text-xs bg-[var(--color-surface-alt)] px-2 py-0.5 rounded border border-[var(--color-border)]">
+                                        {comp.evaluatorRole}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3 text-center text-[var(--color-text-700)] font-medium border-r border-[var(--color-border)]">
+                                      {comp.totalMarks}
+                                    </td>
+                                    <td className="px-4 py-3 text-center">
+                                      {comp.score != null ? (
+                                        <span className="font-semibold text-[var(--color-text-900)]">
+                                          {comp.score.toFixed(1)}
+                                        </span>
+                                      ) : (
+                                        <span className="text-[var(--color-text-400)] text-xs">—</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                ))}
+
+                                {/* Total row */}
+                                {group.components.length > 0 && (
+                                  <tr className="bg-[var(--color-surface-alt)] border-t-2 border-[var(--color-border)]">
+                                    <td
+                                      className="px-4 py-2.5 font-semibold text-[var(--color-text-900)] border-r border-[var(--color-border)]"
+                                      colSpan={2}
+                                    >
+                                      Total
+                                    </td>
+                                    <td className="px-4 py-2.5 text-center font-semibold text-[var(--color-text-900)] border-r border-[var(--color-border)]">
+                                      {totalComponentMax}
+                                    </td>
+                                    <td className="px-4 py-2.5 text-center font-semibold text-[var(--color-text-900)]">
+                                      {totalComponentScore.toFixed(1)}
+                                    </td>
+                                  </tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+
+                        {/* Bottom row: supervisor eval + chapter approval counts */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                          {/* Supervisor Evaluation */}
+                          <div className="rounded-lg border border-[var(--color-border)] p-4">
+                            <h4 className="text-sm font-semibold text-[var(--color-text-700)] mb-3 flex items-center gap-1.5">
+                              <Award className="w-4 h-4" />
+                              Supervisor Evaluation
+                            </h4>
+                            {group.supervisorEvaluation.length === 0 ? (
+                              <p className="text-sm text-[var(--color-text-500)]">
+                                No evaluation submitted yet.
+                              </p>
+                            ) : (
+                              <div className="space-y-2">
+                                {group.supervisorEvaluation.map((entry) => {
+                                  const student = group.students.find(
+                                    (s) => s.id === entry.studentId
+                                  );
+                                  return (
+                                    <div
+                                      key={entry.studentId}
+                                      className="flex items-center justify-between gap-2"
+                                    >
+                                      <span className="text-sm text-[var(--color-text-700)] truncate flex-1">
+                                        {student?.name ?? entry.studentId}
+                                      </span>
+                                      <div className="flex items-center gap-2 flex-shrink-0">
+                                        {entry.score != null ? (
+                                          <span className="font-semibold text-[var(--color-text-900)] text-sm">
+                                            {entry.score.toFixed(1)} / {entry.maxScore}
+                                          </span>
+                                        ) : (
+                                          <span className="text-[var(--color-text-400)] text-xs">
+                                            Not graded
+                                          </span>
+                                        )}
+                                        <span
+                                          className={`text-xs px-2 py-0.5 rounded-full ${
+                                            entry.submissionStatus === 'submitted'
+                                              ? 'bg-green-100 text-green-700'
+                                              : 'bg-gray-100 text-gray-600'
+                                          }`}
+                                        >
+                                          {entry.submissionStatus === 'submitted'
+                                            ? 'Submitted'
+                                            : 'Draft'}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                                {group.supervisorTotalScore != null && (
+                                  <div className="pt-2 border-t border-[var(--color-border)] flex items-center justify-between">
+                                    <span className="text-sm font-semibold text-[var(--color-text-900)]">
+                                      Average
+                                    </span>
+                                    <span className="text-sm font-semibold text-[var(--color-text-900)]">
+                                      {group.supervisorTotalScore.toFixed(1)} / {group.supervisorMaxScore}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Chapter submission approvals */}
+                          <div className="rounded-lg border border-[var(--color-border)] p-4">
+                            <h4 className="text-sm font-semibold text-[var(--color-text-700)] mb-3 flex items-center gap-1.5">
+                              <BookOpen className="w-4 h-4" />
+                              Chapter Submissions
+                            </h4>
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="flex items-center gap-1.5 text-[var(--color-text-600)]">
+                                  <FileText className="w-3.5 h-3.5" />
+                                  Total
+                                </span>
+                                <span className="font-semibold text-[var(--color-text-900)]">
+                                  {group.approvalCounts.total}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="flex items-center gap-1.5 text-green-700">
+                                  <CheckCircle className="w-3.5 h-3.5" />
+                                  Approved
+                                </span>
+                                <span className="font-semibold text-green-900">
+                                  {group.approvalCounts.approved}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="flex items-center gap-1.5 text-yellow-700">
+                                  <Clock className="w-3.5 h-3.5" />
+                                  Pending
+                                </span>
+                                <span className="font-semibold text-yellow-900">
+                                  {group.approvalCounts.pending}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="flex items-center gap-1.5 text-amber-700">
+                                  <XCircle className="w-3.5 h-3.5" />
+                                  Changes Req.
+                                </span>
+                                <span className="font-semibold text-amber-900">
+                                  {group.approvalCounts.rejected}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* IP info banner (shown only when group is IP) */}
+                        {isIP && group.ipMarkedAt && (
+                          <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                            <div className="flex items-start gap-2">
+                              <AlertTriangle className="w-4 h-4 text-orange-600 mt-0.5 flex-shrink-0" />
+                              <div>
+                                <p className="text-orange-800 text-sm font-medium">
+                                  Marked as In Progress on {formatDate(group.ipMarkedAt)}
+                                </p>
+                                {group.ipReason && (
+                                  <p className="text-orange-700 text-sm mt-0.5">{group.ipReason}</p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
+
+      {/* ── Approve Dialog ── */}
+      <Dialog open={!!approveTarget} onOpenChange={(open) => { if (!open) setApproveTarget(null); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Grade {selectedChapter?.chapterName}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle className="w-5 h-5 text-green-600" />
+              Approve Submission
+            </DialogTitle>
             <DialogDescription>
-              Enter your grade and feedback for this chapter submission.
+              Approve <strong>{approveTarget?.milestoneName}</strong> from Group {approveTarget?.groupNumber}.
+              This records your review — grading remains separate.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
-            <div className="mb-4">
-              <p className="text-[var(--color-text-600)] mb-2">
-                Maximum marks: {selectedChapter?.supervisorMarks}
-              </p>
-              {currentGroup && (
-                <p className="text-[var(--color-text-600)] mb-2">
-                  Group: {currentGroup.groupNumber} - {currentGroup.projectTitle}
-                </p>
-              )}
-            </div>
-            <div className="mb-4">
-              <Label htmlFor="grade" className="mb-2 block">
-                Grade (0-{selectedChapter?.supervisorMarks})
-              </Label>
-              <Input
-                id="grade"
-                type="number"
-                min="0"
-                max={selectedChapter?.supervisorMarks}
-                step="0.5"
-                value={gradeInput}
-                onChange={(e) => setGradeInput(e.target.value)}
-                placeholder={`Enter grade (0-${selectedChapter?.supervisorMarks})`}
-              />
-            </div>
-            <div>
-              <Label htmlFor="feedback" className="mb-2 block">
-                Feedback (Optional)
-              </Label>
-              <Textarea
-                id="feedback"
-                value={chapterFeedback}
-                onChange={(e) => setChapterFeedback(e.target.value)}
-                placeholder="Provide feedback for this chapter..."
-                className="min-h-[100px]"
-              />
-            </div>
+            <Label htmlFor="approve-comment" className="mb-2 block">
+              Comment (Optional)
+            </Label>
+            <Textarea
+              id="approve-comment"
+              value={approveComment}
+              onChange={(e) => setApproveComment(e.target.value)}
+              placeholder="Add an optional comment for the student…"
+              className="min-h-[100px]"
+            />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowGradeDialog(false)}>
+            <Button variant="outline" onClick={() => setApproveTarget(null)} disabled={processing}>
               Cancel
             </Button>
-            <Button variant="primary" onClick={handleSubmitGrade}>
-              Submit Grade
+            <Button
+              onClick={handleApprove}
+              disabled={processing}
+              className="bg-[#10B981] text-white hover:bg-[#0ea572] gap-2"
+            >
+              <CheckCircle className="w-4 h-4" />
+              {processing ? 'Approving…' : 'Confirm Approval'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Mark IP Confirmation Modal */}
-      <Dialog open={isIPModalOpen} onOpenChange={setIsIPModalOpen}>
+      {/* ── Reject Dialog ── */}
+      <Dialog open={!!rejectTarget} onOpenChange={(open) => { if (!open) setRejectTarget(null); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Mark Project as IP (In Progress)?</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <XCircle className="w-5 h-5 text-amber-600" />
+              Request Changes
+            </DialogTitle>
             <DialogDescription>
-              This indicates that the students are not ready to enter the final defense and will continue working on the project in the next term.
+              Request changes for <strong>{rejectTarget?.milestoneName}</strong> from Group {rejectTarget?.groupNumber}.
+              Provide clear feedback so the student knows what to revise.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
-            <p className="text-[var(--color-text-600)]">
-              Are you sure you want to mark this project as IP? This action will:
-            </p>
-            <ul className="list-disc list-inside mt-2 space-y-1 text-[var(--color-text-600)]">
-              <li>Prevent students from proceeding to final defense</li>
-              <li>Carry the project to the next term</li>
-              <li>Notify students and administrators</li>
-            </ul>
+            <Label htmlFor="reject-feedback" className="mb-2 block">
+              Feedback <span className="text-red-500">*</span>
+            </Label>
+            <Textarea
+              id="reject-feedback"
+              value={rejectFeedback}
+              onChange={(e) => setRejectFeedback(e.target.value)}
+              placeholder="Explain what changes are needed and why…"
+              className="min-h-[120px]"
+              required
+            />
+            {rejectFeedback.trim() === '' && (
+              <p className="text-red-500 text-xs mt-1">Feedback is required when requesting changes.</p>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsIPModalOpen(false)}>
+            <Button variant="outline" onClick={() => setRejectTarget(null)} disabled={processing}>
               Cancel
             </Button>
-            <Button 
-              onClick={confirmMarkIP}
-              className="bg-orange-600 text-white hover:bg-orange-700"
+            <Button
+              onClick={handleReject}
+              disabled={processing || !rejectFeedback.trim()}
+              variant="outline"
+              className="gap-2 text-amber-600 border-amber-300 hover:bg-amber-50"
             >
-              Confirm Mark IP
+              <XCircle className="w-4 h-4" />
+              {processing ? 'Submitting…' : 'Request Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* ── Mark as IP / Remove IP Dialog ── */}
+      <Dialog
+        open={!!ipTarget}
+        onOpenChange={(open) => { if (!open) { setIpTarget(null); setIpReason(''); } }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle
+                className={`w-5 h-5 ${
+                  ipTarget?.projectStatus === 'ip' ? 'text-gray-600' : 'text-orange-600'
+                }`}
+              />
+              {ipTarget?.projectStatus === 'ip' ? 'Remove IP Status' : 'Mark Group as In Progress'}
+            </DialogTitle>
+            <DialogDescription>
+              {ipTarget?.projectStatus === 'ip'
+                ? `Remove the In Progress status from Group ${ipTarget?.groupNumber} — "${ipTarget?.projectName}". The group will return to normal status and students may proceed with the standard graduation timeline.`
+                : `You are about to mark Group ${ipTarget?.groupNumber} — "${ipTarget?.projectName}" as In Progress (IP).`
+              }
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Warning box — only shown when marking as IP */}
+          {ipTarget?.projectStatus !== 'ip' && (
+            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 -mt-1">
+              <p className="text-orange-800 text-sm font-semibold mb-2">
+                ⚠ Consequences of Marking as IP:
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-xs text-orange-800">
+                <li>Students in this group will <strong>not advance</strong> to the final defense this term.</li>
+                <li>The project will continue into the <strong>next term</strong>.</li>
+                <li>This action is recorded in the audit log with your name and timestamp.</li>
+                <li>Only you (or an admin) can reverse this decision.</li>
+              </ul>
+            </div>
+          )}
+
+          {/* Reason input — only when marking as IP */}
+          {ipTarget?.projectStatus !== 'ip' && (
+            <div>
+              <Label htmlFor="ip-reason" className="mb-2 block">
+                Reason{' '}
+                <span className="text-[var(--color-text-500)] text-xs font-normal">(Optional)</span>
+              </Label>
+              <Textarea
+                id="ip-reason"
+                value={ipReason}
+                onChange={(e) => setIpReason(e.target.value)}
+                placeholder="Briefly describe why this group is being marked as In Progress…"
+                className="min-h-[90px]"
+              />
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => { setIpTarget(null); setIpReason(''); }}
+              disabled={ipProcessing}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleMarkAsIP}
+              disabled={ipProcessing}
+              className={
+                ipTarget?.projectStatus === 'ip'
+                  ? 'bg-gray-700 text-white hover:bg-gray-800'
+                  : 'bg-orange-600 text-white hover:bg-orange-700'
+              }
+            >
+              {ipProcessing
+                ? ipTarget?.projectStatus === 'ip' ? 'Removing…' : 'Marking…'
+                : ipTarget?.projectStatus === 'ip' ? 'Remove IP Status' : 'Confirm — Mark as IP'
+              }
             </Button>
           </DialogFooter>
         </DialogContent>
