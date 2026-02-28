@@ -52,8 +52,6 @@ html, body {
 main {
   box-sizing: border-box;
   max-width: 100%;
-  margin-left: 260px !important;
-  width: calc(100% - 260px) !important;
 }
 
 main > div {
