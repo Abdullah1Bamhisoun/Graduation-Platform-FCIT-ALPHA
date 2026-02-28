@@ -13,7 +13,7 @@ export function AdminCourseGrades() {
 
   return (
     <Layout user={user} pageTitle="Course Grades">
-      <div className="max-w-6xl mx-auto pt-8 pb-12">
+      <div className="w-full pt-8 pb-12">
         <div className="mb-8 flex items-start justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Course Grades</h1>

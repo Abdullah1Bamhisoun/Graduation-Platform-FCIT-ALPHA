@@ -1,6 +1,92 @@
 @import "tailwindcss";
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
+/* ─── Global box model reset ─────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  overflow-x: hidden;
+  margin: 0;
+  padding: 0;
+}
+
+/* ─── Layout structure ───────────────────────────────────────────────────── */
+.layout {
+  display: flex;
+  width: 100%;
+}
+
+.sidebar {
+  width: 260px;
+  min-width: 260px;
+  height: 100vh;
+  position: fixed;
+  left: 0;
+  top: 0;
+}
+
+.main-content {
+  margin-left: 260px;
+  width: calc(100% - 260px);
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+/* ─── Container/wrapper overrides ────────────────────────────────────────── */
+.container,
+.dashboard-container,
+.content-wrapper,
+.page-wrapper {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* ─── Main content area: override Tailwind max-width centering ───────────── */
+/* These rules are outside @layer so they win over @layer utilities (Tailwind) */
+/* Overrides Layout.tsx ml-[280px] / w-[calc(100%-280px)] to match 260px sidebar */
+main {
+  box-sizing: border-box;
+  max-width: 100%;
+  margin-left: 260px !important;
+  width: calc(100% - 260px) !important;
+}
+
+main > div {
+  width: 100%;
+  max-width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+/* Targets page-level wrapper divs (e.g. max-w-6xl mx-auto on CoordinatorCourseGrades)  */
+/* !important ensures these beat Tailwind utility specificity regardless of layer order  */
+main > div > div {
+  max-width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+/* One extra depth level for pages that wrap content in an additional container */
+main > div > div > div {
+  max-width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+/* ─── Flex column max-width overrides ───────────────────────────────────────
+   Tailwind arbitrary max-w-[Xpx] classes on flex-1 columns cap their width
+   on wider screens, leaving empty gray space on the right.
+   Override them here so flex-1 columns fill the available space.
+   Brackets must be escaped in CSS selectors: \[ and \]                      */
+main .max-w-\[800px\] {
+  max-width: 100% !important;
+}
+
 @layer base {
   :root {
     /* Brand Colors - Accessible Palette */

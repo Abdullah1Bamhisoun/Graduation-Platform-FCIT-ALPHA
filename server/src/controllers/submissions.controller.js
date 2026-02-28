@@ -33,7 +33,7 @@ async function getChapterSubmissionsForSupervisor(req, res) {
         milestone:milestones!milestone_id(id, name, type, due_date),
         student:profiles!student_id(id, name),
         versions:submission_versions(version, file_name, file_size, uploaded_at, notes),
-        feedback:submission_feedback(id, overall_comment, reviewed_by, reviewed_at, created_at)
+        feedback:submission_feedback(id, overall_comment, reviewed_by, reviewed_at)
       `)
       .in('group_id', groupIds)
       .order('updated_at', { ascending: false });
@@ -58,7 +58,7 @@ async function getChapterSubmissionsForSupervisor(req, res) {
       hasFeedback: (s.feedback || []).length > 0,
       latestFeedback:
         (s.feedback || []).sort(
-          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          (a, b) => new Date(b.reviewed_at).getTime() - new Date(a.reviewed_at).getTime()
         )[0] ?? null,
     }));
 
@@ -235,7 +235,7 @@ async function getChapterSubmissionsForCoordinator(req, res) {
         milestone:milestones!milestone_id(id, name, type, due_date),
         student:profiles!student_id(id, name),
         versions:submission_versions(version, file_name, file_size, uploaded_at, notes),
-        feedback:submission_feedback(id, overall_comment, reviewed_by, reviewed_at, created_at)
+        feedback:submission_feedback(id, overall_comment, reviewed_by, reviewed_at)
       `)
       .in('group_id', groupIds)
       .order('updated_at', { ascending: false });
@@ -260,7 +260,7 @@ async function getChapterSubmissionsForCoordinator(req, res) {
       hasFeedback: (s.feedback || []).length > 0,
       latestFeedback:
         (s.feedback || []).sort(
-          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          (a, b) => new Date(b.reviewed_at).getTime() - new Date(a.reviewed_at).getTime()
         )[0] ?? null,
     }));
 
