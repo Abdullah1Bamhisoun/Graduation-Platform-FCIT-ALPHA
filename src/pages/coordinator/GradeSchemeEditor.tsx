@@ -32,6 +32,7 @@ import {
   type GradingComponent,
   type RubricCriterion,
 } from '../../services/grading-rubric';
+import { getCourseTypeFromUUID } from '../../services/courses';
 import {
   Save, Edit2, Info, AlertCircle, CheckCircle, ChevronDown, ChevronUp,
   BookOpen, BarChart3, Award, FileText, Users, Plus, Trash2, Loader2,
@@ -136,6 +137,11 @@ export function CoordinatorGradeSchemeEditor() {
 
   const [activeCourse, setActiveCourse] = useState<'498' | '499'>('498');
 
+  // Coordinator access control
+  const [assignedCourseType, setAssignedCourseType] = useState<'498' | '499' | null>(null);
+  const [courseTypeLoading, setCourseTypeLoading] = useState(true);
+  const isCoordinator = user?.activeRole === 'coordinator';
+
   // Components state
   const [components498, setComponents498] = useState<GradingComponent[]>([]);
   const [components499, setComponents499] = useState<GradingComponent[]>([]);
@@ -206,6 +212,29 @@ export function CoordinatorGradeSchemeEditor() {
   }, []);
 
   useEffect(() => { loadAll(); }, [loadAll]);
+
+  // ── Detect coordinator's assigned course ──────────────────────────────────────
+
+  useEffect(() => {
+    const detectCoordinatorCourse = async () => {
+      setCourseTypeLoading(true);
+      try {
+        if (isCoordinator && user?.coordinatorCourseId) {
+          const courseType = await getCourseTypeFromUUID(user.coordinatorCourseId);
+          setAssignedCourseType(courseType);
+          // Auto-set active course to coordinator's assigned course
+          if (courseType) {
+            setActiveCourse(courseType);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to detect coordinator course:', err);
+      } finally {
+        setCourseTypeLoading(false);
+      }
+    };
+    detectCoordinatorCourse();
+  }, [isCoordinator, user?.coordinatorCourseId]);
 
   // ── Component validation ───────────────────────────────────────────────────
 
@@ -412,7 +441,7 @@ export function CoordinatorGradeSchemeEditor() {
             <Button
               onClick={() => saveComponents(courseType)}
               disabled={savingComponents || !totalOk}
-              className="bg-[#10B981] text-black hover:bg-[#0ea572]"
+              className="bg-[#10B981] text-black border-2 border-black hover:bg-[#0ea572]"
               size="sm"
             >
               <Save className="w-4 h-4 mr-2" />
@@ -509,7 +538,7 @@ export function CoordinatorGradeSchemeEditor() {
                     <Button
                       size="sm"
                       onClick={() => setCreateCriterionOpen(true)}
-                      className="bg-purple-600 text-black hover:bg-purple-700 gap-1.5 h-7"
+                      className="bg-purple-600 text-black border-2 border-black hover:bg-purple-700 gap-1.5 h-7"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       Add Criterion
@@ -617,11 +646,37 @@ export function CoordinatorGradeSchemeEditor() {
         </p>
       </div>
 
-      <Tabs value={activeCourse} onValueChange={v => setActiveCourse(v as '498' | '499')}>
-        <TabsList className="mb-6">
-          <TabsTrigger value="498">CPIS-498 — Senior Project I</TabsTrigger>
-          <TabsTrigger value="499">CPIS-499 — Senior Project II</TabsTrigger>
-        </TabsList>
+      <Tabs value={activeCourse} onValueChange={isCoordinator ? undefined : (v => setActiveCourse(v as '498' | '499'))}>
+        {isCoordinator ? (
+          // COORDINATOR VIEW: Static single-course header
+          <div className="mb-6 border-b-2 border-[var(--color-border)] pb-3">
+            {courseTypeLoading ? (
+              <div className="text-sm text-[var(--color-text-500)]">Loading course...</div>
+            ) : assignedCourseType ? (
+              <h2 className="text-lg font-semibold text-[var(--color-text-900)]">
+                Grade Scheme Editor — CPIS-{assignedCourseType} — {assignedCourseType === '498' ? 'Senior Project I' : 'Senior Project II'}
+              </h2>
+            ) : (
+              <div className="text-sm text-red-600">Unable to load your assigned course</div>
+            )}
+          </div>
+        ) : (
+          // ADMIN VIEW: Keep existing dual-option tabs
+          <TabsList className="mb-6 gap-3 bg-transparent p-1">
+            <TabsTrigger
+              value="498"
+              className="px-4 py-2.5 border-2 border-[var(--color-border)] rounded-lg font-medium transition-all duration-200 data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-[var(--color-primary-50)] data-[state=active]:text-[var(--color-primary-900)] data-[state=inactive]:hover:border-[var(--color-primary-400)] data-[state=inactive]:hover:bg-[var(--color-surface-alt)]"
+            >
+              CPIS-498 — Senior Project I
+            </TabsTrigger>
+            <TabsTrigger
+              value="499"
+              className="px-4 py-2.5 border-2 border-[var(--color-border)] rounded-lg font-medium transition-all duration-200 data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-[var(--color-primary-50)] data-[state=active]:text-[var(--color-primary-900)] data-[state=inactive]:hover:border-[var(--color-primary-400)] data-[state=inactive]:hover:bg-[var(--color-surface-alt)]"
+            >
+              CPIS-499 — Senior Project II
+            </TabsTrigger>
+          </TabsList>
+        )}
 
         <TabsContent value="498"><CoursePanel courseType="498" /></TabsContent>
         <TabsContent value="499"><CoursePanel courseType="499" /></TabsContent>

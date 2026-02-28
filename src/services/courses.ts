@@ -63,3 +63,27 @@ export async function getCourseById(courseId: string): Promise<Course | null> {
     name: data.name,
   };
 }
+
+/**
+ * Map a course UUID to its course_type ('498' or '499').
+ * Extracts the 3-digit course number from the course code (e.g., 'CPIS-498' → '498').
+ * Used by the Coordinator interface to restrict access to their assigned course.
+ */
+export async function getCourseTypeFromUUID(courseId: string): Promise<'498' | '499' | null> {
+  try {
+    const { data, error } = await supabase
+      .from('courses')
+      .select('code')
+      .eq('id', courseId)
+      .single();
+
+    if (error) throw error;
+
+    // Extract course_type from course.code (e.g., "CPIS-498" → "498")
+    const match = data?.code?.match(/(\d{3})$/);
+    return match ? (match[1] as '498' | '499') : null;
+  } catch (err) {
+    console.error('Failed to map course UUID to type:', err);
+    return null;
+  }
+}

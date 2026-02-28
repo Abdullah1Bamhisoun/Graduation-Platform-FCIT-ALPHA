@@ -40,6 +40,52 @@ async function getGradingScheme(req, res) {
   try {
     const { courseType } = req.query;
 
+    // ── NEW: Access Control for Coordinators ────────────────────────────────────
+    if (req.user.activeRole === 'coordinator') {
+      // Validate that coordinator's assigned course matches requested courseType
+      if (courseType) {
+        try {
+          // 1. Fetch coordinator's assigned course
+          const { data: coordinatorRole, error: roleError } = await supabaseAdmin
+            .from('user_roles')
+            .select('coordinator_course_id')
+            .eq('user_id', req.user.id)
+            .eq('role', 'coordinator')
+            .single();
+
+          if (roleError || !coordinatorRole?.coordinator_course_id) {
+            return res.status(403).json({ error: 'Coordinator course assignment not found' });
+          }
+
+          // 2. Fetch course to get course_type from course code
+          const { data: course, error: courseError } = await supabaseAdmin
+            .from('courses')
+            .select('code')
+            .eq('id', coordinatorRole.coordinator_course_id)
+            .single();
+
+          if (courseError || !course?.code) {
+            return res.status(403).json({ error: 'Course not found' });
+          }
+
+          // 3. Extract course_type from course.code (e.g., "CPIS-498" → "498")
+          const match = course.code.match(/(\d{3})$/);
+          const assignedCourseType = match ? match[1] : null;
+
+          // 4. Verify requested courseType matches assigned course
+          if (courseType !== assignedCourseType) {
+            return res.status(403).json({
+              error: `You do not have access to this course. Your assigned course is CPIS-${assignedCourseType}`,
+            });
+          }
+        } catch (err) {
+          console.error('Access control validation error:', err);
+          return res.status(500).json({ error: 'Access control validation failed' });
+        }
+      }
+    }
+    // Admin role: no restriction, can access both courses
+
     let componentsQuery = supabaseAdmin
       .from('grading_components')
       .select('*')
