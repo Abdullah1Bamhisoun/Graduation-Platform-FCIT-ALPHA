@@ -1068,7 +1068,26 @@ async function getGroupsWithCoordinatorGrades(req, res) {
 
     if (componentError) throw componentError;
 
-    // 5. For each group, fetch coordinator evaluation and approval counts
+    // 5. Batch fetch all assessment data to populate grade component scores
+    const [
+      { data: allSupAssessments },
+      { data: allCommEvaluations },
+      { data: allDelivScores },
+      { data: allAdminCommScores },
+      { data: allWeeklyReports },
+      { data: allCoordAssessments },
+      { data: allPeerEvaluations },
+    ] = await Promise.all([
+      supabaseAdmin.from('supervisor_assessments').select('group_id, score, max_score').in('group_id', groupIds),
+      supabaseAdmin.from('committee_evaluations').select('group_id, student_id, score, max_score').in('group_id', groupIds),
+      supabaseAdmin.from('coordinator_deliverable_scores').select('group_id, score').in('group_id', groupIds),
+      supabaseAdmin.from('admin_committee_scores').select('group_id, poster_day_score, implementation_score, testing_score').in('group_id', groupIds),
+      supabaseAdmin.from('weekly_reports').select('group_id, student_mark, supervisor_mark').in('group_id', groupIds),
+      supabaseAdmin.from('coordinator_assessments').select('group_id, component_key, normalized_score, max_score, submission_status').eq('coordinator_id', coordinatorId).in('group_id', groupIds),
+      supabaseAdmin.from('peer_evaluations').select('group_id, student_id, score').in('group_id', groupIds),
+    ]);
+
+    // 6. For each group, fetch coordinator evaluation and approval counts
     const result = await Promise.all((groups || []).map(async (group) => {
       // Get approval counts
       const { data: approvals, error: approvalsError } = await supabaseAdmin
@@ -1100,6 +1119,49 @@ async function getGroupsWithCoordinatorGrades(req, res) {
         .eq('coordinator_id', coordinatorId)
         .maybeSingle();
 
+      // Compute per-component scores from batched data
+      const groupSupScores = (allSupAssessments || []).filter(a => a.group_id === group.id);
+      const supScoreValues = groupSupScores.map(a => a.score).filter(s => s != null);
+      const supervisorScore = supScoreValues.length
+        ? supScoreValues.reduce((s, v) => s + Number(v), 0) / supScoreValues.length
+        : null;
+
+      const groupCommScores = (allCommEvaluations || []).filter(a => a.group_id === group.id);
+      const committeeScore = groupCommScores.length > 0
+        ? groupCommScores.reduce((s, r) => s + Number(r.score ?? 0), 0) / groupCommScores.length
+        : null;
+
+      const groupDelivs = (allDelivScores || []).filter(d => d.group_id === group.id);
+      const deliverablesTotal = groupDelivs.length > 0
+        ? groupDelivs.reduce((s, d) => s + Number(d.score ?? 0), 0)
+        : null;
+
+      const groupAdminComm = (allAdminCommScores || []).find(a => a.group_id === group.id);
+      const adminCommitteeTotal = groupAdminComm
+        ? (Number(groupAdminComm.poster_day_score ?? 0) +
+           Number(groupAdminComm.implementation_score ?? 0) +
+           Number(groupAdminComm.testing_score ?? 0))
+        : null;
+
+      const groupWeekly = (allWeeklyReports || []).filter(r => r.group_id === group.id);
+      const weeklyRaw = groupWeekly.reduce((s, r) => s + (r.student_mark ?? 0) + (r.supervisor_mark ?? 0), 0);
+      const weeklyMaxScore = courseType === '499' ? 22 : 20;
+      const weeklyScore = groupWeekly.length > 0 ? Math.min(weeklyRaw, weeklyMaxScore) : null;
+
+      const groupCoordAssessMap = {};
+      (allCoordAssessments || []).filter(a => a.group_id === group.id).forEach(a => {
+        groupCoordAssessMap[a.component_key] = a.normalized_score;
+      });
+
+      const groupPeerScores = (allPeerEvaluations || []).filter(p => p.group_id === group.id);
+      const peerScoreValues = groupPeerScores.map(p => Number(p.score)).filter(s => !isNaN(s));
+      const peerAvgRaw = peerScoreValues.length > 0
+        ? peerScoreValues.reduce((s, v) => s + v, 0) / peerScoreValues.length
+        : null;
+      const peerComponent = components?.find(c => c.component_key === 'peer_review');
+      const peerWeight = peerComponent ? Number(peerComponent.total_marks) : 5;
+      const peerScore = peerAvgRaw != null ? (peerAvgRaw / 5) * peerWeight : null;
+
       const gMembers = membersByGroup[group.id] || [];
 
       return {
@@ -1119,14 +1181,38 @@ async function getGroupsWithCoordinatorGrades(req, res) {
         projectStatus: group.status || 'normal',
         ipMarkedAt: null,
         totalScore: null, // Calculated on frontend from components
-        gradeComponents: components?.map(c => ({
-          componentKey: c.component_key,
-          componentName: c.component_name,
-          evaluatorRole: c.evaluator_role,
-          weight: c.total_marks,
-          score: null, // Would be fetched from various assessment tables
-          maxScore: c.total_marks,
-        })) || [],
+        gradeComponents: components?.map(c => {
+          let score = null;
+          switch (c.component_key) {
+            case 'supervisor_eval':
+              score = supervisorScore;
+              break;
+            case 'committee_eval':
+              score = committeeScore;
+              break;
+            case 'coordinator_deliverables':
+              score = courseType === '499' ? adminCommitteeTotal : deliverablesTotal;
+              break;
+            case 'progress_reports':
+              score = weeklyScore;
+              break;
+            case 'peer_review':
+              score = peerScore;
+              break;
+            default:
+              if (c.evaluator_role === 'coordinator') {
+                score = groupCoordAssessMap[c.component_key] ?? null;
+              }
+          }
+          return {
+            componentKey: c.component_key,
+            componentName: c.component_name,
+            evaluatorRole: c.evaluator_role,
+            weight: c.total_marks,
+            score,
+            maxScore: c.total_marks,
+          };
+        }) || [],
         approvalCounts,
         coordinatorEvaluation: coordEval ? {
           submissionStatus: coordAssess?.submission_status || 'draft',
