@@ -225,6 +225,74 @@ export async function updateRubricCriterion(
   if (error) throw error;
 }
 
+/**
+ * Create a new rubric criterion.
+ */
+export async function createRubricCriterion(params: {
+  courseType: '498' | '499';
+  componentKey: string;
+  criterionKey: string;
+  criterionName: string;
+  maxRawScore: number;
+  description1?: string;
+  description2?: string;
+  description3?: string;
+  description4?: string;
+  description5?: string;
+  displayOrder?: number;
+}): Promise<RubricCriterion> {
+  const {
+    courseType,
+    componentKey,
+    criterionKey,
+    criterionName,
+    maxRawScore,
+    description1,
+    description2,
+    description3,
+    description4,
+    description5,
+    displayOrder = 0,
+  } = params;
+
+  const { data, error } = await supabase
+    .from('grading_rubric_criteria')
+    .insert({
+      course_type:    courseType,
+      component_key:  componentKey,
+      criterion_key:  criterionKey,
+      criterion_name: criterionName,
+      max_raw_score:  maxRawScore,
+      description_1:  description1 ?? null,
+      description_2:  description2 ?? null,
+      description_3:  description3 ?? null,
+      description_4:  description4 ?? null,
+      description_5:  description5 ?? null,
+      display_order:  displayOrder,
+      is_active:      true,
+      updated_at:     new Date().toISOString(),
+    })
+    .select('*')
+    .single();
+
+  if (error) throw error;
+  if (!data) throw new Error('Failed to create criterion');
+
+  return mapCriterion(data);
+}
+
+/**
+ * Soft-delete a rubric criterion by marking it inactive.
+ */
+export async function deleteRubricCriterion(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('grading_rubric_criteria')
+    .update({ is_active: false, updated_at: new Date().toISOString() })
+    .eq('id', id);
+
+  if (error) throw error;
+}
+
 // ─── Supervisor Rubric Scores ─────────────────────────────────────────────────
 
 /**

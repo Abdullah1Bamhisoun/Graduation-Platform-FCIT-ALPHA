@@ -26,6 +26,16 @@ router.get('/supervisor-grades', authenticate, requireSupervisorOrAdmin, control
  */
 router.patch('/:id/project-status', authenticate, requireSupervisorOrAdmin, controller.markGroupAsIP);
 
+/**
+ * POST /api/groups/:id/supervisor-evaluation
+ * Supervisor submits rubric-based evaluation scores for each student in a group.
+ * Backend validates supervisor ownership, student membership, criterion keys,
+ * and score ranges (1–5). Normalized score is calculated server-side and synced
+ * to supervisor_assessments. Grading scheme is read dynamically from
+ * grading_rubric_criteria + grading_components — never hardcoded.
+ */
+router.post('/:id/supervisor-evaluation', authenticate, requireSupervisorOrAdmin, controller.submitSupervisorEvaluation);
+
 // ── Coordinator / Admin routes ────────────────────────────────────────────────
 
 router.get('/', authenticate, requireCoordinatorOrAdmin, controller.getAllGroups);

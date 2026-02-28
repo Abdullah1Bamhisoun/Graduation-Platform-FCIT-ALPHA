@@ -16,20 +16,25 @@ import { Label } from '../../components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { Textarea } from '../../components/ui/textarea';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '../../components/ui/dialog';
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
+} from '../../components/ui/alert-dialog';
 import { useAuth } from '../../lib/AuthContext';
 import {
   getGradingComponents,
   updateGradingComponent,
   getAllRubricCriteria,
   updateRubricCriterion,
+  createRubricCriterion,
+  deleteRubricCriterion,
   type GradingComponent,
   type RubricCriterion,
 } from '../../services/grading-rubric';
 import {
   Save, Edit2, Info, AlertCircle, CheckCircle, ChevronDown, ChevronUp,
-  BookOpen, BarChart3, Award, FileText, Users,
+  BookOpen, BarChart3, Award, FileText, Users, Plus, Trash2, Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -73,9 +78,11 @@ interface CriterionRowProps {
   criterion: RubricCriterion;
   isDeliverable: boolean;
   onEdit: (c: RubricCriterion) => void;
+  onDelete: (c: RubricCriterion) => void;
+  isDeleting?: boolean;
 }
 
-function CriterionRow({ criterion, isDeliverable, onEdit }: CriterionRowProps) {
+function CriterionRow({ criterion, isDeliverable, onEdit, onDelete, isDeleting }: CriterionRowProps) {
   return (
     <tr className="border-b border-[var(--color-border)] hover:bg-gray-50/50 text-sm">
       <td className="py-3 px-4 text-[var(--color-text-900)] font-medium">
@@ -94,10 +101,28 @@ function CriterionRow({ criterion, isDeliverable, onEdit }: CriterionRowProps) {
           </div>
         </td>
       )}
-      <td className="py-3 px-4 text-right">
-        <Button size="sm" variant="outline" onClick={() => onEdit(criterion)}
-          className="h-7 text-xs">
+      <td className="py-3 px-4 text-right flex items-center justify-end gap-1.5">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => onEdit(criterion)}
+          className="h-7 text-xs"
+        >
           <Edit2 className="w-3 h-3 mr-1" />Edit
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => onDelete(criterion)}
+          disabled={isDeleting}
+          className="h-7 text-xs gap-1 border-red-300 text-red-700 hover:bg-red-50"
+        >
+          {isDeleting ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : (
+            <Trash2 className="w-3 h-3" />
+          )}
+          Delete
         </Button>
       </td>
     </tr>
@@ -131,6 +156,25 @@ export function CoordinatorGradeSchemeEditor() {
   const [editCriterion, setEditCriterion] = useState<RubricCriterion | null>(null);
   const [criterionDraft, setCriterionDraft] = useState<Partial<RubricCriterion>>({});
   const [savingCriterion, setSavingCriterion] = useState(false);
+
+  // Criterion create dialog
+  const [createCriterionOpen, setCreateCriterionOpen] = useState(false);
+  const [createDraft, setCreateDraft] = useState<{
+    criterionName: string;
+    maxRawScore: number;
+    displayOrder: number;
+    descriptions: Record<number, string>;
+  }>({
+    criterionName: '',
+    maxRawScore: 5,
+    displayOrder: 0,
+    descriptions: {},
+  });
+  const [creatingCriterion, setCreatingCriterion] = useState(false);
+
+  // Criterion delete dialog
+  const [deleteCriterionTarget, setDeleteCriterionTarget] = useState<RubricCriterion | null>(null);
+  const [deletingCriterion, setDeletingCriterion] = useState(false);
 
   // ── Load data ──────────────────────────────────────────────────────────────
 
@@ -231,6 +275,95 @@ export function CoordinatorGradeSchemeEditor() {
     }
   };
 
+  // ── Create/Delete Criterion handlers ────────────────────────────────────────
+  // These are set to work primarily with supervisor_eval for now.
+  // In future, can be extended to support other component types.
+
+  const activeComponentKey = 'supervisor_eval';
+  const activeComponentName = 'Supervisor Evaluation';
+  // Determine active course type from which criteria set has items
+  const activeCourseType: '498' | '499' = criteria498.some(c => c.componentKey === activeComponentKey) ? '498' : '499';
+
+  const handleCreateCriterion = async () => {
+    if (!createDraft.criterionName.trim()) {
+      toast.error('Criterion name is required');
+      return;
+    }
+    if (createDraft.maxRawScore < 1 || createDraft.maxRawScore > 100) {
+      toast.error('Max raw score must be between 1 and 100');
+      return;
+    }
+
+    const criterionKey = `${activeComponentKey}_${createDraft.criterionName
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+      .replace(/[^a-z0-9_]/g, '')}`;
+
+    setCreatingCriterion(true);
+    try {
+      const newCrit = await createRubricCriterion({
+        courseType: activeCourseType,
+        componentKey: activeComponentKey,
+        criterionKey,
+        criterionName: createDraft.criterionName.trim(),
+        maxRawScore: createDraft.maxRawScore,
+        description1: createDraft.descriptions[1] || undefined,
+        description2: createDraft.descriptions[2] || undefined,
+        description3: createDraft.descriptions[3] || undefined,
+        description4: createDraft.descriptions[4] || undefined,
+        description5: createDraft.descriptions[5] || undefined,
+        displayOrder: createDraft.displayOrder,
+      });
+
+      // Optimistic update: add to local state
+      if (activeCourseType === '498') {
+        setCriteria498(prev => [...prev, newCrit].sort((a, b) => a.displayOrder - b.displayOrder));
+      } else {
+        setCriteria499(prev => [...prev, newCrit].sort((a, b) => a.displayOrder - b.displayOrder));
+      }
+
+      setCreateCriterionOpen(false);
+      setCreateDraft({
+        criterionName: '',
+        maxRawScore: 5,
+        displayOrder: 0,
+        descriptions: {},
+      });
+
+      toast.success('Rubric criterion created successfully');
+    } catch (err: any) {
+      if (err.message?.includes('unique')) {
+        toast.error('A criterion with this name already exists for this component');
+      } else {
+        toast.error(err?.message || 'Failed to create criterion');
+      }
+    } finally {
+      setCreatingCriterion(false);
+    }
+  };
+
+  const handleDeleteCriterion = async () => {
+    if (!deleteCriterionTarget) return;
+    setDeletingCriterion(true);
+    try {
+      await deleteRubricCriterion(deleteCriterionTarget.id);
+
+      // Optimistic update: remove from local state
+      if (activeCourseType === '498') {
+        setCriteria498(prev => prev.filter(c => c.id !== deleteCriterionTarget.id));
+      } else {
+        setCriteria499(prev => prev.filter(c => c.id !== deleteCriterionTarget.id));
+      }
+
+      toast.success('Criterion deleted successfully');
+      setDeleteCriterionTarget(null);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to delete criterion');
+    } finally {
+      setDeletingCriterion(false);
+    }
+  };
+
   // ── Render helpers ─────────────────────────────────────────────────────────
 
   const toggleExpand = (key: string) =>
@@ -279,7 +412,7 @@ export function CoordinatorGradeSchemeEditor() {
             <Button
               onClick={() => saveComponents(courseType)}
               disabled={savingComponents || !totalOk}
-              className="bg-[#10B981] text-white hover:bg-[#0ea572]"
+              className="bg-[#10B981] text-black hover:bg-[#0ea572]"
               size="sm"
             >
               <Save className="w-4 h-4 mr-2" />
@@ -360,17 +493,27 @@ export function CoordinatorGradeSchemeEditor() {
               {/* Criteria table (expanded) */}
               {isExpanded && compCriteria.length > 0 && (
                 <div className="border-t border-[var(--color-border)] bg-white/70">
-                  <div className="px-4 py-2 flex items-center justify-between">
-                    <p className="text-xs font-semibold text-[var(--color-text-700)] uppercase tracking-wide">
-                      Rubric Criteria ({compCriteria.length} items)
-                      {!isDeliverable && ` · Raw max = ${compCriteria.reduce((s, c) => s + c.maxRawScore, 0)}`}
-                      {isDeliverable && ` · Sum max = ${compCriteria.reduce((s, c) => s + c.maxRawScore, 0)}`}
-                    </p>
-                    {!isDeliverable && (
-                      <p className="text-xs text-[var(--color-text-600)]">
-                        Normalized to {draft[comp.componentKey]?.marks ?? comp.totalMarks} marks
+                  <div className="px-4 py-3 flex items-center justify-between border-b border-[var(--color-border)]">
+                    <div>
+                      <p className="text-xs font-semibold text-[var(--color-text-700)] uppercase tracking-wide">
+                        Rubric Criteria ({compCriteria.length} items)
+                        {!isDeliverable && ` · Raw max = ${compCriteria.reduce((s, c) => s + c.maxRawScore, 0)}`}
+                        {isDeliverable && ` · Sum max = ${compCriteria.reduce((s, c) => s + c.maxRawScore, 0)}`}
                       </p>
-                    )}
+                      {!isDeliverable && (
+                        <p className="text-xs text-[var(--color-text-600)] mt-0.5">
+                          Normalized to {draft[comp.componentKey]?.marks ?? comp.totalMarks} marks
+                        </p>
+                      )}
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => setCreateCriterionOpen(true)}
+                      className="bg-purple-600 text-black hover:bg-purple-700 gap-1.5 h-7"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Add Criterion
+                    </Button>
                   </div>
 
                   <div className="overflow-x-auto">
@@ -394,6 +537,8 @@ export function CoordinatorGradeSchemeEditor() {
                             criterion={c}
                             isDeliverable={isDeliverable}
                             onEdit={openCriterionEditor}
+                            onDelete={setDeleteCriterionTarget}
+                            isDeleting={deletingCriterion && deleteCriterionTarget?.id === c.id}
                           />
                         ))}
                       </tbody>
@@ -544,7 +689,7 @@ export function CoordinatorGradeSchemeEditor() {
             <Button
               onClick={saveCriterion}
               disabled={savingCriterion}
-              className="bg-[#10B981] text-white hover:bg-[#0ea572]"
+              className="bg-[#10B981] text-black hover:bg-[#0ea572]"
             >
               <Save className="w-4 h-4 mr-2" />
               {savingCriterion ? 'Saving…' : 'Save Criterion'}
@@ -552,6 +697,153 @@ export function CoordinatorGradeSchemeEditor() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Create Rubric Criterion Dialog ───────────────────────────────────── */}
+      <Dialog open={createCriterionOpen} onOpenChange={setCreateCriterionOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Create New Rubric Criterion</DialogTitle>
+            <DialogDescription>
+              Add a new criterion to the {activeComponentName} evaluation component.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Criterion Name */}
+            <div>
+              <Label className="mb-1 block">Criterion Name *</Label>
+              <Input
+                placeholder="e.g., Literature Review, System Analysis"
+                value={createDraft.criterionName}
+                onChange={e => setCreateDraft(p => ({ ...p, criterionName: e.target.value }))}
+              />
+            </div>
+
+            {/* Max Raw Score */}
+            <div>
+              <Label className="mb-1 block">Max Score</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min="1"
+                  max="100"
+                  value={createDraft.maxRawScore}
+                  onChange={e => setCreateDraft(p => ({ ...p, maxRawScore: Number(e.target.value) }))}
+                  className="w-24"
+                />
+                <span className="text-xs text-[var(--color-text-500)]">
+                  (1–5 for Likert scale, up to 100 for deliverables)
+                </span>
+              </div>
+            </div>
+
+            {/* Scale Descriptions (conditionally shown) */}
+            {/* Only show for non-deliverable components */}
+            {activeComponentKey === 'supervisor_eval' && (
+              <>
+                <div className="border-t border-[var(--color-border)] pt-3 mt-3">
+                  <p className="text-xs font-medium text-[var(--color-text-600)] mb-2">
+                    Scale Descriptions (Optional)
+                  </p>
+                  {[1, 2, 3, 4, 5].map(level => (
+                    <div key={level} className="mb-2">
+                      <Label className="text-xs mb-0.5 block">
+                        Level {level} Description
+                      </Label>
+                      <Textarea
+                        placeholder={`e.g., "Excellent work showing mastery"`}
+                        value={createDraft.descriptions[level] || ''}
+                        onChange={e =>
+                          setCreateDraft(p => ({
+                            ...p,
+                            descriptions: { ...p.descriptions, [level]: e.target.value },
+                          }))
+                        }
+                        className="min-h-[50px] text-xs"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* Display Order */}
+            <div>
+              <Label className="mb-1 block">Display Order (Optional)</Label>
+              <Input
+                type="number"
+                min="0"
+                value={createDraft.displayOrder}
+                onChange={e => setCreateDraft(p => ({ ...p, displayOrder: Number(e.target.value) }))}
+                className="w-24"
+              />
+              <p className="text-xs text-[var(--color-text-400)] mt-1">
+                Lower numbers appear first in the table
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setCreateCriterionOpen(false);
+                setCreateDraft({
+                  criterionName: '',
+                  maxRawScore: 5,
+                  displayOrder: 0,
+                  descriptions: {},
+                });
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateCriterion}
+              disabled={creatingCriterion}
+              className="bg-purple-600 text-white hover:bg-purple-700"
+            >
+              {creatingCriterion ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                  Creating…
+                </>
+              ) : (
+                <>
+                  <Plus className="w-4 h-4 mr-1" />
+                  Create Criterion
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Delete Criterion Confirmation Dialog ──────────────────────────────── */}
+      <AlertDialog open={!!deleteCriterionTarget} onOpenChange={open => !open && setDeleteCriterionTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Rubric Criterion?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>{deleteCriterionTarget?.criterionName}</strong> will be marked as inactive.
+              {'\n\n'}
+              Existing evaluations using this criterion will remain in the historical record, but supervisors
+              won't be able to use this criterion for new evaluations. This action is permanent and cannot be
+              undone through the UI.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteCriterion}
+              disabled={deletingCriterion}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {deletingCriterion ? 'Deleting…' : 'Delete Permanently'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Layout>
   );
 }

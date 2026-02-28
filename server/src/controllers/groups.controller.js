@@ -801,6 +801,170 @@ async function markGroupAsIP(req, res) {
   }
 }
 
+/**
+ * POST /api/groups/:id/supervisor-evaluation
+ *
+ * Supervisor submits or saves rubric-based evaluation scores for each student
+ * in a group. Validates supervisor ownership and all criterion keys server-side.
+ * Calculates the normalized score and syncs it to supervisor_assessments.
+ *
+ * Body: {
+ *   evaluations: [{ studentId, scores: { criterionKey: rawScore (1–5) } }],
+ *   submissionStatus: 'draft' | 'submitted'
+ * }
+ */
+async function submitSupervisorEvaluation(req, res) {
+  try {
+    const { id: groupId }                          = req.params;
+    const { evaluations = [], submissionStatus = 'draft' } = req.body;
+    const supervisorId                             = req.user.id;
+
+    // ── Input validation ─────────────────────────────────────────────────────
+    if (!Array.isArray(evaluations) || evaluations.length === 0) {
+      return res.status(400).json({ error: 'evaluations array is required and must not be empty' });
+    }
+    if (!['draft', 'submitted'].includes(submissionStatus)) {
+      return res.status(400).json({ error: 'submissionStatus must be "draft" or "submitted"' });
+    }
+
+    // ── Fetch group for ownership check + course resolution ──────────────────
+    const { data: group, error: gError } = await supabaseAdmin
+      .from('groups')
+      .select('id, supervisor_id, course_id, course:courses!course_id(code)')
+      .eq('id', groupId)
+      .single();
+
+    if (gError || !group) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+
+    // Backend ownership check — only the assigned supervisor (or admin) may evaluate
+    if (!req.user.roles.includes('admin') && group.supervisor_id !== supervisorId) {
+      return res.status(403).json({ error: 'You are not the supervisor of this group' });
+    }
+
+    const courseId   = group.course_id;
+    const courseType = group.course?.code?.includes('499') ? '499' : '498';
+
+    // ── Fetch rubric criteria to validate keys and compute max raw total ──────
+    const { data: criteria, error: cError } = await supabaseAdmin
+      .from('grading_rubric_criteria')
+      .select('criterion_key, max_raw_score')
+      .eq('course_type', courseType)
+      .eq('component_key', 'supervisor_eval')
+      .eq('is_active', true);
+
+    if (cError || !criteria || criteria.length === 0) {
+      return res.status(400).json({ error: 'No rubric criteria defined for this course type' });
+    }
+
+    const criteriaMap   = Object.fromEntries(criteria.map((c) => [c.criterion_key, c]));
+    const maxRawTotal   = criteria.reduce((s, c) => s + Number(c.max_raw_score), 0);
+
+    // ── Fetch component total marks for normalization ─────────────────────────
+    const { data: component } = await supabaseAdmin
+      .from('grading_components')
+      .select('total_marks')
+      .eq('course_type', courseType)
+      .eq('component_key', 'supervisor_eval')
+      .single();
+
+    const totalMarks = component ? Number(component.total_marks) : (courseType === '499' ? 23 : 18);
+
+    // ── Fetch group members for student membership validation ─────────────────
+    const { data: members } = await supabaseAdmin
+      .from('group_members')
+      .select('student_id')
+      .eq('group_id', groupId);
+
+    const memberIds = new Set((members || []).map((m) => m.student_id));
+
+    // ── Validate each evaluation entry and build upsert rows ─────────────────
+    const rubricRows   = [];
+    const assessments  = [];
+
+    for (const ev of evaluations) {
+      const { studentId, scores } = ev;
+
+      if (!studentId || typeof scores !== 'object') {
+        return res.status(400).json({ error: 'Each evaluation must have studentId and scores' });
+      }
+      if (!memberIds.has(studentId)) {
+        return res.status(400).json({ error: `Student ${studentId} is not a member of this group` });
+      }
+
+      let rawTotal = 0;
+
+      for (const [criterionKey, rawScore] of Object.entries(scores)) {
+        if (!criteriaMap[criterionKey]) {
+          return res.status(400).json({ error: `Invalid criterion key: ${criterionKey}` });
+        }
+        const numScore = Number(rawScore);
+        if (!Number.isInteger(numScore) || numScore < 1 || numScore > 5) {
+          return res.status(400).json({
+            error: `Score for "${criterionKey}" must be an integer between 1 and 5`,
+          });
+        }
+        rawTotal += numScore;
+        rubricRows.push({
+          student_id:        studentId,
+          group_id:          groupId,
+          course_id:         courseId,
+          criterion_key:     criterionKey,
+          raw_score:         numScore,
+          graded_by:         supervisorId,
+          graded_at:         new Date().toISOString(),
+          submission_status: submissionStatus,
+        });
+      }
+
+      // Normalized score: (rawTotal / maxRawTotal) × totalMarks, rounded to 2 dp
+      const normalizedScore = maxRawTotal > 0
+        ? Math.round((rawTotal / maxRawTotal) * totalMarks * 100) / 100
+        : 0;
+
+      assessments.push({ studentId, normalizedScore });
+    }
+
+    // ── Upsert rubric scores ──────────────────────────────────────────────────
+    const { error: upsertError } = await supabaseAdmin
+      .from('supervisor_rubric_scores')
+      .upsert(rubricRows, { onConflict: 'student_id,group_id,course_id,criterion_key' });
+
+    if (upsertError) throw upsertError;
+
+    // ── Sync normalized scores to supervisor_assessments (backward compat) ────
+    const now = new Date().toISOString();
+    for (const { studentId, normalizedScore } of assessments) {
+      await supabaseAdmin
+        .from('supervisor_assessments')
+        .upsert({
+          student_id:        studentId,
+          group_id:          groupId,
+          course_id:         courseId,
+          score:             normalizedScore,
+          max_score:         totalMarks,
+          graded_by:         supervisorId,
+          graded_at:         now,
+          submission_status: submissionStatus,
+        }, { onConflict: 'student_id,group_id,course_id' });
+    }
+
+    res.json({
+      success: true,
+      results: assessments.map(({ studentId, normalizedScore }) => ({
+        studentId,
+        normalizedScore,
+        maxScore:        totalMarks,
+        submissionStatus,
+      })),
+    });
+  } catch (error) {
+    console.error('Error submitting supervisor evaluation:', error);
+    res.status(500).json({ error: error.message || 'Failed to submit evaluation' });
+  }
+}
+
 module.exports = {
   getAllGroups,
   getAvailableGroups,
@@ -811,4 +975,5 @@ module.exports = {
   createGroup,
   getSupervisorGroupsWithGrades,
   markGroupAsIP,
+  submitSupervisorEvaluation,
 };
