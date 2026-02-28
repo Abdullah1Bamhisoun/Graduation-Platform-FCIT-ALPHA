@@ -892,7 +892,7 @@ export function CoordinatorGradeSchemeEditor() {
             <AlertDialogAction
               onClick={handleDeleteCriterion}
               disabled={deletingCriterion}
-              className="bg-red-600 hover:bg-red-700 text-white"
+              className="bg-red-600 hover:bg-red-700 text-black"
             >
               {deletingCriterion ? 'Deleting…' : 'Delete Permanently'}
             </AlertDialogAction>
