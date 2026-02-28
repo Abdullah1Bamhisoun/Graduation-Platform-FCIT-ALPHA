@@ -200,6 +200,90 @@ async function optionalAuth(req, res, next) {
   }
 }
 
+/**
+ * Validate that coordinator's assigned course matches the requested courseType.
+ * Maps the coordinator's course UUID to courseType ('498' or '499') from the courses table.
+ * Admins bypass this check.
+ * Must be used AFTER authenticate.
+ *
+ * Usage: router.get('/coordinator-grades', authenticate, requireCoordinatorOrAdmin, validateCoordinatorCourseType)
+ *
+ * The courseType is expected to be in: req.query.courseType, req.body.courseType, or req.params.courseType
+ */
+async function validateCoordinatorCourseType(req, res, next) {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    // Admins bypass this check
+    if (req.user.roles.includes('admin')) {
+      return next();
+    }
+
+    // Only applies to coordinators
+    if (req.user.activeRole !== 'coordinator') {
+      return res.status(403).json({ error: 'Coordinator role required' });
+    }
+
+    // Get requested courseType from query, body, or params
+    const requestedCourseType =
+      req.query?.courseType ||
+      req.body?.courseType ||
+      req.params?.courseType;
+
+    if (!requestedCourseType) {
+      return res.status(400).json({ error: 'courseType parameter required' });
+    }
+
+    // Validate courseType format
+    if (!['498', '499'].includes(requestedCourseType)) {
+      return res.status(400).json({ error: 'Invalid courseType. Must be 498 or 499' });
+    }
+
+    // Get coordinator's assigned course UUID
+    if (!req.user.coordinatorCourseId) {
+      return res.status(403).json({ error: 'No course assigned to your coordinator account' });
+    }
+
+    // Map coordinator's course UUID to courseType from courses table
+    const { data: course, error: courseError } = await supabaseAdmin
+      .from('courses')
+      .select('code')
+      .eq('id', req.user.coordinatorCourseId)
+      .single();
+
+    if (courseError || !course?.code) {
+      console.error('Failed to fetch coordinator course:', courseError);
+      return res.status(500).json({ error: 'Failed to verify course access' });
+    }
+
+    // Extract courseType from course code (e.g., "CPIS-498" → "498")
+    const match = course.code.match(/(\d{3})$/);
+    const assignedCourseType = match ? match[1] : null;
+
+    if (!assignedCourseType) {
+      console.error('Could not parse course code:', course.code);
+      return res.status(500).json({ error: 'Invalid course code format' });
+    }
+
+    // Verify requested courseType matches assigned courseType
+    if (requestedCourseType !== assignedCourseType) {
+      return res.status(403).json({
+        error: `Access denied. You are assigned to CPIS-${assignedCourseType}. Requested: CPIS-${requestedCourseType}`,
+      });
+    }
+
+    // Attach to request for use in handlers
+    req.coordinatorCourseType = assignedCourseType;
+
+    next();
+  } catch (error) {
+    console.error('Course type validation error:', error);
+    return res.status(500).json({ error: 'Course access validation failed' });
+  }
+}
+
 module.exports = {
   authenticate,
   requireRole,
@@ -208,4 +292,5 @@ module.exports = {
   requireCoordinatorOrAdmin,
   enforceCourseScope,
   optionalAuth,
+  validateCoordinatorCourseType,
 };

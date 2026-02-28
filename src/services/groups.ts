@@ -363,3 +363,194 @@ export async function updateGroup(
     throw new Error(err.error || 'Failed to update group');
   }
 }
+
+// ─── Coordinator-Specific Functions ────────────────────────────────────
+
+export interface CoordinatorGroupWithGrades {
+  id: string;
+  number: number | null;
+  groupCode: string | null;
+  name: string;
+  courseCode: string;
+  courseType: '498' | '499';
+  supervisorId: string | null;
+  supervisorName: string | null;
+  students: Array<{ id: string; name: string; studentId?: string }>;
+  projectStatus: string;
+  ipMarkedAt: string | null;
+  totalScore: number | null;
+  gradeComponents: Array<{
+    componentKey: string;
+    componentName: string;
+    evaluatorRole: string;
+    weight: number;
+    score: number | null;
+    maxScore: number;
+  }>;
+  approvalCounts: {
+    total: number;
+    approved: number;
+    pending: number;
+    rejected: number;
+  };
+  coordinatorEvaluation: {
+    submissionStatus: 'draft' | 'submitted' | null;
+    normalizedScore: number | null;
+    maxScore: number | null;
+    submittedAt: string | null;
+  } | null;
+}
+
+/**
+ * Fetch all groups in coordinator's assigned course with grade data.
+ * Coordinator-only endpoint: /api/groups/coordinator-grades?courseType=498
+ */
+export async function getCoordinatorGroupsWithGrades(
+  courseType: '498' | '499',
+  activeRole: string = 'coordinator'
+): Promise<CoordinatorGroupWithGrades[]> {
+  try {
+    const session = await supabase.auth.getSession();
+    const token = session.data.session?.access_token;
+
+    const response = await fetch(`/api/groups/coordinator-grades?courseType=${courseType}`, {
+      headers: {
+        Authorization: `Bearer ${token ?? ''}`,
+        'X-Active-Role': activeRole,
+      },
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(err.error || 'Failed to fetch coordinator grades');
+    }
+
+    const data = await response.json();
+    return data.groups || [];
+  } catch (error) {
+    console.error('Error fetching coordinator groups:', error);
+    return [];
+  }
+}
+
+export interface CoordinatorEvaluationCriterion {
+  criterionId: string;
+  criterionKey: string;
+  criterionName: string;
+  maxRawScore: number;
+  rawScore: number | null;
+  description1?: string;
+  description2?: string;
+  description3?: string;
+  description4?: string;
+  description5?: string;
+}
+
+export interface CoordinatorEvaluationData {
+  evaluations: CoordinatorEvaluationCriterion[];
+  submissionStatus: 'draft' | 'submitted' | null;
+  submittedAt: string | null;
+}
+
+/**
+ * Fetch existing coordinator evaluation for a group (for modal pre-fill).
+ * Coordinator-only endpoint: /api/groups/{groupId}/coordinator-evaluation?courseType=498
+ */
+export async function getCoordinatorEvaluation(
+  groupId: string,
+  courseType: '498' | '499',
+  activeRole: string = 'coordinator'
+): Promise<CoordinatorEvaluationData> {
+  try {
+    const session = await supabase.auth.getSession();
+    const token = session.data.session?.access_token;
+
+    const response = await fetch(
+      `/api/groups/${groupId}/coordinator-evaluation?courseType=${courseType}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token ?? ''}`,
+          'X-Active-Role': activeRole,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        // No existing evaluation — return empty
+        return {
+          evaluations: [],
+          submissionStatus: null,
+          submittedAt: null,
+        };
+      }
+      const err = await response.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(err.error || 'Failed to fetch coordinator evaluation');
+    }
+
+    return response.json();
+  } catch (error) {
+    console.error('Error fetching coordinator evaluation:', error);
+    return {
+      evaluations: [],
+      submissionStatus: null,
+      submittedAt: null,
+    };
+  }
+}
+
+export interface CoordinatorEvaluationSubmission {
+  courseType: '498' | '499';
+  evaluations: Array<{
+    criterionId: string;
+    criterionKey: string;
+    rawScore: number;  // 1-5
+  }>;
+  submissionStatus: 'draft' | 'submitted';
+}
+
+export interface CoordinatorEvaluationResult {
+  success: boolean;
+  evaluations: Array<{
+    criterionKey: string;
+    rawScore: number;
+  }>;
+  totalNormalized: number;
+  maxPossible: number;
+  submissionStatus: 'draft' | 'submitted';
+}
+
+/**
+ * Submit coordinator evaluation for a group.
+ * Coordinator-only endpoint: POST /api/groups/{groupId}/coordinator-evaluation
+ */
+export async function submitCoordinatorEvaluation(
+  groupId: string,
+  params: CoordinatorEvaluationSubmission,
+  activeRole: string = 'coordinator'
+): Promise<CoordinatorEvaluationResult> {
+  try {
+    const session = await supabase.auth.getSession();
+    const token = session.data.session?.access_token;
+
+    const response = await fetch(`/api/groups/${groupId}/coordinator-evaluation`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token ?? ''}`,
+        'X-Active-Role': activeRole,
+      },
+      body: JSON.stringify(params),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(err.error || 'Failed to submit coordinator evaluation');
+    }
+
+    return response.json();
+  } catch (error) {
+    console.error('Error submitting coordinator evaluation:', error);
+    throw error;
+  }
+}

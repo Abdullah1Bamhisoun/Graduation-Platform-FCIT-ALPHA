@@ -39,6 +39,7 @@ import { CoordinatorWeekManager } from './pages/coordinator/WeekManager';
 import { CoordinatorLateRequests } from './pages/coordinator/LateRequests';
 import { CoordinatorCommitteeScores } from './pages/coordinator/CommitteeScores';
 import { CoordinatorGradeSchemeEditor } from './pages/coordinator/GradeSchemeEditor';
+import { CoordinatorCourseGrades } from './pages/coordinator/CoordinatorCourseGrades';
 
 // Admin Pages
 import { AdminDashboard } from './pages/admin/Dashboard';
@@ -49,6 +50,7 @@ import { ImportantFilesManager } from './pages/admin/ImportantFilesManager';
 import { AdminUserManagement } from './pages/admin/UserManagement';
 import { AdminWeeklyReports } from './pages/admin/WeeklyReports';
 import { AdminGradesDeliverables } from './pages/admin/GradesDeliverables';
+import { AdminCourseGrades } from './pages/admin/AdminCourseGrades';
 import { AdminPresentationCommittee } from './pages/admin/PresentationCommittee';
 import { AdminLockManager } from './pages/admin/LockManager';
 
@@ -109,7 +111,7 @@ export default function App() {
           <Route path="/coordinator/weekly-reports" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><CoordinatorWeeklyReports /></ProtectedRoute>} />
           <Route path="/coordinator/milestones" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><CoordinatorMilestonesConfig /></ProtectedRoute>} />
           <Route path="/coordinator/supervisors" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><CoordinatorSupervisors /></ProtectedRoute>} />
-          <Route path="/coordinator/grades" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><AdminGradesDeliverables /></ProtectedRoute>} />
+          <Route path="/coordinator/grades" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><CoordinatorCourseGrades /></ProtectedRoute>} />
           <Route path="/coordinator/week-manager" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><CoordinatorWeekManager /></ProtectedRoute>} />
           <Route path="/coordinator/late-requests" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><CoordinatorLateRequests /></ProtectedRoute>} />
           <Route path="/coordinator/committee-scores" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><CoordinatorCommitteeScores /></ProtectedRoute>} />
@@ -123,6 +125,7 @@ export default function App() {
           <Route path="/admin/milestones" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><AdminMilestonesConfig /></ProtectedRoute>} />
           <Route path="/admin/weekly-reports" element={<ProtectedRoute allowedRoles={['admin']}><AdminWeeklyReports /></ProtectedRoute>} />
           <Route path="/admin/grades-deliverables" element={<ProtectedRoute allowedRoles={['admin']}><AdminGradesDeliverables /></ProtectedRoute>} />
+          <Route path="/admin/course-grades" element={<ProtectedRoute allowedRoles={['admin']}><AdminCourseGrades /></ProtectedRoute>} />
           <Route path="/admin/presentation-committee" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><AdminPresentationCommittee /></ProtectedRoute>} />
           <Route path="/admin/announcements" element={<ProtectedRoute allowedRoles={['admin']}><AnnouncementsManager /></ProtectedRoute>} />
           <Route path="/admin/exports" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><AdminExportsAudit /></ProtectedRoute>} />

@@ -965,6 +965,417 @@ async function submitSupervisorEvaluation(req, res) {
   }
 }
 
+// ============================================================================
+// COORDINATOR-SPECIFIC ENDPOINTS
+// ============================================================================
+
+/**
+ * GET /api/groups/coordinator-grades?courseType=498
+ * Fetch all groups in coordinator's assigned course with grade data
+ * Coordinators see all groups from their assigned course
+ */
+async function getGroupsWithCoordinatorGrades(req, res) {
+  try {
+    const { courseType } = req.query;
+    const coordinatorId = req.user.id;
+    const isAdmin = req.user.activeRole === 'admin';
+
+    if (!courseType || !['498', '499'].includes(courseType)) {
+      return res.status(400).json({ error: 'Valid courseType (498 or 499) required' });
+    }
+
+    // Resolve course ID: coordinator uses assigned course, admin looks up by courseType
+    let resolvedCourseId = req.user.coordinatorCourseId;
+    if (!resolvedCourseId) {
+      if (isAdmin) {
+        const { data: courseRow } = await supabaseAdmin
+          .from('courses')
+          .select('id')
+          .ilike('code', `%${courseType}%`)
+          .limit(1)
+          .maybeSingle();
+        if (!courseRow) {
+          return res.status(404).json({ error: `No course found for courseType ${courseType}` });
+        }
+        resolvedCourseId = courseRow.id;
+      } else {
+        return res.status(403).json({ error: 'No course assigned to your coordinator account' });
+      }
+    }
+
+    // 1. Fetch all groups in the resolved course (include group_code and supervisor_id)
+    const { data: groups, error: groupsError } = await supabaseAdmin
+      .from('groups')
+      .select('id, group_code, group_number, project_name, course_id, status, supervisor_id')
+      .eq('course_id', resolvedCourseId)
+      .order('group_number');
+
+    if (groupsError) throw groupsError;
+
+    if (!groups || groups.length === 0) {
+      return res.json({ groups: [] });
+    }
+
+    const groupIds = groups.map(g => g.id);
+
+    // 2. Fetch group members
+    const { data: members, error: membersError } = await supabaseAdmin
+      .from('group_members')
+      .select('group_id, student_id')
+      .in('group_id', groupIds);
+
+    if (membersError) throw membersError;
+
+    // 3. Fetch student profiles
+    const studentIds = [...new Set((members || []).map(m => m.student_id))];
+    const { data: studentProfiles, error: profilesError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, name, student_id')
+      .in('id', studentIds);
+
+    if (profilesError) throw profilesError;
+
+    // 3b. Fetch supervisor profiles
+    const supervisorIds = [...new Set((groups || []).map(g => g.supervisor_id).filter(Boolean))];
+    const { data: supervisorProfiles } = await supabaseAdmin
+      .from('profiles')
+      .select('id, name')
+      .in('id', supervisorIds);
+
+    const supervisorMap = {};
+    (supervisorProfiles || []).forEach(p => {
+      supervisorMap[p.id] = p;
+    });
+
+    const profileMap = {};
+    (studentProfiles || []).forEach(p => {
+      profileMap[p.id] = p;
+    });
+
+    const membersByGroup = {};
+    (members || []).forEach(m => {
+      if (!membersByGroup[m.group_id]) membersByGroup[m.group_id] = [];
+      membersByGroup[m.group_id].push(m);
+    });
+
+    // 4. Fetch grading components for courseType
+    const { data: components, error: componentError } = await supabaseAdmin
+      .from('grading_components')
+      .select('component_key, component_name, evaluator_role, total_marks, display_order')
+      .eq('course_type', courseType)
+      .eq('is_active', true)
+      .order('display_order');
+
+    if (componentError) throw componentError;
+
+    // 5. For each group, fetch coordinator evaluation and approval counts
+    const result = await Promise.all((groups || []).map(async (group) => {
+      // Get approval counts
+      const { data: approvals, error: approvalsError } = await supabaseAdmin
+        .from('chapter_submissions')
+        .select('status')
+        .eq('group_id', group.id);
+
+      const approvalCounts = {
+        total: approvals?.length || 0,
+        approved: approvals?.filter(a => a.status === 'approved').length || 0,
+        pending: approvals?.filter(a => a.status === 'pending').length || 0,
+        rejected: approvals?.filter(a => a.status === 'rejected').length || 0,
+      };
+
+      // Get coordinator evaluation status
+     const { data: coordEval, error: coordEvalError } = await supabaseAdmin
+        .from('coordinator_evaluations')
+        .select('id, submission_status')
+        .eq('group_id', group.id)
+        .eq('coordinator_id', coordinatorId)
+        .limit(1)
+        .maybeSingle();
+
+      // Get normalized coordinator score (any component_key for this coordinator)
+      const { data: coordAssess, error: coordAssessError } = await supabaseAdmin
+        .from('coordinator_assessments')
+        .select('normalized_score, max_score, submission_status')
+        .eq('group_id', group.id)
+        .eq('coordinator_id', coordinatorId)
+        .maybeSingle();
+
+      const gMembers = membersByGroup[group.id] || [];
+
+      return {
+        id: group.id,
+        number: group.group_number,
+        groupCode: group.group_code || null,
+        name: group.project_name,
+        courseCode: courseType === '498' ? 'CPIS-498' : 'CPIS-499',
+        courseType,
+        supervisorId: group.supervisor_id || null,
+        supervisorName: group.supervisor_id ? (supervisorMap[group.supervisor_id]?.name || null) : null,
+        students: gMembers.map(m => ({
+          id: m.student_id,
+          name: profileMap[m.student_id]?.name || '',
+          studentId: profileMap[m.student_id]?.student_id,
+        })),
+        projectStatus: group.status || 'normal',
+        ipMarkedAt: null,
+        totalScore: null, // Calculated on frontend from components
+        gradeComponents: components?.map(c => ({
+          componentKey: c.component_key,
+          componentName: c.component_name,
+          evaluatorRole: c.evaluator_role,
+          weight: c.total_marks,
+          score: null, // Would be fetched from various assessment tables
+          maxScore: c.total_marks,
+        })) || [],
+        approvalCounts,
+        coordinatorEvaluation: coordEval ? {
+          submissionStatus: coordAssess?.submission_status || 'draft',
+          normalizedScore: coordAssess?.normalized_score || null,
+          maxScore: coordAssess?.max_score || null,
+          submittedAt: coordEval ? new Date().toISOString() : null,
+        } : null,
+      };
+    }));
+
+    res.json({ groups: result });
+  } catch (error) {
+    console.error('Error fetching coordinator grades:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch coordinator grades' });
+  }
+}
+
+/**
+ * POST /api/groups/{id}/coordinator-evaluation
+ * Submit Coordinator Evaluation for a group
+ */
+async function submitCoordinatorEvaluation(req, res) {
+  try {
+    const { id: groupId } = req.params;
+    const { courseType, evaluations, submissionStatus } = req.body;
+    const coordinatorId = req.user.id;
+
+    if (!courseType || !['498', '499'].includes(courseType)) {
+      return res.status(400).json({ error: 'Valid courseType required' });
+    }
+
+    if (!submissionStatus || !['draft', 'submitted'].includes(submissionStatus)) {
+      return res.status(400).json({ error: 'submissionStatus must be draft or submitted' });
+    }
+
+    if (!Array.isArray(evaluations) || evaluations.length === 0) {
+      return res.status(400).json({ error: 'evaluations array required' });
+    }
+
+    // 1. Validate group exists and belongs to coordinator's course
+    const { data: group, error: groupError } = await supabaseAdmin
+      .from('groups')
+      .select('id, course_id')
+      .eq('id', groupId)
+      .single();
+
+    if (groupError || !group) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+
+    if (group.course_id !== req.user.coordinatorCourseId && req.user.activeRole !== 'admin') {
+      return res.status(403).json({ error: 'Access denied: group not in your assigned course' });
+    }
+
+    // 2. Dynamically find the coordinator grading component from Grade Scheme Editor
+    const { data: coordComponent, error: compError } = await supabaseAdmin
+      .from('grading_components')
+      .select('component_key, total_marks')
+      .eq('course_type', courseType)
+      .eq('evaluator_role', 'coordinator')
+      .eq('is_active', true)
+      .order('display_order')
+      .limit(1)
+      .maybeSingle();
+
+    const componentKey = coordComponent?.component_key ?? 'coordinator_eval';
+    const componentWeight = coordComponent?.total_marks ?? 20;
+
+    // 3. Fetch criteria for that component
+    const { data: criteria, error: criteriaError } = await supabaseAdmin
+      .from('grading_rubric_criteria')
+      .select('id, criterion_key, max_raw_score')
+      .eq('course_type', courseType)
+      .eq('component_key', componentKey)
+      .eq('is_active', true);
+
+    if (criteriaError) throw criteriaError;
+
+    const criteriaMap = {};
+    let totalMaxRaw = 0;
+    (criteria || []).forEach(c => {
+      criteriaMap[c.criterion_key] = c;
+      totalMaxRaw += c.max_raw_score;
+    });
+
+    // 4. Validate each evaluation
+    let rawTotal = 0;
+    const evaluationRows = [];
+
+    for (const ev of evaluations) {
+      const { criterionId, criterionKey: evCriterionKey, rawScore } = ev;
+
+      if (!criteriaMap[evCriterionKey]) {
+        return res.status(400).json({ error: `Invalid criterion key: ${evCriterionKey}` });
+      }
+
+      const numScore = Number(rawScore);
+      if (!Number.isInteger(numScore) || numScore < 1 || numScore > 5) {
+        return res.status(400).json({ error: `Score for "${evCriterionKey}" must be between 1 and 5` });
+      }
+
+      rawTotal += numScore;
+      evaluationRows.push({
+        group_id: groupId,
+        course_type: courseType,
+        coordinator_id: coordinatorId,
+        criterion_id: criterionId,
+        criterion_key: evCriterionKey,
+        raw_score: numScore,
+        submission_status: submissionStatus,
+      });
+    }
+
+    const normalizedScore = totalMaxRaw > 0
+      ? Math.round((rawTotal / totalMaxRaw) * componentWeight * 100) / 100
+      : 0;
+
+    // 5. Upsert coordinator_evaluations
+    const { data: upsertEvals, error: upserEvalsError } = await supabaseAdmin
+      .from('coordinator_evaluations')
+      .upsert(evaluationRows, { onConflict: 'group_id,coordinator_id,criterion_id' });
+
+    if (upserEvalsError) throw upserEvalsError;
+
+    // 6. Upsert coordinator_assessments (use dynamic component_key)
+    const { error: upserAssessError } = await supabaseAdmin
+      .from('coordinator_assessments')
+      .upsert({
+        group_id: groupId,
+        course_type: courseType,
+        coordinator_id: coordinatorId,
+        component_key: componentKey,
+        normalized_score: normalizedScore,
+        max_score: componentWeight,
+        submission_status: submissionStatus,
+      }, { onConflict: 'group_id,coordinator_id,component_key' });
+
+    if (upserAssessError) throw upserAssessError;
+
+    res.json({
+      success: true,
+      evaluations: evaluationRows.map(e => ({
+        criterionKey: e.criterion_key,
+        rawScore: e.raw_score,
+      })),
+      totalNormalized: normalizedScore,
+      maxPossible: componentWeight,
+      submissionStatus,
+    });
+  } catch (error) {
+    console.error('Error submitting coordinator evaluation:', error);
+    res.status(500).json({ error: error.message || 'Failed to submit evaluation' });
+  }
+}
+
+/**
+ * GET /api/groups/{id}/coordinator-evaluation?courseType=498
+ * Fetch existing Coordinator Evaluation for a group (for modal pre-fill)
+ */
+async function getCoordinatorEvaluation(req, res) {
+  try {
+    const { id: groupId } = req.params;
+    const { courseType } = req.query;
+    const coordinatorId = req.user.id;
+
+    if (!courseType || !['498', '499'].includes(courseType)) {
+      return res.status(400).json({ error: 'Valid courseType required' });
+    }
+
+    // 1. Validate group exists and belongs to coordinator's course
+    const { data: group, error: groupError } = await supabaseAdmin
+      .from('groups')
+      .select('id, course_id')
+      .eq('id', groupId)
+      .single();
+
+    if (groupError || !group) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+
+    if (group.course_id !== req.user.coordinatorCourseId && req.user.activeRole !== 'admin') {
+      return res.status(403).json({ error: 'Access denied: group not in your assigned course' });
+    }
+
+    // 2. Dynamically find the coordinator grading component from Grade Scheme Editor
+    const { data: coordComponent } = await supabaseAdmin
+      .from('grading_components')
+      .select('component_key')
+      .eq('course_type', courseType)
+      .eq('evaluator_role', 'coordinator')
+      .eq('is_active', true)
+      .order('display_order')
+      .limit(1)
+      .maybeSingle();
+
+    const componentKey = coordComponent?.component_key ?? 'coordinator_eval';
+
+    // 3. Fetch criteria for that component
+    const { data: criteria, error: criteriaError } = await supabaseAdmin
+      .from('grading_rubric_criteria')
+      .select('id, criterion_key, criterion_name, max_raw_score, description_1, description_2, description_3, description_4, description_5')
+      .eq('course_type', courseType)
+      .eq('component_key', componentKey)
+      .eq('is_active', true)
+      .order('display_order');
+
+    if (criteriaError) throw criteriaError;
+
+    // 3. Fetch existing coordinator evaluations for this group
+    const { data: evaluations, error: evaluationsError } = await supabaseAdmin
+      .from('coordinator_evaluations')
+      .select('criterion_id, criterion_key, raw_score, submission_status')
+      .eq('group_id', groupId)
+      .eq('coordinator_id', coordinatorId);
+
+    if (evaluationsError) throw evaluationsError;
+
+    const evalMap = {};
+    let submissionStatus = null;
+    (evaluations || []).forEach(e => {
+      evalMap[e.criterion_key] = e.raw_score;
+      submissionStatus = e.submission_status;
+    });
+
+    // 4. Build response with criteria and pre-filled scores
+    const result = {
+      evaluations: (criteria || []).map(c => ({
+        criterionId: c.id,
+        criterionKey: c.criterion_key,
+        criterionName: c.criterion_name,
+        maxRawScore: c.max_raw_score,
+        rawScore: evalMap[c.criterion_key] || null,
+        description1: c.description_1,
+        description2: c.description_2,
+        description3: c.description_3,
+        description4: c.description_4,
+        description5: c.description_5,
+      })),
+      submissionStatus: submissionStatus || 'draft',
+      submittedAt: submissionStatus === 'submitted' ? new Date().toISOString() : null,
+    };
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error fetching coordinator evaluation:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch evaluation' });
+  }
+}
+
 module.exports = {
   getAllGroups,
   getAvailableGroups,
@@ -976,4 +1387,7 @@ module.exports = {
   getSupervisorGroupsWithGrades,
   markGroupAsIP,
   submitSupervisorEvaluation,
+  getGroupsWithCoordinatorGrades,
+  submitCoordinatorEvaluation,
+  getCoordinatorEvaluation,
 };

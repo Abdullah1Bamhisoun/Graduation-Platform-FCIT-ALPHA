@@ -172,4 +172,115 @@ async function updateSubmissionApproval(req, res) {
   }
 }
 
-module.exports = { getChapterSubmissionsForSupervisor, updateSubmissionApproval };
+/**
+ * GET /api/chapters/submissions?courseType=498&filterGroup=all
+ *
+ * Coordinator-only endpoint.
+ * Returns all chapter submissions for groups in the coordinator's assigned course.
+ * The course_id filter is enforced here at the backend — coordinators
+ * cannot see submissions belonging to groups in other courses.
+ */
+async function getChapterSubmissionsForCoordinator(req, res) {
+  try {
+    const { filterGroup, courseType } = req.query;
+    const coordinatorId = req.user.id;
+    const isAdmin = req.user.activeRole === 'admin';
+
+    // Step 1 — resolve course ID
+    let coordinatorCourseId = req.user.coordinatorCourseId;
+
+    if (!coordinatorCourseId) {
+      if (isAdmin && courseType && ['498', '499'].includes(courseType)) {
+        // Admin: look up course by courseType
+        const { data: courseRow } = await supabaseAdmin
+          .from('courses')
+          .select('id')
+          .ilike('code', `%${courseType}%`)
+          .limit(1)
+          .maybeSingle();
+        if (!courseRow) {
+          return res.status(404).json({ error: `No course found for courseType ${courseType}` });
+        }
+        coordinatorCourseId = courseRow.id;
+      } else {
+        return res.status(403).json({ error: 'No course assigned to your coordinator account' });
+      }
+    }
+
+    // Step 2 — get all groups in the assigned course
+    let groupQuery = supabaseAdmin
+      .from('groups')
+      .select('id, group_number, project_name')
+      .eq('course_id', coordinatorCourseId);
+
+    // Optional: filter by specific group
+    if (filterGroup && filterGroup !== 'all') {
+      groupQuery = groupQuery.eq('id', filterGroup);
+    }
+
+    const { data: groups, error: gError } = await groupQuery;
+
+    if (gError) throw gError;
+    if (!groups || groups.length === 0) return res.json({ submissions: [], stats: { total: 0, pending: 0, approved: 0, rejected: 0 } });
+
+    const groupIds = groups.map((g) => g.id);
+    const groupMap = Object.fromEntries(groups.map((g) => [g.id, g]));
+
+    // Step 3 — get submissions (chapters) for those groups
+    const { data: submissions, error: sError } = await supabaseAdmin
+      .from('submissions')
+      .select(`
+        id, group_id, student_id, milestone_id, status,
+        current_version, created_at, updated_at,
+        milestone:milestones!milestone_id(id, name, type, due_date),
+        student:profiles!student_id(id, name),
+        versions:submission_versions(version, file_name, file_size, uploaded_at, notes),
+        feedback:submission_feedback(id, overall_comment, reviewed_by, reviewed_at, created_at)
+      `)
+      .in('group_id', groupIds)
+      .order('updated_at', { ascending: false });
+
+    if (sError) throw sError;
+
+    const result = (submissions || []).map((s) => ({
+      id: s.id,
+      groupId: s.group_id,
+      groupNumber: groupMap[s.group_id]?.group_number ?? null,
+      projectName: groupMap[s.group_id]?.project_name ?? '',
+      studentId: s.student_id,
+      studentName: s.student?.name ?? '',
+      milestoneId: s.milestone_id,
+      milestoneName: s.milestone?.name ?? '',
+      milestoneType: s.milestone?.type ?? '',
+      dueDate: s.milestone?.due_date ?? null,
+      status: s.status,
+      currentVersion: s.current_version,
+      submittedAt: s.updated_at ?? s.created_at,
+      versions: (s.versions || []).sort((a, b) => a.version - b.version),
+      hasFeedback: (s.feedback || []).length > 0,
+      latestFeedback:
+        (s.feedback || []).sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        )[0] ?? null,
+    }));
+
+    // Step 4 — calculate statistics
+    const stats = {
+      total: result.length,
+      pending: result.filter((s) => s.status === 'pending' || s.status === 'under-review').length,
+      approved: result.filter((s) => s.status === 'approved').length,
+      rejected: result.filter((s) => s.status === 'changes-requested').length,
+    };
+
+    res.json({ submissions: result, stats });
+  } catch (error) {
+    console.error('Error fetching chapter submissions for coordinator:', error);
+    res.status(500).json({ error: 'Failed to fetch chapter submissions' });
+  }
+}
+
+module.exports = {
+  getChapterSubmissionsForSupervisor,
+  updateSubmissionApproval,
+  getChapterSubmissionsForCoordinator,
+};

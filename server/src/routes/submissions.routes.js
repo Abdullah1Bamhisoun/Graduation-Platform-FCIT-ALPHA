@@ -1,7 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/submissions.controller');
-const { authenticate, requireSupervisorOrAdmin } = require('../middleware/auth.middleware');
+const {
+  authenticate,
+  requireSupervisorOrAdmin,
+  requireCoordinatorOrAdmin,
+  validateCoordinatorCourseType,
+} = require('../middleware/auth.middleware');
 
 /**
  * Submission routes
@@ -20,6 +25,14 @@ router.get(
   authenticate,
   requireSupervisorOrAdmin,
   controller.getChapterSubmissionsForSupervisor
+);
+
+router.get(
+  '/coordinator/chapter-submissions',
+  authenticate,
+  requireCoordinatorOrAdmin,
+  validateCoordinatorCourseType,
+  controller.getChapterSubmissionsForCoordinator
 );
 
 router.patch(

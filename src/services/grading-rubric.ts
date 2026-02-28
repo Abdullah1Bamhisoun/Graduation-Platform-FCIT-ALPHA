@@ -61,16 +61,15 @@ export interface CommitteeRubricScore {
   submittedAt?: string;
 }
 
-export interface CoordinatorDeliverableScore {
-  id?: string;
+export interface CoordinatorRubricScore {
+  studentId: string;
   groupId: string;
   courseId: string;
-  deliverableKey: string;
-  score: number;
-  maxScore: number;
+  criterionKey: string;
+  rawScore: number;  // 1-5
   gradedBy?: string;
   gradedAt?: string;
-  isLocked: boolean;
+  submissionStatus: 'draft' | 'submitted';
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -688,4 +687,150 @@ export async function calcWeeklyNormalizedScore(
     totalScore:      Math.round(totalScore * 100) / 100,
     maxMarks,
   };
+}
+
+// ─── Coordinator Evaluation Scores ──────────────────────────────────────────
+
+/**
+ * Find the active grading component for the coordinator evaluator role.
+ * This is the "Senior Project Coordinator" component in the Grade Scheme Editor.
+ * Falls back to component_key = 'coordinator_eval' if none is found.
+ */
+export async function getCoordinatorEvalComponent(
+  courseType: '498' | '499'
+): Promise<GradingComponent | null> {
+  const { data, error } = await supabase
+    .from('grading_components')
+    .select('*')
+    .eq('course_type', courseType)
+    .eq('evaluator_role', 'coordinator')
+    .eq('is_active', true)
+    .order('display_order')
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return mapComponent(data);
+}
+
+/**
+ * Fetch coordinator rubric criteria dynamically from the Grade Scheme Editor.
+ * Looks up the active coordinator component (Senior Project Coordinator) and
+ * fetches its criteria — so the evaluation form always reflects the latest scheme.
+ */
+export async function getCoordinatorRubricCriteria(
+  courseType: '498' | '499'
+): Promise<RubricCriterion[]> {
+  const component = await getCoordinatorEvalComponent(courseType);
+  const componentKey = component?.componentKey ?? 'coordinator_eval';
+  return getRubricCriteria(courseType, componentKey);
+}
+
+/**
+ * Fetch coordinator's rubric scores for a group.
+ */
+export async function getCoordinatorRubricScores(
+  groupId: string,
+  courseId: string
+): Promise<CoordinatorRubricScore[]> {
+  const { data, error } = await supabase
+    .from('coordinator_evaluations')
+    .select('*')
+    .eq('group_id', groupId)
+    .eq('course_id', courseId);
+
+  if (error) {
+    console.error('getCoordinatorRubricScores error:', error);
+    return [];
+  }
+  return (data || []).map(row => ({
+    studentId:        row.student_id,
+    groupId:          row.group_id,
+    courseId:         row.course_id,
+    criterionKey:     row.criterion_key,
+    rawScore:         row.raw_score,
+    gradedBy:         row.graded_by,
+    gradedAt:         row.graded_at,
+    submissionStatus: row.submission_status,
+  }));
+}
+
+/**
+ * Save coordinator rubric scores for a group (upsert all criteria at once).
+ * Returns the normalized final score.
+ */
+export async function saveCoordinatorRubricScores(params: {
+  groupId: string;
+  courseId: string;
+  courseType: '498' | '499';
+  scores: Record<string, number>;  // criterionKey → rawScore (1-5)
+  gradedBy: string;
+  submissionStatus?: 'draft' | 'submitted';
+}): Promise<number> {
+  const { groupId, courseId, courseType, scores, gradedBy, submissionStatus = 'draft' } = params;
+
+  const rows = Object.entries(scores).map(([criterionKey, rawScore]) => ({
+    group_id:          groupId,
+    course_id:         courseId,
+    criterion_key:     criterionKey,
+    raw_score:         rawScore,
+    graded_by:         gradedBy,
+    graded_at:         new Date().toISOString(),
+    submission_status: submissionStatus,
+  }));
+
+  const { error } = await supabase
+    .from('coordinator_evaluations')
+    .upsert(rows, { onConflict: 'group_id,course_id,criterion_key' });
+
+  if (error) throw error;
+
+  // Also sync normalized score to coordinator_assessments (for backward compat)
+  const normalizedScore = await calcCoordinatorNormalizedScore(courseType, scores);
+  await supabase
+    .from('coordinator_assessments')
+    .upsert({
+      group_id:          groupId,
+      course_id:         courseId,
+      component_key:     'coordinator_eval',
+      normalized_score:  normalizedScore,
+      max_score:         await getComponentMaxScore(courseType, 'coordinator_eval'),
+      submission_status: submissionStatus,
+    }, { onConflict: 'group_id,course_id,component_key' });
+
+  return normalizedScore;
+}
+
+/**
+ * Calculate normalized coordinator score from raw criterion scores.
+ * Formula: (rawTotal / maxRawTotal) × componentTotalMarks
+ * Dynamically resolves the coordinator component from the Grade Scheme Editor.
+ */
+export async function calcCoordinatorNormalizedScore(
+  courseType: '498' | '499',
+  scores: Record<string, number>
+): Promise<number> {
+  const [criteria, component] = await Promise.all([
+    getCoordinatorRubricCriteria(courseType),
+    getCoordinatorEvalComponent(courseType),
+  ]);
+
+  const totalMarks = component?.totalMarks ?? 20;
+
+  const maxRaw = criteria.reduce((sum, c) => sum + c.maxRawScore, 0);
+  const rawTotal = criteria.reduce((sum, c) => sum + (scores[c.criterionKey] ?? 0), 0);
+
+  if (maxRaw === 0) return 0;
+  return Math.round((rawTotal / maxRaw) * totalMarks * 100) / 100;
+}
+
+/**
+ * Helper to get component max score.
+ */
+async function getComponentMaxScore(
+  courseType: '498' | '499',
+  componentKey: string
+): Promise<number> {
+  const components = await getGradingComponents(courseType);
+  return components.find(c => c.componentKey === componentKey)?.totalMarks ?? 20;
 }

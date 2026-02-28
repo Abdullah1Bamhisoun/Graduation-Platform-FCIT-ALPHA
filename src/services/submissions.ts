@@ -253,3 +253,95 @@ export async function submitFeedback(feedback: {
 
   if (uError) throw uError;
 }
+
+// ─── Coordinator-Specific Functions ────────────────────────────────────
+
+export interface ChapterSubmission {
+  id: string;
+  groupId: string;
+  groupNumber: number | null;
+  projectName: string;
+  studentId: string;
+  studentName: string;
+  milestoneId: string;
+  milestoneName: string;
+  milestoneType: string;
+  dueDate: string | null;
+  status: string;
+  currentVersion: number;
+  submittedAt: string;
+  versions: SubmissionVersion[];
+  hasFeedback: boolean;
+  latestFeedback: Feedback | null;
+}
+
+export interface CoordinatorChapterSubmissionsResult {
+  submissions: ChapterSubmission[];
+  stats: {
+    total: number;
+    pending: number;
+    approved: number;
+    rejected: number;
+  };
+}
+
+/**
+ * Fetch chapter submissions for coordinator's assigned course.
+ * Coordinator-only endpoint: /api/submissions/coordinator/chapter-submissions
+ */
+export async function getChapterSubmissionsForCoordinator(
+  courseType: '498' | '499',
+  filterGroup?: string
+): Promise<CoordinatorChapterSubmissionsResult> {
+  try {
+    const session = await import('../lib/supabase').then((m) => m.supabase.auth.getSession());
+    const token = session.data.session?.access_token;
+
+    const params = new URLSearchParams();
+    params.set('courseType', courseType);
+    if (filterGroup && filterGroup !== 'all') {
+      params.set('filterGroup', filterGroup);
+    }
+
+    const response = await fetch(`/api/submissions/coordinator/chapter-submissions?${params.toString()}`, {
+      headers: {
+        Authorization: `Bearer ${token ?? ''}`,
+        'X-Active-Role': 'coordinator',
+      },
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(err.error || 'Failed to fetch chapter submissions');
+    }
+
+    const data = await response.json();
+    return {
+      submissions: (data.submissions || []).map((s: any) => ({
+        id: s.id,
+        groupId: s.groupId,
+        groupNumber: s.groupNumber,
+        projectName: s.projectName,
+        studentId: s.studentId,
+        studentName: s.studentName,
+        milestoneId: s.milestoneId,
+        milestoneName: s.milestoneName,
+        milestoneType: s.milestoneType,
+        dueDate: s.dueDate,
+        status: s.status,
+        currentVersion: s.currentVersion,
+        submittedAt: s.submittedAt,
+        versions: s.versions || [],
+        hasFeedback: s.hasFeedback,
+        latestFeedback: s.latestFeedback,
+      })),
+      stats: data.stats || { total: 0, pending: 0, approved: 0, rejected: 0 },
+    };
+  } catch (error) {
+    console.error('Error fetching coordinator chapter submissions:', error);
+    return {
+      submissions: [],
+      stats: { total: 0, pending: 0, approved: 0, rejected: 0 },
+    };
+  }
+}

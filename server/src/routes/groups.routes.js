@@ -1,7 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/groups.controller');
-const { authenticate, requireAdmin, requireCoordinatorOrAdmin, requireSupervisorOrAdmin } = require('../middleware/auth.middleware');
+const {
+  authenticate,
+  requireAdmin,
+  requireCoordinatorOrAdmin,
+  requireSupervisorOrAdmin,
+  validateCoordinatorCourseType,
+} = require('../middleware/auth.middleware');
 const { checkLocked } = require('../middleware/lock.middleware');
 
 // Public — for registration page group selection
@@ -35,6 +41,48 @@ router.patch('/:id/project-status', authenticate, requireSupervisorOrAdmin, cont
  * grading_rubric_criteria + grading_components — never hardcoded.
  */
 router.post('/:id/supervisor-evaluation', authenticate, requireSupervisorOrAdmin, controller.submitSupervisorEvaluation);
+
+// ── Coordinator routes ────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/groups/coordinator-grades?courseType=498
+ * Returns all groups in coordinator's assigned course with grade data for Coordinator Evaluation.
+ * Backend-enforced: only groups from coordinator's assigned course are returned.
+ */
+router.get(
+  '/coordinator-grades',
+  authenticate,
+  requireCoordinatorOrAdmin,
+  validateCoordinatorCourseType,
+  controller.getGroupsWithCoordinatorGrades
+);
+
+/**
+ * POST /api/groups/:id/coordinator-evaluation
+ * Coordinator submits rubric-based evaluation scores for a group.
+ * Backend validates: group ownership (course assignment), criterion keys, and score ranges (1–5).
+ * Normalized score is calculated server-side and synced to coordinator_assessments.
+ */
+router.post(
+  '/:id/coordinator-evaluation',
+  authenticate,
+  requireCoordinatorOrAdmin,
+  validateCoordinatorCourseType,
+  controller.submitCoordinatorEvaluation
+);
+
+/**
+ * GET /api/groups/:id/coordinator-evaluation?courseType=498
+ * Fetches existing Coordinator Evaluation for a group (for modal pre-fill).
+ * Returns all coordinator_eval criteria with pre-filled scores if evaluation exists.
+ */
+router.get(
+  '/:id/coordinator-evaluation',
+  authenticate,
+  requireCoordinatorOrAdmin,
+  validateCoordinatorCourseType,
+  controller.getCoordinatorEvaluation
+);
 
 // ── Coordinator / Admin routes ────────────────────────────────────────────────
 
