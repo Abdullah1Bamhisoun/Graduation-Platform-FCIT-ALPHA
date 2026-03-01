@@ -3,14 +3,31 @@ const { supabaseAdmin } = require('../config/supabase');
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Returns true when a Supabase/PostgREST error is caused by a missing column.
+ * Returns true when a Supabase/PostgREST error is caused by a missing column (42703).
  * Used for graceful fallback when the scheduled_at / calendar_event_id migration
  * has not yet been applied.
+ * NOTE: deliberately does NOT match 42P01 (relation/table does not exist) —
+ *       use isMissingTable() for that.
  */
 function isMissingColumn(err) {
   if (!err) return false;
   const msg = (err.message || '') + (err.details || '');
-  return err.code === '42703' || msg.toLowerCase().includes('does not exist');
+  return err.code === '42703' || (
+    msg.toLowerCase().includes('does not exist') &&
+    !msg.toLowerCase().includes('relation') &&
+    !msg.toLowerCase().includes('table')
+  );
+}
+
+/**
+ * Returns true when a Supabase/PostgREST error is caused by a missing table (42P01).
+ */
+function isMissingTable(err) {
+  if (!err) return false;
+  const msg = (err.message || '') + (err.details || '');
+  return err.code === '42P01' || (
+    msg.toLowerCase().includes('relation') && msg.toLowerCase().includes('does not exist')
+  );
 }
 
 /**
@@ -131,7 +148,7 @@ async function getPresentationsByCourse(req, res) {
     if (groupIds.length > 0) {
       const { data: schedData, error: schedError } = await supabaseAdmin
         .from('presentation_schedules')
-        .select('group_id, day, time_slot')
+        .select('group_id, day, time_slot, committee_members, scheduled_at')
         .in('group_id', groupIds);
 
       if (schedError) throw schedError;
@@ -149,6 +166,8 @@ async function getPresentationsByCourse(req, res) {
         projectName: g.project_name,
         day: schedule?.day ?? null,
         timeSlot: schedule?.time_slot ?? null,
+        committeeMembers: schedule?.committee_members ?? [],
+        scheduledAt: schedule?.scheduled_at ?? null,
       };
     });
 
@@ -252,11 +271,11 @@ async function assignSchedule(req, res) {
     let calendarEventId = existingCalendarEventId;
 
     if (existingCalendarEventId) {
-      await supabaseAdmin
+      const { error: calUpdateErr } = await supabaseAdmin
         .from('calendar_events')
         .update(calendarPayload)
-        .eq('id', existingCalendarEventId)
-        .catch((err) => console.warn('[presentations] Failed to update calendar event:', err));
+        .eq('id', existingCalendarEventId);
+      if (calUpdateErr) console.warn('[presentations] Failed to update calendar event:', calUpdateErr);
     } else {
       const { data: calEvt, error: calErr } = await supabaseAdmin
         .from('calendar_events')
@@ -266,30 +285,72 @@ async function assignSchedule(req, res) {
       if (!calErr && calEvt) calendarEventId = calEvt.id;
     }
 
-    // ── Upsert presentation schedule ───────────────────────────────────────
-    // Try with new columns; fall back if migration not yet applied.
-    const fullPayload = {
-      group_id: groupId,
-      day,
-      time_slot: timeSlot,
+    // ── Upsert presentation schedule (manual UPDATE → INSERT) ─────────────
+    // Avoids relying on onConflict which requires a DB unique constraint.
+    //
+    // coreFields  – columns guaranteed to exist in any schema version
+    // allFields   – includes columns added in migration 004 (committee_members,
+    //               scheduled_at, calendar_event_id); tried first, falls back
+    //               to coreFields only when a column-missing error is returned.
+    const coreFields = { day, time_slot: timeSlot };
+    const allFields  = {
+      ...coreFields,
       committee_members: committeeMembers ?? [],
       scheduled_at: presentationDate.toISOString(),
       calendar_event_id: calendarEventId,
     };
-    let { error: upsertErr } = await supabaseAdmin
-      .from('presentation_schedules')
-      .upsert(fullPayload, { onConflict: 'group_id' });
 
-    if (upsertErr && isMissingColumn(upsertErr)) {
-      console.warn('[presentations] scheduled_at/calendar_event_id columns missing — run migration. Storing without them.');
-      ({ error: upsertErr } = await supabaseAdmin
+    // 1. Try UPDATE existing row (all fields first, then core-only fallback)
+    let updatedCount = 0;
+    let usedFallback = false;
+
+    const { data: updated, error: updateErr } = await supabaseAdmin
+      .from('presentation_schedules')
+      .update(allFields)
+      .eq('group_id', groupId)
+      .select('id');
+
+    if (updateErr && isMissingTable(updateErr)) {
+      // Table doesn't exist — migration 004 has not been run
+      return res.status(503).json({
+        error: 'Presentation schedules table is not set up. Please run migration 004_presentation_schedules.sql in the Supabase SQL editor.',
+      });
+    } else if (updateErr && isMissingColumn(updateErr)) {
+      // One or more new columns are missing — fall back to core fields only
+      usedFallback = true;
+      const { data: updated2, error: updateErr2 } = await supabaseAdmin
         .from('presentation_schedules')
-        .upsert(
-          { group_id: groupId, day, time_slot: timeSlot, committee_members: committeeMembers ?? [] },
-          { onConflict: 'group_id' }
-        ));
+        .update(coreFields)
+        .eq('group_id', groupId)
+        .select('id');
+      if (updateErr2) throw updateErr2;
+      updatedCount = updated2?.length ?? 0;
+    } else if (updateErr) {
+      throw updateErr;
+    } else {
+      updatedCount = updated?.length ?? 0;
     }
-    if (upsertErr) throw upsertErr;
+
+    // 2. No existing row — INSERT
+    if (updatedCount === 0) {
+      const insertPayload = usedFallback
+        ? { group_id: groupId, ...coreFields }
+        : { group_id: groupId, ...allFields };
+
+      const { error: insertErr } = await supabaseAdmin
+        .from('presentation_schedules')
+        .insert(insertPayload);
+
+      if (insertErr && isMissingColumn(insertErr) && !usedFallback) {
+        // Retry with core fields only
+        const { error: insertErr2 } = await supabaseAdmin
+          .from('presentation_schedules')
+          .insert({ group_id: groupId, ...coreFields });
+        if (insertErr2) throw insertErr2;
+      } else if (insertErr) {
+        throw insertErr;
+      }
+    }
 
     // ── Auto-create announcement ───────────────────────────────────────────
     const formatted = formatPresentationDateTime(presentationDate);
@@ -300,19 +361,23 @@ async function assignSchedule(req, res) {
       `Slot: ${day} – ${timeSlot}`,
     ].join('\n');
 
-    await supabaseAdmin.from('announcements').insert({
+    const { error: announcementErr } = await supabaseAdmin.from('announcements').insert({
       title: `Presentation Assigned: ${projectName}`,
       content: announcementContent,
       author_id: req.user.id,
       target_roles: ['student', 'supervisor', 'coordinator'],
       published_at: new Date().toISOString(),
       expires_at: null,
-    }).catch((err) => console.warn('[presentations] Failed to create announcement:', err));
+    });
+    if (announcementErr) console.warn('[presentations] Failed to create announcement:', announcementErr);
 
     return res.json({ success: true });
   } catch (error) {
     console.error('Error assigning presentation schedule:', error);
-    res.status(500).json({ error: 'Failed to assign presentation schedule' });
+    res.status(500).json({
+      error: 'Failed to assign presentation schedule',
+      detail: error?.message ?? String(error),
+    });
   }
 }
 
@@ -349,11 +414,11 @@ async function deleteSchedule(req, res) {
 
     // Delete linked calendar event
     if (existing.calendar_event_id) {
-      await supabaseAdmin
+      const { error: calDeleteErr } = await supabaseAdmin
         .from('calendar_events')
         .delete()
-        .eq('id', existing.calendar_event_id)
-        .catch((err) => console.warn('[presentations] Failed to delete linked calendar event:', err));
+        .eq('id', existing.calendar_event_id);
+      if (calDeleteErr) console.warn('[presentations] Failed to delete linked calendar event:', calDeleteErr);
     }
 
     // Delete the schedule row

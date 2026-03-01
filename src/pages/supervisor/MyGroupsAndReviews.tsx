@@ -953,7 +953,7 @@ export function SupervisorMyGroupsAndReviews() {
                                   <div className="flex items-center justify-center gap-2">
                                     <Button
                                       size="sm"
-                                      className="gap-1 bg-[#10B981] text-white hover:bg-[#0ea572]"
+                                      className="gap-1 bg-[#10B981] text-black hover:bg-[#0ea572]"
                                       onClick={() => {
                                         setApproveTarget(sub);
                                         setApproveComment('');
@@ -1500,7 +1500,7 @@ export function SupervisorMyGroupsAndReviews() {
             <Button
               onClick={handleApprove}
               disabled={processing}
-              className="bg-[#10B981] text-white hover:bg-[#0ea572] gap-2"
+              className="bg-[#10B981] text-black hover:bg-[#0ea572] gap-2"
             >
               <CheckCircle className="w-4 h-4" />
               {processing ? 'Approving…' : 'Confirm Approval'}
@@ -1622,8 +1622,8 @@ export function SupervisorMyGroupsAndReviews() {
               disabled={ipProcessing}
               className={
                 ipTarget?.projectStatus === 'ip'
-                  ? 'bg-gray-700 text-white hover:bg-gray-800'
-                  : 'bg-orange-600 text-white hover:bg-orange-700'
+                  ? 'bg-gray-700 text-black hover:bg-gray-800'
+                  : 'bg-orange-600 text-black hover:bg-orange-700'
               }
             >
               {ipProcessing
@@ -1799,7 +1799,7 @@ export function SupervisorMyGroupsAndReviews() {
             <Button
               onClick={() => handleSubmitEval('submitted')}
               disabled={evalSubmitting}
-              className="bg-purple-600 text-white hover:bg-purple-700 gap-1.5"
+              className="bg-purple-600 text-black hover:bg-purple-700 gap-1.5"
             >
               {evalSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
               Submit Evaluation

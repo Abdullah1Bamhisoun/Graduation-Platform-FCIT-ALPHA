@@ -47,6 +47,54 @@ export function isoWeekToMonday(weekValue: string): Date | null {
   return monday;
 }
 
+/**
+ * Convert a Date to an ISO week string like "2026-W08".
+ * Inverse of isoWeekToMonday.
+ */
+export function dateToIsoWeek(date: Date): string {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  // Move to Thursday of the same ISO week to get the correct year and week number
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
+  const week1 = new Date(d.getFullYear(), 0, 4);
+  const weekNum =
+    1 +
+    Math.round(
+      ((d.getTime() - week1.getTime()) / 86400000 -
+        3 +
+        ((week1.getDay() + 6) % 7)) /
+        7
+    );
+  return `${d.getFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+}
+
+export interface SavedScheduleEntry {
+  groupId: string;
+  groupCode: string;
+  groupNumber: number | null;
+  projectName: string;
+  day: string | null;
+  timeSlot: string | null;
+  committeeMembers: string[];
+  scheduledAt: string | null;
+}
+
+/**
+ * Fetch all saved presentation schedules for a given course (admin/coordinator).
+ * Returns only entries that have at least a day and timeSlot saved.
+ */
+export async function getPresentationsByCourse(
+  courseId: string
+): Promise<SavedScheduleEntry[]> {
+  const token = await getToken();
+  const res = await fetch(
+    `/api/presentations/by-course?courseId=${encodeURIComponent(courseId)}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) return [];
+  return res.json();
+}
+
 const DAY_OFFSETS: Record<string, number> = { Sun: -1, Mon: 0, Tue: 1, Wed: 2, Thu: 3 };
 
 /**
@@ -106,7 +154,8 @@ export async function assignPresentationSchedule(
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(err.error || 'Failed to assign presentation schedule');
+    const msg = err.error || 'Failed to assign presentation schedule';
+    throw new Error(err.detail ? `${msg}: ${err.detail}` : msg);
   }
 }
 

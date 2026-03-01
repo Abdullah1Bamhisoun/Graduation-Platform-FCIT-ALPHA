@@ -13,6 +13,7 @@ import {
 } from '../../components/ui/dialog';
 import { useAuth } from '../../lib/AuthContext';
 import { getGroupsForEvaluation } from '../../services/groups';
+import { getRubricCriteria } from '../../services/grading-rubric';
 import {
   Search,
   FileText,
@@ -22,6 +23,7 @@ import {
   AlertCircle,
   CheckCircle,
   ArrowLeft,
+  ChevronDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -43,8 +45,25 @@ interface CommitteeCriterion {
   name: string;
   maxScore: 5;
   score: number | null;
+  description1?: string;
+  description2?: string;
+  description3?: string;
+  description4?: string;
+  description5?: string;
 }
 
+/** Maps a Likert score (1–5) or null to a colour. */
+const getScoreColor = (score: number | null): string => {
+  if (score === null) return '#d1d5db';
+  const colors: Record<number, string> = {
+    1: '#ef4444',
+    2: '#f97316',
+    3: '#eab308',
+    4: '#86efac',
+    5: '#16a34a',
+  };
+  return colors[score] ?? '#d1d5db';
+};
 
 export function SupervisorGradesCommittee() {
   const { user } = useAuth();
@@ -84,17 +103,29 @@ export function SupervisorGradesCommittee() {
   const [showIPModal, setShowIPModal] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
 
-  // Committee criteria (CPIS-498 - 40 marks total)
-  const [committeeCriteria, setCommitteeCriteria] = useState<CommitteeCriterion[]>([
-    { id: 'problemDef', name: 'Problem Definition and Aims', maxScore: 5, score: null },
-    { id: 'litReview', name: 'Literature Review', maxScore: 5, score: null },
-    { id: 'methodology', name: 'Methodology', maxScore: 5, score: null },
-    { id: 'requirements', name: 'Requirements and Analysis', maxScore: 5, score: null },
-    { id: 'design', name: 'Initial Solution/Design', maxScore: 5, score: null },
-    { id: 'implementation', name: 'Implementation', maxScore: 5, score: null },
-    { id: 'reportStyle', name: 'Report Style & Format', maxScore: 5, score: null },
-    { id: 'presentation', name: 'Presentation Skills/Responses to Questions', maxScore: 5, score: null },
-  ]);
+  // Accordion open state — only one criterion open at a time
+  const [openCriterionId, setOpenCriterionId] = useState<string | null>(null);
+
+  // Committee criteria — loaded from Grade Scheme Editor (Examination Committee)
+  const [committeeCriteria, setCommitteeCriteria] = useState<CommitteeCriterion[]>([]);
+
+  useEffect(() => {
+    if (!selectedGroupForGrading) return;
+    const courseType = selectedGroupForGrading.course === 'CPIS-499' ? '499' : '498';
+    getRubricCriteria(courseType, 'committee_eval').then((criteria) => {
+      setCommitteeCriteria(criteria.map((c) => ({
+        id: c.criterionKey,
+        name: c.criterionName,
+        maxScore: c.maxRawScore as 5,
+        score: null,
+        description1: c.description1,
+        description2: c.description2,
+        description3: c.description3,
+        description4: c.description4,
+        description5: c.description5,
+      })));
+    });
+  }, [selectedGroupForGrading?.id]);
   const [committeeComments, setCommitteeComments] = useState('');
 
   // Filter groups
@@ -140,6 +171,7 @@ export function SupervisorGradesCommittee() {
   const handleBackFromGrading = () => {
     setIsGrading(false);
     setSelectedGroupForGrading(null);
+    setOpenCriterionId(null);
   };
 
   // Calculate committee total
@@ -197,8 +229,14 @@ export function SupervisorGradesCommittee() {
 
   if (!user) return null;
 
-  // If in grading mode, show grading interface
+  // ─── Grading / Evaluation View ────────────────────────────────────────────
   if (isGrading && selectedGroupForGrading) {
+    const isReadOnly = isIP || gradingStatus === 'submitted';
+    const total = calculateCommitteeTotal();
+    const percentage = committeeCriteria.length > 0
+      ? Math.round((total / 40) * 100)
+      : 0;
+
     return (
       <Layout user={user} pageTitle="Evaluate & Grade">
         <div className="mb-6">
@@ -213,9 +251,9 @@ export function SupervisorGradesCommittee() {
 
           {/* Header */}
           <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
-            <div className="flex items-start justify-between">
+            <div className="flex items-start justify-between flex-wrap gap-4">
               <div>
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-2 mb-2 flex-wrap">
                   <h1 className="text-[var(--color-text-900)]">
                     {selectedGroupForGrading.projectName}
                   </h1>
@@ -223,7 +261,7 @@ export function SupervisorGradesCommittee() {
                     {selectedGroupForGrading.course === 'CPIS-498' ? '498' : '499'}
                   </span>
                   <span className={`px-3 py-1 text-sm rounded-full ${
-                    gradingStatus === 'submitted' 
+                    gradingStatus === 'submitted'
                       ? 'bg-green-100 text-green-700 border border-green-200'
                       : 'bg-gray-100 text-gray-700 border border-gray-200'
                   }`}>
@@ -238,7 +276,7 @@ export function SupervisorGradesCommittee() {
                 <p className="text-sm text-[var(--color-text-600)]">{selectedGroupForGrading.groupId}</p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <Button variant="outline" onClick={handleSaveDraft}>
                   <Save className="w-4 h-4 mr-2" />
                   Save Draft
@@ -265,91 +303,241 @@ export function SupervisorGradesCommittee() {
           </div>
         </div>
 
-        {/* Committee Evaluation */}
-        <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-8">
-          <div className="mb-6">
-            <h3 className="text-[var(--color-text-900)] mb-2">Committee Evaluation Matrix</h3>
-            <p className="text-[var(--color-text-600)]">
-              Evaluate 8 criteria using Likert scale (1-5). Each criterion is worth 5 marks. Total: 40 marks.
-            </p>
-          </div>
+        {/* Main Evaluation Area — accordion left, summary right */}
+        <div className="flex flex-col lg:flex-row gap-6 items-start">
 
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="border-b-2 border-[var(--color-border)]">
-                <tr>
-                  <th className="text-left py-4 px-4 text-[var(--color-text-900)]">Criterion</th>
-                  <th className="text-center py-4 px-3 text-[var(--color-text-600)] w-16">1</th>
-                  <th className="text-center py-4 px-3 text-[var(--color-text-600)] w-16">2</th>
-                  <th className="text-center py-4 px-3 text-[var(--color-text-600)] w-16">3</th>
-                  <th className="text-center py-4 px-3 text-[var(--color-text-600)] w-16">4</th>
-                  <th className="text-center py-4 px-3 text-[var(--color-text-600)] w-16">5</th>
-                  <th className="text-center py-4 px-4 text-[var(--color-text-900)] w-24">Score /5</th>
-                </tr>
-              </thead>
-              <tbody>
-                {committeeCriteria.map((criterion, index) => (
-                  <tr key={criterion.id} className={`border-b border-[var(--color-border)] hover:bg-gray-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                    <td className="py-4 px-4">
-                      <span className="text-[var(--color-text-900)]">{criterion.name}</span>
-                    </td>
-                    {[1, 2, 3, 4, 5].map((score) => (
-                      <td key={score} className="text-center py-4 px-3">
-                        <label className="flex justify-center cursor-pointer">
-                          <input
-                            type="radio"
-                            name={`criterion-${criterion.id}`}
-                            checked={criterion.score === score}
-                            onChange={() => handleCommitteeScoreChange(criterion.id, score)}
-                            disabled={isIP || gradingStatus === 'submitted'}
-                            className="w-6 h-6 cursor-pointer appearance-none rounded-full border-2 border-gray-400 checked:border-green-600 checked:border-[6px] checked:bg-white hover:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                            style={{
-                              WebkitAppearance: 'none',
-                              MozAppearance: 'none',
-                            }}
+          {/* ── Left: Accordion criteria list (70%) ── */}
+          <div className="w-full lg:flex-[7] min-w-0">
+            <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6 lg:p-8">
+              <div className="mb-6">
+                <h3 className="text-[var(--color-text-900)] mb-2">Committee Evaluation Matrix</h3>
+                <p className="text-[var(--color-text-600)]">
+                  Evaluate 8 criteria using Likert scale (1–5). Each criterion is worth 5 marks. Total: 40 marks.
+                </p>
+              </div>
+
+              {/* Progress bar */}
+              {committeeCriteria.length > 0 && (
+                <div className="mb-6">
+                  <div className="flex justify-between text-xs text-[var(--color-text-600)] mb-1">
+                    <span>{committeeCriteria.filter(c => c.score !== null).length} of {committeeCriteria.length} criteria graded</span>
+                    <span>{total} / 40</span>
+                  </div>
+                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                      style={{ width: `${(total / 40) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Accordion items */}
+              <div className="space-y-3">
+                {committeeCriteria.map((criterion) => {
+                  const isOpen = openCriterionId === criterion.id;
+
+                  return (
+                    <div
+                      key={criterion.id}
+                      className="border border-[var(--color-border)] rounded-xl shadow-sm overflow-hidden"
+                    >
+                      {/* ── Collapsed Header ── */}
+                      <button
+                        type="button"
+                        className="w-full flex items-center justify-between px-5 py-4 bg-[var(--color-surface-white)] hover:bg-gray-50 transition-colors text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset"
+                        onClick={() =>
+                          setOpenCriterionId(isOpen ? null : criterion.id)
+                        }
+                        aria-expanded={isOpen}
+                      >
+                        <span className="font-medium text-[var(--color-text-900)] pr-4">
+                          {criterion.name}
+                        </span>
+
+                        <div className="flex items-center gap-3 flex-shrink-0">
+                          {criterion.score !== null ? (
+                            <span className="text-sm text-[var(--color-text-600)]">
+                              Score:&nbsp;
+                              <strong className="text-[var(--color-text-900)]">
+                                {criterion.score} / 5
+                              </strong>
+                            </span>
+                          ) : (
+                            <span className="text-sm italic text-[var(--color-text-400)]">
+                              Not Graded
+                            </span>
+                          )}
+
+                          {/* Colour dot */}
+                          <span
+                            className="w-3 h-3 rounded-full flex-shrink-0 border border-white shadow-sm"
+                            style={{ backgroundColor: getScoreColor(criterion.score) }}
+                            aria-hidden="true"
                           />
-                        </label>
-                      </td>
-                    ))}
-                    <td className="text-center py-4 px-4 text-[var(--color-text-900)]">
-                      {criterion.score || 0}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="bg-yellow-50 border-t-2 border-yellow-200">
-                  <td colSpan={6} className="py-4 px-4 text-right text-[var(--color-text-900)]">
-                    <strong>Total:</strong>
-                  </td>
-                  <td className="py-4 px-4 text-center text-[var(--color-text-900)]">
-                    <strong>{calculateCommitteeTotal()} / 40</strong>
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
+
+                          {/* Chevron */}
+                          <ChevronDown
+                            className={`w-5 h-5 text-[var(--color-text-400)] transition-transform duration-300 ${
+                              isOpen ? 'rotate-180' : ''
+                            }`}
+                          />
+                        </div>
+                      </button>
+
+                      {/* ── Expanded Content ── */}
+                      {isOpen && (
+                        <div className="border-t border-[var(--color-border)] bg-gray-50 px-5 py-5">
+                          <div className="space-y-3">
+                            {[1, 2, 3, 4, 5].map((score) => {
+                              const desc = criterion[`description${score}` as keyof CommitteeCriterion] as string | undefined;
+                              const isSelected = criterion.score === score;
+
+                              return (
+                                <label
+                                  key={score}
+                                  className={`flex items-start gap-4 p-4 rounded-lg border-2 transition-all ${
+                                    isReadOnly
+                                      ? 'cursor-not-allowed'
+                                      : 'cursor-pointer'
+                                  } ${
+                                    isSelected
+                                      ? 'border-blue-500 bg-blue-50'
+                                      : 'border-gray-200 bg-white hover:border-gray-300'
+                                  }`}
+                                >
+                                  <input
+                                    type="radio"
+                                    name={`criterion-${criterion.id}`}
+                                    checked={isSelected}
+                                    onChange={() =>
+                                      !isReadOnly &&
+                                      handleCommitteeScoreChange(criterion.id, score)
+                                    }
+                                    disabled={isReadOnly}
+                                    className="mt-1 w-4 h-4 flex-shrink-0 accent-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  />
+
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <span
+                                        className="text-sm font-bold"
+                                        style={{ color: getScoreColor(score) }}
+                                      >
+                                        {score}
+                                      </span>
+                                      {isSelected && (
+                                        <CheckCircle className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                                      )}
+                                    </div>
+                                    {desc && (
+                                      <p className="text-sm text-[var(--color-text-700)] leading-relaxed">
+                                        {desc}
+                                      </p>
+                                    )}
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Unfilled warning */}
+              {hasUnfilledCommittee() && (
+                <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex gap-2 text-sm text-amber-900">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <span>Some criteria are not scored yet</span>
+                </div>
+              )}
+
+              {/* Comments */}
+              <div className="mt-6 pt-6 border-t border-[var(--color-border)]">
+                <Label htmlFor="committee-comments" className="mb-2 block text-[var(--color-text-900)]">
+                  Comments for Committee Evaluation
+                </Label>
+                <Textarea
+                  id="committee-comments"
+                  value={committeeComments}
+                  onChange={(e) => setCommitteeComments(e.target.value)}
+                  placeholder="Overall notes / justification for the scores..."
+                  className="min-h-[150px]"
+                  disabled={isReadOnly}
+                />
+              </div>
+            </div>
           </div>
 
-          {hasUnfilledCommittee() && (
-            <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex gap-2 text-sm text-amber-900">
-              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-              <span>Some criteria are not scored yet</span>
-            </div>
-          )}
+          {/* ── Right: Live Summary Panel (30%) ── */}
+          <div className="w-full lg:flex-[3] lg:sticky lg:top-6 self-start">
+            <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] shadow-sm p-5">
+              <h4 className="font-semibold text-[var(--color-text-900)] mb-4">
+                Committee Evaluation Summary
+              </h4>
 
-          {/* Comments */}
-          <div className="mt-6 pt-6 border-t border-[var(--color-border)]">
-            <Label htmlFor="committee-comments" className="mb-2 block text-[var(--color-text-900)]">
-              Comments for Committee Evaluation
-            </Label>
-            <Textarea
-              id="committee-comments"
-              value={committeeComments}
-              onChange={(e) => setCommitteeComments(e.target.value)}
-              placeholder="Overall notes / justification for the scores..."
-              className="min-h-[150px]"
-              disabled={isIP || gradingStatus === 'submitted'}
-            />
+              <div className="space-y-0">
+                {committeeCriteria.map((c) => (
+                  <div
+                    key={c.id}
+                    className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0"
+                  >
+                    <span className="text-sm text-[var(--color-text-600)] pr-2 leading-snug">
+                      {c.name}
+                    </span>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {c.score !== null ? (
+                        <>
+                          <span
+                            className="w-2 h-2 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: getScoreColor(c.score) }}
+                            aria-hidden="true"
+                          />
+                          <span className="text-sm font-semibold text-[var(--color-text-900)] tabular-nums">
+                            {c.score}&nbsp;/&nbsp;5
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-xs text-[var(--color-text-400)]">—</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 pt-3 border-t-2 border-gray-200 space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold text-[var(--color-text-900)]">Total</span>
+                  <span className="font-bold text-lg text-[var(--color-text-900)] tabular-nums">
+                    {total}&nbsp;/&nbsp;40
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-[var(--color-text-600)]">Percentage</span>
+                  <span className="text-sm font-semibold text-[var(--color-text-900)] tabular-nums">
+                    {percentage}%
+                  </span>
+                </div>
+
+                {/* Mini progress bar */}
+                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden mt-2">
+                  <div
+                    className="h-full rounded-full transition-all duration-300"
+                    style={{
+                      width: `${percentage}%`,
+                      backgroundColor: percentage >= 80
+                        ? '#16a34a'
+                        : percentage >= 60
+                        ? '#eab308'
+                        : '#ef4444',
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -437,7 +625,7 @@ export function SupervisorGradesCommittee() {
     );
   }
 
-  // Main Committee Evaluation View
+  // ─── Main Committee Evaluation View (group list) ──────────────────────────
   return (
     <Layout user={user} pageTitle="Committee Evaluation">
       <div className="mb-6">
@@ -450,7 +638,7 @@ export function SupervisorGradesCommittee() {
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
           <p className="text-amber-900">
-            No groups assigned for evaluation — Evaluation cannot start until a group is officially assigned to you by the coordinator or admin.
+            No groups assigned for evaluation — You will appear here once the coordinator publishes a presentation schedule that lists you as a committee member.
           </p>
         </div>
       ) : (

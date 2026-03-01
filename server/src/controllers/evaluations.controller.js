@@ -19,8 +19,7 @@ const { supabaseAdmin } = require('../config/supabase');
 function mapGroup(g, scheduleMap) {
   const sched = scheduleMap ? scheduleMap.get(g.id) : null;
   const scheduledAt = sched?.scheduled_at ?? null;
-  const evaluationActive =
-    scheduledAt !== null && new Date(scheduledAt) <= new Date();
+  const evaluationActive = scheduledAt !== null;
 
   return {
     id: g.id,
@@ -64,6 +63,7 @@ const GROUP_SELECT =
 async function getGroupsForEvaluation(req, res) {
   try {
     const supervisorId = req.user.id;
+    const supervisorName = req.user.name ?? '';
 
     // ── Step 1: find groups this supervisor supervises — always excluded ────
     const { data: supervisedRows, error: supError } = await supabaseAdmin
@@ -75,72 +75,39 @@ async function getGroupsForEvaluation(req, res) {
 
     const supervisedGroupIds = (supervisedRows || []).map((g) => g.id);
 
-    // ── Step 2: check if evaluation_assignments is active ─────────────────
-    // Only PostgreSQL error 42P01 ("relation does not exist") means the table
-    // is not yet created. Any other error (auth, network, RLS) is a real failure
-    // and must NOT silently fall back to showing all groups.
-    const { data: assignmentRows, error: assignError } = await supabaseAdmin
-      .from('evaluation_assignments')
-      .select('group_id')
-      .eq('evaluator_id', supervisorId);
-
-    const tableNotFound =
-      assignError &&
-      (assignError.code === '42P01' ||
-        (assignError.message || '').toLowerCase().includes('does not exist'));
-
-    if (assignError && !tableNotFound) {
-      // Real error (not "table missing") — fail hard to avoid data leakage
-      throw assignError;
-    }
-
-    if (!tableNotFound) {
-      // ── Assignment-based mode is active ───────────────────────────────────
-      const assignedGroupIds = (assignmentRows || [])
-        .map((a) => a.group_id)
+    // ── Step 2: find groups where this supervisor is a committee member ────
+    // Groups are assigned via the presentation schedule UI (admin/coordinator
+    // selects committee members when publishing a schedule). The supervisor's
+    // profile name must appear in committee_members of a saved schedule row.
+    let assignedGroupIds = [];
+    if (supervisorName) {
+      const { data: schedRows } = await supabaseAdmin
+        .from('presentation_schedules')
+        .select('group_id')
+        .contains('committee_members', [supervisorName]);
+      assignedGroupIds = (schedRows || [])
+        .map((s) => s.group_id)
         .filter((id) => !supervisedGroupIds.includes(id));
-
-      if (assignedGroupIds.length === 0) {
-        return res.json({ groups: [], assignmentMode: true });
-      }
-
-      const { data: assignedGroups, error: agError } = await supabaseAdmin
-        .from('groups')
-        .select(GROUP_SELECT)
-        .in('id', assignedGroupIds)
-        .order('group_number', { ascending: true });
-
-      if (agError) throw agError;
-
-      // ── Fetch presentation schedules for evaluation lock check ─────────────
-      const scheduleMap = await fetchScheduleMap(assignedGroupIds);
-
-      return res.json({
-        groups: (assignedGroups || []).map((g) => mapGroup(g, scheduleMap)),
-        assignmentMode: true,
-      });
     }
 
-    // ── Step 3: open mode — no assignment table yet ────────────────────────
-    let query = supabaseAdmin
+    if (assignedGroupIds.length === 0) {
+      return res.json({ groups: [], assignmentMode: true });
+    }
+
+    const { data: assignedGroups, error: agError } = await supabaseAdmin
       .from('groups')
       .select(GROUP_SELECT)
+      .in('id', assignedGroupIds)
       .order('group_number', { ascending: true });
 
-    for (const id of supervisedGroupIds) {
-      query = query.neq('id', id);
-    }
-
-    const { data: groups, error: gError } = await query;
-    if (gError) throw gError;
+    if (agError) throw agError;
 
     // ── Fetch presentation schedules for evaluation lock check ─────────────
-    const allGroupIds = (groups || []).map((g) => g.id);
-    const scheduleMap = await fetchScheduleMap(allGroupIds);
+    const scheduleMap = await fetchScheduleMap(assignedGroupIds);
 
     return res.json({
-      groups: (groups || []).map((g) => mapGroup(g, scheduleMap)),
-      assignmentMode: false,
+      groups: (assignedGroups || []).map((g) => mapGroup(g, scheduleMap)),
+      assignmentMode: true,
     });
   } catch (error) {
     console.error('Error fetching evaluation groups:', error);

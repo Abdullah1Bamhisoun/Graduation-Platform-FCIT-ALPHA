@@ -6,6 +6,8 @@ import { getAuditLog } from '../../services/audit';
 import {
   assignPresentationSchedule,
   computeScheduledAt,
+  dateToIsoWeek,
+  getPresentationsByCourse,
   getServerTime,
 } from '../../services/presentations';
 import type { AuditLogEntry } from '../../types';
@@ -126,12 +128,15 @@ export function AdminPresentationCommittee() {
 
   useEffect(() => {
     if (!user) return;
-    Promise.all([
-      getProfilesByRole('supervisor'),
-      // Pass activeRole so the backend applies coordinator course-scoping
-      getAllGroups(user.activeRole),
-      getAuditLog(),
-    ]).then(([sups, groups, auditEntries]) => {
+
+    async function init() {
+      const [sups, groups, auditEntries] = await Promise.all([
+        getProfilesByRole('supervisor'),
+        // Pass activeRole so the backend applies coordinator course-scoping
+        getAllGroups(user!.activeRole),
+        getAuditLog(),
+      ]);
+
       setSupervisors(sups.map(s => ({
         id: s.id,
         name: s.name,
@@ -150,7 +155,6 @@ export function AdminPresentationCommittee() {
         course: (isCourse499(g) ? '499' : '498') as '498' | '499',
         status: 'unassigned' as const,
       }));
-      setProjects(mappedProjects);
       setChangesLog(auditEntries.slice(0, 20));
       const count498 = groups.filter(g => !isCourse499(g)).length;
       const count499 = groups.filter(g => isCourse499(g)).length;
@@ -162,7 +166,52 @@ export function AdminPresentationCommittee() {
       if (isCoordinator && mappedProjects.length > 0) {
         setCourse(mappedProjects[0].course);
       }
-    });
+
+      // Load saved schedules from DB and hydrate the slot board
+      const courseIds = [...new Set(groups.map(g => g.courseId).filter(Boolean))];
+      const allSaved = (
+        await Promise.all(courseIds.map(id => getPresentationsByCourse(id)))
+      ).flat().filter(s => s.day && s.timeSlot);
+
+      if (allSaved.length > 0) {
+        // Set week picker to the week the saved schedules belong to
+        const firstWithDate = allSaved.find(s => s.scheduledAt);
+        if (firstWithDate?.scheduledAt) {
+          setWeekStart(dateToIsoWeek(new Date(firstWithDate.scheduledAt)));
+        }
+
+        // Reconstruct TimeSlot[] from saved data
+        const reconstructed: TimeSlot[] = allSaved.map((s, i) => {
+          const timeInfo = TIME_SLOTS.find(t => t.start === s.timeSlot);
+          const project = mappedProjects.find(p => p.id === s.groupId);
+          return {
+            id: `slot-${Date.now()}-${i}`,
+            day: s.day as TimeSlot['day'],
+            startTime: s.timeSlot!,
+            endTime: timeInfo?.end ?? '',
+            room: '',
+            supervisor: s.committeeMembers[0] ?? '',
+            supervisor2: s.committeeMembers[1],
+            status: 'assigned' as const,
+            projectName: s.projectName,
+            projectId: s.groupId,
+            course: project?.course,
+          };
+        });
+        setSlots(reconstructed);
+
+        // Mark projects as assigned
+        const assignedIds = new Set(allSaved.map(s => s.groupId));
+        setProjects(mappedProjects.map(p => ({
+          ...p,
+          status: assignedIds.has(p.id) ? 'assigned' as const : 'unassigned' as const,
+        })));
+      } else {
+        setProjects(mappedProjects);
+      }
+    }
+
+    init();
   }, [user?.activeRole, isCoordinator]);
 
   // UI State
@@ -1103,7 +1152,7 @@ export function AdminPresentationCommittee() {
             <Button variant="outline" onClick={() => setShowAutoAssignDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handleAutoAssign} className="bg-[var(--color-primary-600)] hover:bg-[var(--color-primary-700)] text-white">
+            <Button onClick={handleAutoAssign} className="bg-[var(--color-primary-600)] hover:bg-[var(--color-primary-700)] text-black">
               Preview & Apply
             </Button>
           </DialogFooter>
@@ -1159,7 +1208,7 @@ export function AdminPresentationCommittee() {
             <Button
               onClick={handlePublish}
               disabled={publishing}
-              className="bg-green-600 hover:bg-green-700 text-white"
+              className="bg-green-600 hover:bg-green-700 text-black"
             >
               <Send className="w-4 h-4 mr-2" />
               {publishing ? 'Publishing…' : 'Publish Schedule'}
