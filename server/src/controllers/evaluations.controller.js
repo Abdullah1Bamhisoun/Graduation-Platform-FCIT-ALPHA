@@ -23,6 +23,7 @@ function mapGroup(g, scheduleMap) {
 
   return {
     id: g.id,
+    groupCode: g.group_code ?? null,
     groupNumber: g.group_number,
     projectName: g.project_name,
     courseNumber: g.course_number,
@@ -58,7 +59,7 @@ async function fetchScheduleMap(groupIds) {
 }
 
 const GROUP_SELECT =
-  'id, group_number, project_name, course_number, course_id, course:courses!course_id(code)';
+  'id, group_code, group_number, project_name, course_number, course_id, course:courses!course_id(code)';
 
 async function getGroupsForEvaluation(req, res) {
   try {

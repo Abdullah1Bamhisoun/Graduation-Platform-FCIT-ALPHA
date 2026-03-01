@@ -292,6 +292,7 @@ export async function deleteGroup(groupId: string): Promise<void> {
 
 export interface EvaluationGroup {
   id: string;
+  groupCode: string | null;
   groupNumber: number | null;
   projectName: string;
   courseNumber: string | null;

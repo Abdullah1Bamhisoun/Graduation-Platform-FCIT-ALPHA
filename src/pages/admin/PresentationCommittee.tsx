@@ -68,6 +68,8 @@ interface Project {
   course: '498' | '499';
   preferredDay?: string;
   status: 'unassigned' | 'assigned';
+  supervisor?: string;
+  students?: { id: string; name: string }[];
 }
 
 interface SupervisorAvailability {
@@ -154,6 +156,8 @@ export function AdminPresentationCommittee() {
         groupId: g.groupCode,
         course: (isCourse499(g) ? '499' : '498') as '498' | '499',
         status: 'unassigned' as const,
+        supervisor: g.supervisorName || undefined,
+        students: g.members.map(m => ({ id: m.id, name: m.name })),
       }));
       setChangesLog(auditEntries.slice(0, 20));
       const count498 = groups.filter(g => !isCourse499(g)).length;
@@ -902,6 +906,16 @@ export function AdminPresentationCommittee() {
                               <span className="text-amber-600">Prefers: {project.preferredDay}</span>
                             )}
                           </div>
+                          {project.supervisor && (
+                            <div className="text-xs text-[var(--color-text-600)] mt-1">
+                              <span className="font-medium">Supervisor:</span> {project.supervisor}
+                            </div>
+                          )}
+                          {project.students && project.students.length > 0 && (
+                            <div className="text-xs text-[var(--color-text-600)] mt-0.5">
+                              <span className="font-medium">Students:</span> {project.students.map(s => s.name).join(', ')}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>

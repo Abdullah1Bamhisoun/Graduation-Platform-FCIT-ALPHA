@@ -29,6 +29,7 @@ import { toast } from 'sonner';
 
 interface AssignedGroup {
   id: string;
+  groupCode: string | null;
   projectName: string;
   groupId: string;
   course: 'CPIS-498' | 'CPIS-499';
@@ -79,6 +80,7 @@ export function SupervisorGradesCommittee() {
       setAssignmentMode(mode);
       setAssignedGroups(groups.map((g) => ({
         id: g.id,
+        groupCode: g.groupCode ?? null,
         projectName: g.projectName,
         groupId: g.groupNumber != null ? String(g.groupNumber) : g.id,
         course: (g.courseNumber ?? '').includes('499') || g.courseCode.includes('499') ? 'CPIS-499' : 'CPIS-498',
@@ -273,7 +275,7 @@ export function SupervisorGradesCommittee() {
                     </span>
                   )}
                 </div>
-                <p className="text-sm text-[var(--color-text-600)]">{selectedGroupForGrading.groupId}</p>
+                <p className="text-sm text-[var(--color-text-600)]">{selectedGroupForGrading.groupCode ?? selectedGroupForGrading.id}</p>
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
