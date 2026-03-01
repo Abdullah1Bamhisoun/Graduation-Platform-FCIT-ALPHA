@@ -61,7 +61,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -117,6 +117,7 @@ interface SupervisorEvalEntry {
 interface GroupGradeData {
   id: string;
   groupNumber: number;
+  groupCode: string | null;
   projectName: string;
   status: string;
   projectStatus: 'normal' | 'ip';
@@ -296,10 +297,11 @@ function formatDate(iso: string): string {
 
 export function SupervisorMyGroupsAndReviews() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
 
-  // Top-level tab
-  const [activeTab, setActiveTab] = useState('my-groups');
+  // Top-level tab — read initial value from ?tab= query param
+  const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') ?? 'my-groups');
 
   // Groups (Tab 1)
   const [groups, setGroups] = useState<Group[]>([]);
@@ -1156,11 +1158,14 @@ export function SupervisorMyGroupsAndReviews() {
                         Group {group.groupNumber}
                       </span>
 
-                      {/* Project name + course */}
+                      {/* Project name + group code + course */}
                       <div className="flex-1 min-w-0">
                         <p className="text-[var(--color-text-900)] font-medium truncate">
                           {group.projectName}
                         </p>
+                        {group.groupCode && (
+                          <p className="text-[var(--color-text-400)] text-xs font-mono">{group.groupCode}</p>
+                        )}
                         <p className="text-[var(--color-text-500)] text-xs">{group.courseCode}</p>
                       </div>
 

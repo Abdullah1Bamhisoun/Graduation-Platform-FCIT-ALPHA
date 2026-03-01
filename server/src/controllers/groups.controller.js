@@ -516,7 +516,7 @@ async function getSupervisorGroupsWithGrades(req, res) {
     const { data: groupsRaw, error: gError } = await supabaseAdmin
       .from('groups')
       .select(`
-        id, group_number, project_name, status, course_id,
+        id, group_number, group_code, project_name, status, course_id,
         project_status, ip_marked_by, ip_marked_at, ip_reason,
         course:courses!course_id(id, code, name),
         members:group_members(
@@ -534,7 +534,7 @@ async function getSupervisorGroupsWithGrades(req, res) {
         const { data: fallback, error: fbErr } = await supabaseAdmin
           .from('groups')
           .select(`
-            id, group_number, project_name, status, course_id,
+            id, group_number, group_code, project_name, status, course_id,
             course:courses!course_id(id, code, name),
             members:group_members(
               student_id,
@@ -695,6 +695,7 @@ async function buildGradesResponse(res, groupsRaw, supervisorId) {
     return {
       id:            g.id,
       groupNumber:   g.group_number,
+      groupCode:     g.group_code ?? null,
       projectName:   g.project_name,
       status:        g.status,
       projectStatus: g.project_status ?? 'normal',

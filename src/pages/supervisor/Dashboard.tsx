@@ -180,7 +180,7 @@ export function SupervisorDashboard() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => navigate('/supervisor/reviews')}
+                        onClick={() => navigate('/supervisor/groups?tab=groups-grades')}
                       >
                         View Details
                       </Button>
