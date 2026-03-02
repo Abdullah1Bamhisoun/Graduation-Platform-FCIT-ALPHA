@@ -1,6 +1,6 @@
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
-import { getAllAnnouncements } from '../../services/announcements';
+import { getAllAnnouncements, deleteAnnouncement } from '../../services/announcements';
 import { Bell, Plus, Edit, Trash2, Calendar as CalendarIcon } from 'lucide-react';
 import { Card } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
@@ -112,10 +112,15 @@ export function AnnouncementsManager() {
     handleCloseDialog();
   };
 
-  const handleDeleteAnnouncement = (id: string) => {
+  const handleDeleteAnnouncement = async (id: string) => {
     if (confirm('Are you sure you want to delete this announcement?')) {
-      setAnnouncements(announcements.filter(a => a.id !== id));
-      toast.success('Announcement deleted successfully');
+      try {
+        await deleteAnnouncement(id);
+        setAnnouncements(announcements.filter(a => a.id !== id));
+        toast.success('Announcement deleted successfully');
+      } catch (error) {
+        toast.error('Failed to delete announcement');
+      }
     }
   };
 

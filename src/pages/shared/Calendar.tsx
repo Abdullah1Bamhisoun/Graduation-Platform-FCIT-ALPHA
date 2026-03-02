@@ -64,7 +64,7 @@ export function Calendar() {
       });
       setCalendarEvents((prev) => [
         ...prev,
-        { id, title: formData.title, date: formData.date, type: formData.type, time: formData.time || undefined, location: formData.location || undefined },
+        { id, title: formData.title, date: formData.date, type: formData.type, time: formData.time || undefined, location: formData.location || undefined, courseId: user.role === 'admin' ? undefined : user.coordinatorCourseId },
       ]);
       toast.success('Event added successfully');
       setIsDialogOpen(false);
