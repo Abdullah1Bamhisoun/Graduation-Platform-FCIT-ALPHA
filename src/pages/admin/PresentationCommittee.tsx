@@ -85,6 +85,13 @@ interface SupervisorAvailability {
 }
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu'] as const;
+const DAY_NAMES: Record<typeof DAYS[number], string> = {
+  Sun: 'Sunday',
+  Mon: 'Monday',
+  Tue: 'Tuesday',
+  Wed: 'Wednesday',
+  Thu: 'Thursday',
+};
 const TIME_SLOTS = [
   { start: '09:00 am', end: '09:25 am' },
   { start: '09:30 am', end: '09:55 am' },
@@ -101,7 +108,6 @@ export function AdminPresentationCommittee() {
   const { user } = useAuth();
 
   // State
-  const [term, setTerm] = useState('2026-01');
   // Coordinators are locked to their assigned course; admins choose explicitly.
   const [course, setCourse] = useState<'498' | '499' | null>(null);
   const [weekStart, setWeekStart] = useState(() => new Date().toISOString().slice(0, 10));
@@ -113,11 +119,6 @@ export function AdminPresentationCommittee() {
   const [maxSessionsPerDay, setMaxSessionsPerDay] = useState(4);
   const [sessionDuration, setSessionDuration] = useState(30);
   const [bufferDuration, setBufferDuration] = useState(10);
-
-  // Constraints
-  const [limitSessionsPerDay, setLimitSessionsPerDay] = useState(true);
-  const [avoidSameCommittee, setAvoidSameCommittee] = useState(true);
-  const [spreadEvenly, setSpreadEvenly] = useState(true);
 
   // Schedule slots (start empty)
   const [slots, setSlots] = useState<TimeSlot[]>([]);
@@ -283,6 +284,7 @@ export function AdminPresentationCommittee() {
       room: '',
       supervisor: '',
       status: 'empty',
+      course: course ?? undefined,
     };
     setEditingSlot(newSlot);
     setSelectedSlot(null);
@@ -451,12 +453,14 @@ export function AdminPresentationCommittee() {
     return `${String(endHours).padStart(2, '0')}:${String(endMinutes).padStart(2, '0')}`;
   };
 
+  const courseSlots = course ? slots.filter(s => !s.course || s.course === course) : slots;
+
   const getSlotForDayTime = (day: typeof DAYS[number], time: string) => {
-    return slots.find(s => s.day === day && s.startTime === time);
+    return courseSlots.find(s => s.day === day && s.startTime === time);
   };
 
   const getSlotsForDay = (day: typeof DAYS[number]) => {
-    return slots.filter(s => s.day === day);
+    return courseSlots.filter(s => s.day === day);
   };
 
   const getUnassignedProjects = () => {
@@ -470,20 +474,10 @@ export function AdminPresentationCommittee() {
 
   return (
     <Layout user={user} pageTitle="Presentation & Committee Management">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
       {/* Header Controls */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <Select value={term} onValueChange={setTerm}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="2026-01">Term 1, 2026</SelectItem>
-              <SelectItem value="2026-02">Term 2, 2026</SelectItem>
-              <SelectItem value="2025-01">Term 1, 2025</SelectItem>
-            </SelectContent>
-          </Select>
-
           <div className="flex rounded-lg border border-[var(--color-border)] overflow-hidden">
             <button
               onClick={() => !isCoordinator && setCourse('498')}
@@ -521,6 +515,21 @@ export function AdminPresentationCommittee() {
             <Download className="w-4 h-4 mr-2" />
             Download
           </Button>
+
+          <TabsList className="border border-(--color-border) bg-(--color-surface-white) rounded-xl p-1">
+            <TabsTrigger
+              value="schedule"
+              className="rounded-lg px-4 data-[state=active]:bg-(--color-primary-600)! data-[state=active]:text-white data-[state=active]:border-(--color-primary-600) data-[state=inactive]:text-(--color-text-600) data-[state=inactive]:border-transparent"
+            >
+              Schedule
+            </TabsTrigger>
+            <TabsTrigger
+              value="audit"
+              className="rounded-lg px-4 data-[state=active]:bg-(--color-primary-600)! data-[state=active]:text-white data-[state=active]:border-(--color-primary-600) data-[state=inactive]:text-(--color-text-600) data-[state=inactive]:border-transparent"
+            >
+              Changes Log
+            </TabsTrigger>
+          </TabsList>
         </div>
 
         <div className="flex items-center gap-2">
@@ -548,18 +557,12 @@ export function AdminPresentationCommittee() {
             <RotateCcw className="w-4 h-4 mr-2" />
             Reset
           </Button>
-          <Button onClick={() => setShowPublishDialog(true)} className="bg-green-600 hover:bg-green-700 text-[rgb(0,0,0)]">
+          <Button onClick={() => setShowPublishDialog(true)} className="bg-green-600! hover:bg-green-700! text-white border-green-600">
             <Send className="w-4 h-4 mr-2" />
             Publish
           </Button>
         </div>
       </div>
-
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="mb-6">
-          <TabsTrigger value="schedule">Schedule</TabsTrigger>
-          <TabsTrigger value="audit">Changes Log</TabsTrigger>
-        </TabsList>
 
         <TabsContent value="schedule">
           <div className="grid grid-cols-[320px_1fr_380px] gap-6">
@@ -611,7 +614,7 @@ export function AdminPresentationCommittee() {
                       />
                     </div>
                     <div>
-                      <Label className="text-xs">Session Duration (min)</Label>
+                      <Label className="text-xs">Session Duration</Label>
                       <Input
                         type="number"
                         value={sessionDuration}
@@ -622,7 +625,7 @@ export function AdminPresentationCommittee() {
                   </div>
 
                   <div>
-                    <Label className="text-xs">Buffer (min)</Label>
+                    <Label className="text-xs">Buffer</Label>
                     <Input
                       type="number"
                       value={bufferDuration}
@@ -660,36 +663,6 @@ export function AdminPresentationCommittee() {
                   </div>
                 </div>
 
-                {/* Constraints */}
-                <div className="mt-6 pt-6 border-t border-[var(--color-border)]">
-                  <h4 className="text-sm text-[var(--color-text-900)] mb-3">Constraints</h4>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor="limit-sessions" className="text-sm">Limit sessions per day</Label>
-                      <Switch
-                        id="limit-sessions"
-                        checked={limitSessionsPerDay}
-                        onCheckedChange={setLimitSessionsPerDay}
-                      />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor="avoid-same" className="text-sm">Avoid same committee twice</Label>
-                      <Switch
-                        id="avoid-same"
-                        checked={avoidSameCommittee}
-                        onCheckedChange={setAvoidSameCommittee}
-                      />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor="spread-evenly" className="text-sm">Spread evenly</Label>
-                      <Switch
-                        id="spread-evenly"
-                        checked={spreadEvenly}
-                        onCheckedChange={setSpreadEvenly}
-                      />
-                    </div>
-                  </div>
-                </div>
               </div>
             </div>
 
@@ -699,7 +672,7 @@ export function AdminPresentationCommittee() {
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-[var(--color-text-900)]">Week Schedule</h3>
                   <span className="text-sm text-[var(--color-text-600)]">
-                    {slots.filter(s => s.status === 'assigned').length} / {slots.length} slots assigned
+                    {courseSlots.filter(s => s.status === 'assigned').length} / {courseSlots.length} slots assigned
                   </span>
                 </div>
 
@@ -713,7 +686,7 @@ export function AdminPresentationCommittee() {
                         </th>
                         {DAYS.map((day) => (
                           <th key={day} className="border border-[var(--color-border)] p-2 bg-[var(--color-surface-alt)] w-[140px]">
-                            <div className="text-sm text-[var(--color-text-900)]">{day}</div>
+                            <div className="text-sm text-[var(--color-text-900)]">{DAY_NAMES[day]}</div>
                             <div className="text-xs text-[var(--color-text-600)]">
                               {getSlotsForDay(day).length} slots
                             </div>
@@ -862,14 +835,6 @@ export function AdminPresentationCommittee() {
                           {supervisor.status === 'ready' ? 'Ready' : 'None'}
                         </span>
                       </div>
-                      <div className="flex gap-2 text-xs">
-                        <span className="text-[var(--color-text-600)]">Sun: {supervisor.sun}</span>
-                        <span className="text-[var(--color-text-600)]">Mon: {supervisor.mon}</span>
-                        <span className="text-[var(--color-text-600)]">Tue: {supervisor.tue}</span>
-                        <span className="text-[var(--color-text-600)]">Wed: {supervisor.wed}</span>
-                        <span className="text-[var(--color-text-600)]">Thu: {supervisor.thu}</span>
-                        <span className="text-[var(--color-text-900)] ml-auto">Total: {supervisor.total}</span>
-                      </div>
                     </div>
                   ))}
                 </div>
@@ -983,7 +948,7 @@ export function AdminPresentationCommittee() {
                   </SelectTrigger>
                   <SelectContent>
                     {DAYS.map((day) => (
-                      <SelectItem key={day} value={day}>{day}</SelectItem>
+                      <SelectItem key={day} value={day}>{DAY_NAMES[day]}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -1124,7 +1089,7 @@ export function AdminPresentationCommittee() {
             <Button variant="outline" onClick={() => setShowSlotDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handleSaveSlot} className="bg-[var(--color-primary-600)] hover:bg-[var(--color-primary-700)] text-[rgb(0,0,0)]">
+            <Button onClick={handleSaveSlot} className="bg-(--color-primary-600)! hover:bg-(--color-primary-700)! text-white border-(--color-primary-600)">
               Save
             </Button>
           </DialogFooter>
@@ -1166,7 +1131,7 @@ export function AdminPresentationCommittee() {
             <Button variant="outline" onClick={() => setShowAutoAssignDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handleAutoAssign} className="bg-[var(--color-primary-600)] hover:bg-[var(--color-primary-700)] text-black">
+            <Button onClick={handleAutoAssign} className="bg-(--color-primary-600)! hover:bg-(--color-primary-700)! text-white border-(--color-primary-600)">
               Preview & Apply
             </Button>
           </DialogFooter>
@@ -1222,7 +1187,7 @@ export function AdminPresentationCommittee() {
             <Button
               onClick={handlePublish}
               disabled={publishing}
-              className="bg-green-600 hover:bg-green-700 text-black"
+              className="bg-green-600! hover:bg-green-700! text-white border-green-600"
             >
               <Send className="w-4 h-4 mr-2" />
               {publishing ? 'Publishing…' : 'Publish Schedule'}
