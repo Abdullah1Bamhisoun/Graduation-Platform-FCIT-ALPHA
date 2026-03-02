@@ -19,6 +19,20 @@ export async function uploadSubmissionFile(
   return filePath;
 }
 
+/** Uploads an admin-managed important file. Returns the storage path. */
+export async function uploadImportantFile(file: File): Promise<string> {
+  const timestamp = Date.now();
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const filePath = `important-files/${timestamp}-${safeName}`;
+
+  const { error } = await supabase.storage
+    .from(BUCKET)
+    .upload(filePath, file, { upsert: false });
+
+  if (error) throw error;
+  return filePath;
+}
+
 /** Removes an already-uploaded file from storage (called on DB rollback). */
 export async function deleteStorageFile(filePath: string): Promise<void> {
   await supabase.storage.from(BUCKET).remove([filePath]);

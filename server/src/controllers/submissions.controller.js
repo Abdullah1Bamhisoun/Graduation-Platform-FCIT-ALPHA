@@ -1,6 +1,15 @@
 const { supabaseAdmin } = require('../config/supabase');
 
 /**
+ * Normalize a DB status value (underscore format) to the frontend format (hyphen format).
+ * e.g. 'changes_requested' → 'changes-requested', 'under_review' → 'under-review'
+ */
+function normalizeStatus(status) {
+  if (!status) return status;
+  return status.replace(/_/g, '-');
+}
+
+/**
  * GET /api/submissions/chapter-submissions
  *
  * Supervisor-only endpoint.
@@ -32,35 +41,51 @@ async function getChapterSubmissionsForSupervisor(req, res) {
         current_version, created_at, updated_at,
         milestone:milestones!milestone_id(id, name, type, due_date),
         student:profiles!student_id(id, name),
-        versions:submission_versions(version, file_name, file_size, uploaded_at, notes),
-        feedback:submission_feedback(id, overall_comment, reviewed_by, reviewed_at)
+        versions:submission_versions!submission_id(version, file_name, file_size, file_path, uploaded_at, notes)
       `)
       .in('group_id', groupIds)
       .order('updated_at', { ascending: false });
 
     if (sError) throw sError;
 
-    const result = (submissions || []).map((s) => ({
-      id: s.id,
-      groupId: s.group_id,
-      groupNumber: groupMap[s.group_id]?.group_number ?? null,
-      projectName: groupMap[s.group_id]?.project_name ?? '',
-      studentId: s.student_id,
-      studentName: s.student?.name ?? '',
-      milestoneId: s.milestone_id,
-      milestoneName: s.milestone?.name ?? '',
-      milestoneType: s.milestone?.type ?? '',
-      dueDate: s.milestone?.due_date ?? null,
-      status: s.status,
-      currentVersion: s.current_version,
-      submittedAt: s.updated_at ?? s.created_at,
-      versions: (s.versions || []).sort((a, b) => a.version - b.version),
-      hasFeedback: (s.feedback || []).length > 0,
-      latestFeedback:
-        (s.feedback || []).sort(
-          (a, b) => new Date(b.reviewed_at).getTime() - new Date(a.reviewed_at).getTime()
-        )[0] ?? null,
-    }));
+    const submissionIds = (submissions || []).map((s) => s.id);
+
+    // Step 3 — get feedback separately to avoid FK auto-detection issues
+    let feedbackMap = {};
+    if (submissionIds.length > 0) {
+      const { data: feedbackRows } = await supabaseAdmin
+        .from('submission_feedback')
+        .select('id, submission_id, overall_comment, reviewed_by, reviewed_at')
+        .in('submission_id', submissionIds)
+        .order('reviewed_at', { ascending: false });
+
+      (feedbackRows || []).forEach((f) => {
+        if (!feedbackMap[f.submission_id]) feedbackMap[f.submission_id] = [];
+        feedbackMap[f.submission_id].push(f);
+      });
+    }
+
+    const result = (submissions || []).map((s) => {
+      const feedbackArr = feedbackMap[s.id] || [];
+      return {
+        id: s.id,
+        groupId: s.group_id,
+        groupNumber: groupMap[s.group_id]?.group_number ?? null,
+        projectName: groupMap[s.group_id]?.project_name ?? '',
+        studentId: s.student_id,
+        studentName: s.student?.name ?? '',
+        milestoneId: s.milestone_id,
+        milestoneName: s.milestone?.name ?? '',
+        milestoneType: s.milestone?.type ?? '',
+        dueDate: s.milestone?.due_date ?? null,
+        status: normalizeStatus(s.status),
+        currentVersion: s.current_version,
+        submittedAt: s.updated_at ?? s.created_at,
+        versions: (s.versions || []).sort((a, b) => a.version - b.version),
+        hasFeedback: feedbackArr.length > 0,
+        latestFeedback: feedbackArr[0] ?? null,
+      };
+    });
 
     res.json(result);
   } catch (error) {
@@ -126,7 +151,8 @@ async function updateSubmissionApproval(req, res) {
     }
 
     // Determine new status — approval and grading are intentionally separate
-    const newStatus = action === 'approve' ? 'approved' : 'changes-requested';
+    // DB enum uses underscores; frontend display uses hyphens (mapped in mappers.ts)
+    const newStatus = action === 'approve' ? 'approved' : 'changes_requested';
 
     // Update submission status
     const { error: updateError } = await supabaseAdmin
@@ -134,18 +160,29 @@ async function updateSubmissionApproval(req, res) {
       .update({ status: newStatus })
       .eq('id', submissionId);
 
-    if (updateError) throw updateError;
-
-    // Store the review feedback (score fields are 0 — approval is not grading)
-    if (feedback || action === 'reject') {
-      const { error: fbError } = await supabaseAdmin.from('submission_feedback').insert({
-        submission_id: submissionId,
-        overall_comment: feedback?.trim() || '',
-        reviewed_by: req.user.id,
-        reviewed_at: new Date().toISOString(),
-        total_score: 0,
-        max_score: 0,
+    if (updateError) {
+      console.error('submissions.update error:', updateError);
+      return res.status(500).json({
+        error: `Failed to update submission status: ${updateError.message}`,
+        detail: updateError.details || updateError.hint || null,
       });
+    }
+
+    // Store the review feedback — upsert so re-approving/re-rejecting doesn't
+    // crash on a duplicate submission_id unique constraint.
+    if (feedback || action === 'reject') {
+      const { error: fbError } = await supabaseAdmin
+        .from('submission_feedback')
+        .upsert(
+          {
+            submission_id: submissionId,
+            overall_comment: feedback?.trim() || '',
+            reviewed_by: req.user.id,
+            total_score: 0,
+            max_score: 0,
+          },
+          { onConflict: 'submission_id', ignoreDuplicates: false }
+        );
 
       if (fbError) {
         // Non-fatal: status is already updated; log the feedback error
@@ -168,7 +205,10 @@ async function updateSubmissionApproval(req, res) {
     res.json({ success: true, newStatus });
   } catch (error) {
     console.error('Error updating submission approval:', error);
-    res.status(500).json({ error: 'Failed to update submission' });
+    res.status(500).json({
+      error: error?.message || 'Failed to update submission',
+      detail: error?.details || error?.hint || null,
+    });
   }
 }
 
@@ -234,40 +274,56 @@ async function getChapterSubmissionsForCoordinator(req, res) {
         current_version, created_at, updated_at,
         milestone:milestones!milestone_id(id, name, type, due_date),
         student:profiles!student_id(id, name),
-        versions:submission_versions(version, file_name, file_size, uploaded_at, notes),
-        feedback:submission_feedback(id, overall_comment, reviewed_by, reviewed_at)
+        versions:submission_versions!submission_id(version, file_name, file_size, file_path, uploaded_at, notes)
       `)
       .in('group_id', groupIds)
       .order('updated_at', { ascending: false });
 
     if (sError) throw sError;
 
-    const result = (submissions || []).map((s) => ({
-      id: s.id,
-      groupId: s.group_id,
-      groupNumber: groupMap[s.group_id]?.group_number ?? null,
-      projectName: groupMap[s.group_id]?.project_name ?? '',
-      studentId: s.student_id,
-      studentName: s.student?.name ?? '',
-      milestoneId: s.milestone_id,
-      milestoneName: s.milestone?.name ?? '',
-      milestoneType: s.milestone?.type ?? '',
-      dueDate: s.milestone?.due_date ?? null,
-      status: s.status,
-      currentVersion: s.current_version,
-      submittedAt: s.updated_at ?? s.created_at,
-      versions: (s.versions || []).sort((a, b) => a.version - b.version),
-      hasFeedback: (s.feedback || []).length > 0,
-      latestFeedback:
-        (s.feedback || []).sort(
-          (a, b) => new Date(b.reviewed_at).getTime() - new Date(a.reviewed_at).getTime()
-        )[0] ?? null,
-    }));
+    const submissionIds = (submissions || []).map((s) => s.id);
 
-    // Step 4 — calculate statistics
+    // Get feedback separately to avoid FK auto-detection issues
+    let feedbackMap = {};
+    if (submissionIds.length > 0) {
+      const { data: feedbackRows } = await supabaseAdmin
+        .from('submission_feedback')
+        .select('id, submission_id, overall_comment, reviewed_by, reviewed_at')
+        .in('submission_id', submissionIds)
+        .order('reviewed_at', { ascending: false });
+
+      (feedbackRows || []).forEach((f) => {
+        if (!feedbackMap[f.submission_id]) feedbackMap[f.submission_id] = [];
+        feedbackMap[f.submission_id].push(f);
+      });
+    }
+
+    const result = (submissions || []).map((s) => {
+      const feedbackArr = feedbackMap[s.id] || [];
+      return {
+        id: s.id,
+        groupId: s.group_id,
+        groupNumber: groupMap[s.group_id]?.group_number ?? null,
+        projectName: groupMap[s.group_id]?.project_name ?? '',
+        studentId: s.student_id,
+        studentName: s.student?.name ?? '',
+        milestoneId: s.milestone_id,
+        milestoneName: s.milestone?.name ?? '',
+        milestoneType: s.milestone?.type ?? '',
+        dueDate: s.milestone?.due_date ?? null,
+        status: normalizeStatus(s.status),
+        currentVersion: s.current_version,
+        submittedAt: s.updated_at ?? s.created_at,
+        versions: (s.versions || []).sort((a, b) => a.version - b.version),
+        hasFeedback: feedbackArr.length > 0,
+        latestFeedback: feedbackArr[0] ?? null,
+      };
+    });
+
+    // Step 4 — calculate statistics (statuses are already normalized to hyphen format)
     const stats = {
       total: result.length,
-      pending: result.filter((s) => s.status === 'pending' || s.status === 'under-review').length,
+      pending: result.filter((s) => s.status === 'submitted' || s.status === 'under-review').length,
       approved: result.filter((s) => s.status === 'approved').length,
       rejected: result.filter((s) => s.status === 'changes-requested').length,
     };

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/submissions.controller');
+const commentsController = require('../controllers/submissionComments.controller');
 const {
   authenticate,
   requireSupervisorOrAdmin,
@@ -41,5 +42,13 @@ router.patch(
   requireSupervisorOrAdmin,
   controller.updateSubmissionApproval
 );
+
+/**
+ * Discussion comment routes — accessible by the submission's student or their supervisor.
+ * GET  /api/submissions/:id/comments — list all comments
+ * POST /api/submissions/:id/comments — add a comment
+ */
+router.get('/:id/comments', authenticate, commentsController.getComments);
+router.post('/:id/comments', authenticate, commentsController.addComment);
 
 module.exports = router;

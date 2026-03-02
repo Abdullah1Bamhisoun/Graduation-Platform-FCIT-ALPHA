@@ -1,6 +1,8 @@
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
-import { FileText, Download, File } from 'lucide-react';
+import { FileText, Download, File, Eye } from 'lucide-react';
+import { getSignedUrl } from '../../services/storage';
+import { toast } from 'sonner';
 import { Card } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { useState, useEffect } from 'react';
@@ -41,9 +43,35 @@ export function ImportantFiles() {
     }
   };
 
-  const handleDownload = (file: FileItem) => {
-    if (file.fileUrl) {
-      window.open(file.fileUrl, '_blank');
+  const getUrl = async (fileUrl: string): Promise<string> => {
+    const isStoragePath = !fileUrl.startsWith('http');
+    return isStoragePath ? await getSignedUrl(fileUrl) : fileUrl;
+  };
+
+  const handleView = async (file: FileItem) => {
+    if (!file.fileUrl) return;
+    try {
+      const url = await getUrl(file.fileUrl);
+      window.open(url, '_blank');
+    } catch {
+      toast.error('Failed to open file');
+    }
+  };
+
+  const handleDownload = async (file: FileItem) => {
+    if (!file.fileUrl) return;
+    try {
+      const url = await getUrl(file.fileUrl);
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = file.name;
+      a.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      toast.error('Failed to download file');
     }
   };
 
@@ -95,10 +123,14 @@ export function ImportantFiles() {
                   </div>
                 </div>
                 {file.fileUrl && (
-                  <Button onClick={() => handleDownload(file)}>
-                    <Download className="w-4 h-4 mr-2" />
-                    Download
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => handleView(file)}>
+                      <Eye className="w-4 h-4 mr-1" /> View
+                    </Button>
+                    <Button size="sm" onClick={() => handleDownload(file)}>
+                      <Download className="w-4 h-4 mr-1" /> Download
+                    </Button>
+                  </div>
                 )}
               </div>
             </Card>

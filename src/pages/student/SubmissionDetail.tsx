@@ -13,11 +13,19 @@ import {
 } from '../../services/submissions';
 import { getGroupForStudent, GroupData } from '../../services/groups';
 import { uploadSubmissionFile, getSignedUrl, deleteStorageFile } from '../../services/storage';
-import { Upload, FileText, Clock, MessageSquare, Download, X, AlertCircle, Lock } from 'lucide-react';
+import { Upload, FileText, Clock, MessageSquare, Download, X, AlertCircle, Lock, Send, Loader2, Eye } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Milestone, Submission } from '../../types';
 import { useLockStatus } from '../../hooks/useLockStatus';
 import { LockedBanner } from '../../components/ui/LockedBanner';
+
+interface SubmissionComment {
+  id: string;
+  content: string;
+  authorName: string;
+  authorRole: 'student' | 'supervisor';
+  createdAt: string;
+}
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -33,7 +41,6 @@ export function StudentSubmissionDetail() {
   const [milestone, setMilestone] = useState<Milestone | null>(null);
   const [submission, setSubmission] = useState<Submission | undefined>(undefined);
   const [group, setGroup] = useState<GroupData | null>(null);
-  const [supervisorName, setSupervisorName] = useState<string>('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -45,15 +52,36 @@ export function StudentSubmissionDetail() {
     ]).then(([m, s, g]) => {
       setMilestone(m);
       setSubmission(s ?? undefined);
-      setSupervisorName(g?.supervisorName ?? '');
       setGroup(g);
     }).finally(() => setLoading(false));
   }, [user, id]);
+
+  // Load discussion comments when we know the submission id
+  useEffect(() => {
+    if (!submission?.id || !user) return;
+    setCommentsLoading(true);
+    import('../../lib/supabase')
+      .then((m) => m.supabase.auth.getSession())
+      .then(async (session) => {
+        const token = session.data.session?.access_token ?? '';
+        const res = await fetch(`/api/submissions/${submission.id}/comments`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const data: SubmissionComment[] = await res.json();
+        setComments(data);
+      })
+      .catch(() => { /* silently ignore – discussion is non-critical */ })
+      .finally(() => setCommentsLoading(false));
+  }, [submission?.id, user]);
 
   const [uploading, setUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [newComment, setNewComment] = useState('');
+  const [comments, setComments] = useState<SubmissionComment[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentPosting, setCommentPosting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!user) return null;
@@ -154,12 +182,25 @@ export function StudentSubmissionDetail() {
   const handleDownload = async (filePath: string, fileName: string) => {
     try {
       const url = await getSignedUrl(filePath);
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
+      a.href = blobUrl;
       a.download = fileName;
       a.click();
+      URL.revokeObjectURL(blobUrl);
     } catch {
       toast.error('Failed to get download link');
+    }
+  };
+
+  const handleView = async (filePath: string) => {
+    try {
+      const url = await getSignedUrl(filePath);
+      window.open(url, '_blank');
+    } catch {
+      toast.error('Failed to get file URL');
     }
   };
 
@@ -346,14 +387,24 @@ export function StudentSubmissionDetail() {
                     </div>
                     <div className="flex gap-2">
                       {version.filePath ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleDownload(version.filePath!, version.fileName)}
-                        >
-                          <Download className="w-4 h-4 mr-2" />
-                          Download
-                        </Button>
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleView(version.filePath!)}
+                          >
+                            <Eye className="w-4 h-4 mr-2" />
+                            View
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleDownload(version.filePath!, version.fileName)}
+                          >
+                            <Download className="w-4 h-4 mr-2" />
+                            Download
+                          </Button>
+                        </>
                       ) : (
                         <Button variant="outline" size="sm" disabled>
                           <Download className="w-4 h-4 mr-2" />
@@ -367,56 +418,22 @@ export function StudentSubmissionDetail() {
             </div>
           )}
 
-          {/* Feedback */}
-          {submission?.feedback && (
+          {/* Feedback — overall comment only, no rubric/scores */}
+          {submission?.feedback?.overallComment && (
             <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)]">
               <div className="p-6 border-b border-[var(--color-border)]">
-                <h2 className="text-[var(--color-text-900)]">Feedback & Rubric</h2>
+                <h2 className="text-[var(--color-text-900)]">Supervisor Feedback</h2>
               </div>
-              <div className="p-6 space-y-6">
-                {/* Rubric Scores */}
-                <div>
-                  <h3 className="text-[var(--color-text-900)] mb-3">Rubric Breakdown</h3>
-                  <div className="space-y-3">
-                    {submission.feedback.rubric.map((criterion) => (
-                      <div key={criterion.id} className="border border-[var(--color-border)] rounded-lg p-4">
-                        <div className="flex justify-between items-start mb-2">
-                          <span className="text-[var(--color-text-900)]">{criterion.name}</span>
-                          <span className="text-[var(--color-text-900)]">
-                            {criterion.score}/{criterion.maxScore}
-                          </span>
-                        </div>
-                        {criterion.comment && (
-                          <p className="text-[var(--color-text-600)] bg-[var(--color-surface-alt)] p-3 rounded">
-                            {criterion.comment}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                    <div className="border-2 border-[var(--color-primary-600)] rounded-lg p-4 bg-[var(--color-primary-100)]">
-                      <div className="flex justify-between items-center">
-                        <span className="text-[var(--color-text-900)]">Total Score</span>
-                        <span className="text-[var(--color-text-900)]">
-                          {submission.feedback.totalScore}/{submission.feedback.maxScore}
-                        </span>
-                      </div>
+              <div className="p-6">
+                <div className="bg-[var(--color-surface-alt)] p-4 rounded-lg">
+                  <p className="text-[var(--color-text-900)] mb-3">{submission.feedback.overallComment}</p>
+                  <div className="flex items-center gap-3 text-[var(--color-text-600)]">
+                    <div className="w-8 h-8 rounded-full bg-[var(--color-primary-600)] text-white flex items-center justify-center">
+                      {submission.feedback.reviewedBy.charAt(0)}
                     </div>
-                  </div>
-                </div>
-
-                {/* Overall Comment */}
-                <div>
-                  <h3 className="text-[var(--color-text-900)] mb-3">Overall Feedback</h3>
-                  <div className="bg-[var(--color-surface-alt)] p-4 rounded-lg">
-                    <p className="text-[var(--color-text-900)] mb-3">{submission.feedback.overallComment}</p>
-                    <div className="flex items-center gap-3 text-[var(--color-text-600)]">
-                      <div className="w-8 h-8 rounded-full bg-[var(--color-primary-600)] text-white flex items-center justify-center">
-                        {submission.feedback.reviewedBy.charAt(0)}
-                      </div>
-                      <div>
-                        <p>{submission.feedback.reviewedBy}</p>
-                        <p>{new Date(submission.feedback.reviewedAt).toLocaleString()}</p>
-                      </div>
+                    <div>
+                      <p>{submission.feedback.reviewedBy}</p>
+                      <p>{new Date(submission.feedback.reviewedAt).toLocaleString()}</p>
                     </div>
                   </div>
                 </div>
@@ -485,49 +502,133 @@ export function StudentSubmissionDetail() {
             </div>
           </div>
 
-          {/* Comments */}
+          {/* Discussion */}
           <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
             <h2 className="text-[var(--color-text-900)] mb-4 flex items-center gap-2">
               <MessageSquare className="w-5 h-5" />
               Discussion
             </h2>
 
-            <div className="space-y-4 mb-4">
-              {submission?.feedback && (
-                <div className="border border-[var(--color-border)] rounded-lg p-3 bg-[var(--color-surface-alt)]">
-                  <div className="flex items-start gap-2 mb-2">
-                    <div className="w-6 h-6 rounded-full bg-[var(--color-primary-600)] text-white flex items-center justify-center flex-shrink-0">
-                      {supervisorName ? supervisorName[0].toUpperCase() : 'S'}
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-[var(--color-text-900)]">{supervisorName || 'Supervisor'}</p>
-                      <p className="text-[var(--color-text-600)]">Supervisor</p>
-                    </div>
-                  </div>
-                  <p className="text-[var(--color-text-900)]">
-                    Please review the feedback above and address the comments in your next version.
-                  </p>
+            {/* Comment thread */}
+            <div className="space-y-3 mb-4 max-h-[320px] overflow-y-auto">
+              {commentsLoading ? (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="w-5 h-5 animate-spin text-[var(--color-text-400)]" />
                 </div>
+              ) : comments.length === 0 ? (
+                <p className="text-[var(--color-text-500)] text-sm text-center py-4">
+                  No messages yet. Ask your supervisor a question below.
+                </p>
+              ) : (
+                comments.map((c) => {
+                  const isMe = c.authorRole === 'student';
+                  return (
+                    <div key={c.id} className={`flex gap-2 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
+                      <div
+                        className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0 ${
+                          isMe ? 'bg-emerald-500' : 'bg-[var(--color-primary-600)]'
+                        }`}
+                      >
+                        {c.authorName.charAt(0).toUpperCase()}
+                      </div>
+                      <div className={`max-w-[80%] flex flex-col gap-0.5 ${isMe ? 'items-end' : 'items-start'}`}>
+                        <span className="text-[10px] text-[var(--color-text-500)] px-1">
+                          {c.authorName} · {isMe ? 'You' : 'Supervisor'}
+                        </span>
+                        <div
+                          className={`rounded-2xl px-3 py-2 text-sm ${
+                            isMe
+                              ? 'bg-emerald-500 text-white rounded-tr-sm'
+                              : 'bg-[var(--color-surface-alt)] text-[var(--color-text-900)] border border-[var(--color-border)] rounded-tl-sm'
+                          }`}
+                        >
+                          {c.content}
+                        </div>
+                        <span className="text-[10px] text-[var(--color-text-400)] px-1">
+                          {new Date(c.createdAt).toLocaleString('en-US', {
+                            month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                          })}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
               )}
             </div>
 
-            <div>
+            {/* Compose */}
+            <div className="space-y-2">
               <Textarea
-                placeholder="Add a comment or question..."
+                placeholder="Ask your supervisor a question or share an update…"
                 value={newComment}
                 onChange={(e) => setNewComment(e.target.value)}
-                className="mb-3"
-              />
-              <Button
-                size="sm"
-                className="w-full"
-                onClick={() => {
-                  toast.success('Comment posted');
-                  setNewComment('');
+                className="min-h-[80px] resize-none"
+                onKeyDown={async (e) => {
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault();
+                    if (!submission?.id || !newComment.trim() || commentPosting) return;
+                    setCommentPosting(true);
+                    try {
+                      const session = await import('../../lib/supabase').then((m) => m.supabase.auth.getSession());
+                      const token = session.data.session?.access_token ?? '';
+                      const res = await fetch(`/api/submissions/${submission.id}/comments`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                        body: JSON.stringify({ content: newComment.trim() }),
+                      });
+                      if (!res.ok) {
+                        const err = await res.json().catch(() => ({}));
+                        throw new Error(err.error || 'Failed to post comment');
+                      }
+                      const comment: SubmissionComment = await res.json();
+                      setComments((prev) => [...prev, comment]);
+                      setNewComment('');
+                    } catch (err: any) {
+                      toast.error(err?.message || 'Failed to post comment');
+                    } finally {
+                      setCommentPosting(false);
+                    }
+                  }
                 }}
-              >
-                Post Comment
-              </Button>
+              />
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-[var(--color-text-400)]">Ctrl+Enter to send</span>
+                <Button
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={!submission?.id || !newComment.trim() || commentPosting}
+                  onClick={async () => {
+                    if (!submission?.id || !newComment.trim()) return;
+                    setCommentPosting(true);
+                    try {
+                      const session = await import('../../lib/supabase').then((m) => m.supabase.auth.getSession());
+                      const token = session.data.session?.access_token ?? '';
+                      const res = await fetch(`/api/submissions/${submission.id}/comments`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                        body: JSON.stringify({ content: newComment.trim() }),
+                      });
+                      if (!res.ok) {
+                        const err = await res.json().catch(() => ({}));
+                        throw new Error(err.error || 'Failed to post comment');
+                      }
+                      const comment: SubmissionComment = await res.json();
+                      setComments((prev) => [...prev, comment]);
+                      setNewComment('');
+                    } catch (err: any) {
+                      toast.error(err?.message || 'Failed to post comment');
+                    } finally {
+                      setCommentPosting(false);
+                    }
+                  }}
+                >
+                  {commentPosting
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    : <Send className="w-3.5 h-3.5" />
+                  }
+                  Send
+                </Button>
+              </div>
             </div>
           </div>
         </div>

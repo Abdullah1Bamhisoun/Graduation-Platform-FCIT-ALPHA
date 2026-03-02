@@ -32,6 +32,20 @@ CREATE POLICY "Authenticated users can read files"
   TO authenticated
   USING (bucket_id = 'File Upload');
 
+-- ─── Storage: INSERT — admins upload important files ─────────────────────────
+-- Path written by uploadImportantFile():
+--   important-files/{timestamp}-{filename}
+
+DROP POLICY IF EXISTS "Admins can upload important files" ON storage.objects;
+CREATE POLICY "Admins can upload important files"
+  ON storage.objects
+  FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    bucket_id = 'File Upload'
+    AND (storage.foldername(name))[1] = 'important-files'
+  );
+
 -- ─── Storage: DELETE — students can remove only their own files ───────────────
 
 DROP POLICY IF EXISTS "Students can delete own files" ON storage.objects;
@@ -42,6 +56,18 @@ CREATE POLICY "Students can delete own files"
   USING (
     bucket_id = 'File Upload'
     AND (storage.foldername(name))[2] = auth.uid()::text
+  );
+
+-- ─── Storage: DELETE — admins can remove important files ─────────────────────
+
+DROP POLICY IF EXISTS "Admins can delete important files" ON storage.objects;
+CREATE POLICY "Admins can delete important files"
+  ON storage.objects
+  FOR DELETE
+  TO authenticated
+  USING (
+    bucket_id = 'File Upload'
+    AND (storage.foldername(name))[1] = 'important-files'
   );
 
 -- ─── submissions: INSERT — students create their own submission rows ──────────

@@ -59,7 +59,12 @@ import {
   ChevronUp,
   ClipboardList,
   Loader2,
+  Download,
+  Eye,
+  MessageSquare,
+  Send,
 } from 'lucide-react';
+import { getSignedUrl } from '../../services/storage';
 import { toast } from 'sonner';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
@@ -88,7 +93,7 @@ interface ChapterSubmission {
   status: string;
   currentVersion: number;
   submittedAt: string;
-  versions: { version: number; file_name: string; file_size: string; uploaded_at: string }[];
+  versions: { version: number; file_name: string; file_size: string; file_path: string | null; uploaded_at: string }[];
   hasFeedback: boolean;
   latestFeedback: { overall_comment: string; reviewed_at: string } | null;
 }
@@ -171,7 +176,7 @@ interface EvalModalTarget {
 
 async function fetchChapterSubmissions(token: string): Promise<ChapterSubmission[]> {
   const res = await fetch('/api/submissions/chapter-submissions', {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, 'X-Active-Role': 'supervisor' },
   });
   if (!res.ok) throw new Error('Failed to fetch chapter submissions');
   return res.json();
@@ -190,7 +195,8 @@ async function submitApproval(
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(err.error || 'Failed to update submission');
+    const detail = err.detail ? ` (${err.detail})` : '';
+    throw new Error((err.error || 'Failed to update submission') + detail);
   }
   return res.json();
 }
@@ -250,6 +256,45 @@ async function submitEvaluations(
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Request failed' }));
     throw new Error(err.error || 'Failed to submit evaluation');
+  }
+  return res.json();
+}
+
+// ─── Discussion / Comment types & helpers ─────────────────────────────────────
+
+interface SubmissionComment {
+  id: string;
+  content: string;
+  authorName: string;
+  authorRole: 'student' | 'supervisor';
+  createdAt: string;
+}
+
+async function fetchComments(submissionId: string, token: string): Promise<SubmissionComment[]> {
+  const res = await fetch(`/api/submissions/${submissionId}/comments`, {
+    headers: { Authorization: `Bearer ${token}`, 'X-Active-Role': 'supervisor' },
+  });
+  // If table isn't created yet (500/503) return empty rather than crashing the dialog
+  if (!res.ok) {
+    if (res.status >= 500) return [];
+    throw new Error('Failed to fetch comments');
+  }
+  return res.json();
+}
+
+async function postComment(submissionId: string, content: string, token: string): Promise<SubmissionComment> {
+  const res = await fetch(`/api/submissions/${submissionId}/comments`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      'X-Active-Role': 'supervisor',
+    },
+    body: JSON.stringify({ content }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(err.error || 'Failed to post comment');
   }
   return res.json();
 }
@@ -328,6 +373,13 @@ export function SupervisorMyGroupsAndReviews() {
   const [ipTarget, setIpTarget] = useState<GroupGradeData | null>(null);
   const [ipReason, setIpReason] = useState('');
   const [ipProcessing, setIpProcessing] = useState(false);
+
+  // Discussion dialog
+  const [discussionTarget, setDiscussionTarget]     = useState<ChapterSubmission | null>(null);
+  const [discussionComments, setDiscussionComments] = useState<SubmissionComment[]>([]);
+  const [discussionLoading, setDiscussionLoading]   = useState(false);
+  const [newDiscussionComment, setNewDiscussionComment] = useState('');
+  const [discussionPosting, setDiscussionPosting]   = useState(false);
 
   // Supervisor evaluation modal
   const [evalTarget, setEvalTarget]                 = useState<EvalModalTarget | null>(null);
@@ -468,6 +520,71 @@ export function SupervisorMyGroupsAndReviews() {
       toast.error(err.message || 'Failed to reject submission');
     } finally {
       setProcessing(false);
+    }
+  };
+
+  // ── File View / Download ──────────────────────────────────────────────────
+
+  const handleViewFile = async (filePath: string) => {
+    try {
+      const url = await getSignedUrl(filePath);
+      window.open(url, '_blank');
+    } catch {
+      toast.error('Failed to get file URL');
+    }
+  };
+
+  const handleDownloadFile = async (filePath: string, fileName: string) => {
+    try {
+      const url = await getSignedUrl(filePath);
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      toast.error('Failed to download file');
+    }
+  };
+
+  // ── Discussion helpers ────────────────────────────────────────────────────
+
+  const getToken = async () => {
+    const session = await import('../../lib/supabase').then((m) => m.supabase.auth.getSession());
+    return session.data.session?.access_token ?? '';
+  };
+
+  const handleOpenDiscussion = async (sub: ChapterSubmission) => {
+    setDiscussionTarget(sub);
+    setDiscussionComments([]);
+    setNewDiscussionComment('');
+    setDiscussionLoading(true);
+    try {
+      const token = await getToken();
+      const comments = await fetchComments(sub.id, token);
+      setDiscussionComments(comments);
+    } catch {
+      toast.error('Failed to load discussion');
+    } finally {
+      setDiscussionLoading(false);
+    }
+  };
+
+  const handlePostDiscussionComment = async () => {
+    if (!discussionTarget || !newDiscussionComment.trim()) return;
+    setDiscussionPosting(true);
+    try {
+      const token = await getToken();
+      const comment = await postComment(discussionTarget.id, newDiscussionComment.trim(), token);
+      setDiscussionComments((prev) => [...prev, comment]);
+      setNewDiscussionComment('');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to post comment');
+    } finally {
+      setDiscussionPosting(false);
     }
   };
 
@@ -906,6 +1023,9 @@ export function SupervisorMyGroupsAndReviews() {
                           <th className="p-4 text-center text-[var(--color-text-900)] border-r border-[var(--color-border)]">
                             Status
                           </th>
+                          <th className="p-4 text-center text-[var(--color-text-900)] border-r border-[var(--color-border)]">
+                            File
+                          </th>
                           <th className="p-4 text-center text-[var(--color-text-900)]">
                             Actions
                           </th>
@@ -950,36 +1070,77 @@ export function SupervisorMyGroupsAndReviews() {
                                   {getStatusText(sub.status)}
                                 </span>
                               </td>
+                              {/* ── File column ── */}
+                              <td className="p-4 text-center border-r border-[var(--color-border)]">
+                                {(() => {
+                                  const latestVersion = sub.versions[sub.versions.length - 1];
+                                  const filePath = latestVersion?.file_path ?? null;
+                                  const fileName = latestVersion?.file_name ?? 'file';
+                                  if (!filePath) return <span className="text-[var(--color-text-400)] text-sm">—</span>;
+                                  return (
+                                    <div className="flex items-center justify-center gap-2">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="gap-1"
+                                        onClick={() => handleViewFile(filePath)}
+                                      >
+                                        <Eye className="w-3 h-3" />
+                                        View
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="gap-1"
+                                        onClick={() => handleDownloadFile(filePath, fileName)}
+                                      >
+                                        <Download className="w-3 h-3" />
+                                        Download
+                                      </Button>
+                                    </div>
+                                  );
+                                })()}
+                              </td>
+                              {/* ── Actions column ── */}
                               <td className="p-4 text-center">
-                                {isPending ? (
-                                  <div className="flex items-center justify-center gap-2">
-                                    <Button
-                                      size="sm"
-                                      className="gap-1 bg-[#10B981] text-black hover:bg-[#0ea572]"
-                                      onClick={() => {
-                                        setApproveTarget(sub);
-                                        setApproveComment('');
-                                      }}
-                                    >
-                                      <CheckCircle className="w-3 h-3" />
-                                      Approve
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="gap-1 text-amber-600 border-amber-300 hover:bg-amber-50"
-                                      onClick={() => {
-                                        setRejectTarget(sub);
-                                        setRejectFeedback('');
-                                      }}
-                                    >
-                                      <XCircle className="w-3 h-3" />
-                                      Reject
-                                    </Button>
-                                  </div>
-                                ) : (
-                                  <span className="text-[var(--color-text-400)] text-sm">—</span>
-                                )}
+                                <div className="flex items-center justify-center gap-2 flex-wrap">
+                                  {isPending && (
+                                    <>
+                                      <Button
+                                        size="sm"
+                                        className="gap-1 !bg-green-600 hover:!bg-green-700 text-white border-green-600"
+                                        onClick={() => {
+                                          setApproveTarget(sub);
+                                          setApproveComment('');
+                                        }}
+                                      >
+                                        <CheckCircle className="w-3 h-3" />
+                                        Approve
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="gap-1 text-amber-600 border-amber-300 hover:bg-amber-50"
+                                        onClick={() => {
+                                          setRejectTarget(sub);
+                                          setRejectFeedback('');
+                                        }}
+                                      >
+                                        <XCircle className="w-3 h-3" />
+                                        Reject
+                                      </Button>
+                                    </>
+                                  )}
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="gap-1 text-blue-600 border-blue-300 hover:bg-blue-50"
+                                    onClick={() => handleOpenDiscussion(sub)}
+                                  >
+                                    <MessageSquare className="w-3 h-3" />
+                                    Discussion
+                                  </Button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -1810,6 +1971,118 @@ export function SupervisorMyGroupsAndReviews() {
               Submit Evaluation
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Discussion Dialog ── */}
+      <Dialog
+        open={!!discussionTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDiscussionTarget(null);
+            setDiscussionComments([]);
+            setNewDiscussionComment('');
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MessageSquare className="w-5 h-5 text-blue-600" />
+              Discussion
+            </DialogTitle>
+            <DialogDescription>
+              <strong>{discussionTarget?.milestoneName}</strong> — Group {discussionTarget?.groupNumber}
+              {discussionTarget?.studentName ? ` · ${discussionTarget.studentName}` : ''}
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Comment thread */}
+          <div className="flex-1 overflow-y-auto space-y-3 py-2 min-h-[200px] max-h-[360px]">
+            {discussionLoading ? (
+              <div className="flex items-center justify-center h-full py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-[var(--color-text-400)]" />
+              </div>
+            ) : discussionComments.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full py-8 text-center">
+                <MessageSquare className="w-10 h-10 text-[var(--color-text-300)] mb-2" />
+                <p className="text-[var(--color-text-500)] text-sm">No comments yet.</p>
+                <p className="text-[var(--color-text-400)] text-xs mt-1">
+                  Start the conversation with the student below.
+                </p>
+              </div>
+            ) : (
+              discussionComments.map((c) => {
+                const isSupervisor = c.authorRole === 'supervisor';
+                return (
+                  <div
+                    key={c.id}
+                    className={`flex gap-2 ${isSupervisor ? 'flex-row-reverse' : 'flex-row'}`}
+                  >
+                    {/* Avatar */}
+                    <div
+                      className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0 ${
+                        isSupervisor ? 'bg-[var(--color-primary-600)]' : 'bg-emerald-500'
+                      }`}
+                    >
+                      {c.authorName.charAt(0).toUpperCase()}
+                    </div>
+                    {/* Bubble */}
+                    <div className={`max-w-[80%] ${isSupervisor ? 'items-end' : 'items-start'} flex flex-col gap-0.5`}>
+                      <span className="text-[10px] text-[var(--color-text-500)] px-1">
+                        {c.authorName} · {c.authorRole === 'supervisor' ? 'Supervisor' : 'Student'}
+                      </span>
+                      <div
+                        className={`rounded-2xl px-3 py-2 text-sm ${
+                          isSupervisor
+                            ? 'bg-[var(--color-primary-600)] text-white rounded-tr-sm'
+                            : 'bg-[var(--color-surface-alt)] text-[var(--color-text-900)] border border-[var(--color-border)] rounded-tl-sm'
+                        }`}
+                      >
+                        {c.content}
+                      </div>
+                      <span className="text-[10px] text-[var(--color-text-400)] px-1">
+                        {new Date(c.createdAt).toLocaleString('en-US', {
+                          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                        })}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Compose area */}
+          <div className="border-t border-[var(--color-border)] pt-3 space-y-2">
+            <Textarea
+              value={newDiscussionComment}
+              onChange={(e) => setNewDiscussionComment(e.target.value)}
+              placeholder="Type your message…"
+              className="min-h-[80px] resize-none"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault();
+                  handlePostDiscussionComment();
+                }
+              }}
+            />
+            <div className="flex justify-between items-center">
+              <span className="text-xs text-[var(--color-text-400)]">Ctrl+Enter to send</span>
+              <Button
+                size="sm"
+                onClick={handlePostDiscussionComment}
+                disabled={discussionPosting || !newDiscussionComment.trim()}
+                className="gap-1.5"
+              >
+                {discussionPosting
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <Send className="w-3.5 h-3.5" />
+                }
+                Send
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </Layout>

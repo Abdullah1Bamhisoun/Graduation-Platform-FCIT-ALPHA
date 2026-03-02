@@ -1,9 +1,9 @@
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
-import { FileText, Download, File, Plus, Edit, Trash2 } from 'lucide-react';
+import { FileText, Download, File, Plus, Edit, Trash2, Upload, Eye } from 'lucide-react';
 import { Card } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { supabase } from '../../lib/supabase';
 import { useLockStatus } from '../../hooks/useLockStatus';
 import { LockedBanner } from '../../components/ui/LockedBanner';
+import { uploadImportantFile, getSignedUrl, deleteStorageFile } from '../../services/storage';
 
 interface FileItem {
   id: string;
@@ -21,6 +22,8 @@ interface FileItem {
   size: string;
   type: 'pdf' | 'zip' | 'doc';
   fileUrl: string | null;
+  courseId: string | null;
+  courseCode: string | null;
   uploadedAt: string;
 }
 
@@ -37,6 +40,19 @@ async function getToken() {
   return data.session?.access_token ?? '';
 }
 
+function detectType(fileName: string): 'pdf' | 'zip' | 'doc' {
+  const ext = fileName.split('.').pop()?.toLowerCase();
+  if (ext === 'pdf') return 'pdf';
+  if (ext === 'zip' || ext === 'rar') return 'zip';
+  return 'doc';
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export function ImportantFilesManager() {
   const { user } = useAuth();
   const { isLocked } = useLockStatus('important_files');
@@ -45,6 +61,8 @@ export function ImportantFilesManager() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState<FileForm>({
     name: '',
     description: '',
@@ -54,40 +72,43 @@ export function ImportantFilesManager() {
   });
 
   useEffect(() => {
-    fetch('/api/important-files')
-      .then((r) => r.json())
-      .then((data) => setFiles(Array.isArray(data) ? data : []))
-      .catch(() => setFiles([]))
-      .finally(() => setLoading(false));
+    getToken().then((token) => {
+      fetch('/api/important-files', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+        .then((r) => r.json())
+        .then((data) => setFiles(Array.isArray(data) ? data : []))
+        .catch(() => setFiles([]))
+        .finally(() => setLoading(false));
+    });
   }, []);
 
   if (!user) return null;
 
+  const isCoordinator = user.activeRole === 'coordinator';
+
+  // Coordinator can only edit/delete files that belong to their course
+  const canManage = (file: FileItem) => {
+    if (!isCoordinator) return true;
+    return file.courseId === user.coordinatorCourseId;
+  };
+
   const getFileIcon = (type: string) => {
     switch (type) {
-      case 'pdf':
-        return <FileText className="w-8 h-8 text-red-500" />;
-      case 'zip':
-        return <File className="w-8 h-8 text-blue-500" />;
-      case 'doc':
-        return <FileText className="w-8 h-8 text-blue-600" />;
-      default:
-        return <File className="w-8 h-8 text-gray-500" />;
+      case 'pdf':  return <FileText className="w-8 h-8 text-red-500" />;
+      case 'zip':  return <File className="w-8 h-8 text-blue-500" />;
+      case 'doc':  return <FileText className="w-8 h-8 text-blue-600" />;
+      default:     return <File className="w-8 h-8 text-gray-500" />;
     }
   };
 
   const handleOpenDialog = (fileId?: string) => {
+    setSelectedFile(null);
     if (fileId) {
       const file = files.find(f => f.id === fileId);
       if (file) {
         setEditingId(fileId);
-        setFormData({
-          name: file.name,
-          description: file.description,
-          size: file.size,
-          type: file.type,
-          fileUrl: file.fileUrl ?? '',
-        });
+        setFormData({ name: file.name, description: file.description, size: file.size, type: file.type, fileUrl: file.fileUrl ?? '' });
       }
     } else {
       setEditingId(null);
@@ -99,24 +120,57 @@ export function ImportantFilesManager() {
   const handleCloseDialog = () => {
     setIsDialogOpen(false);
     setEditingId(null);
+    setSelectedFile(null);
     setFormData({ name: '', description: '', size: '', type: 'pdf', fileUrl: '' });
   };
 
+  const handleFileSelect = (file: File) => {
+    setSelectedFile(file);
+    const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '');
+    setFormData(prev => ({
+      ...prev,
+      name: prev.name || nameWithoutExt,
+      size: formatBytes(file.size),
+      type: detectType(file.name),
+    }));
+  };
+
+  const handleViewFile = async (file: FileItem) => {
+    if (!file.fileUrl) { toast.info('No file available'); return; }
+    try {
+      const isStoragePath = !file.fileUrl.startsWith('http');
+      const url = isStoragePath ? await getSignedUrl(file.fileUrl) : file.fileUrl;
+      window.open(url, '_blank');
+    } catch {
+      toast.error('Failed to open file');
+    }
+  };
+
   const handleSaveFile = async () => {
-    if (!formData.name || !formData.description) {
-      toast.error('Please fill in name and description');
+    if (!formData.name) {
+      toast.error('Please fill in the file name');
+      return;
+    }
+    if (!editingId && !selectedFile) {
+      toast.error('Please select a file to upload');
       return;
     }
 
     setSaving(true);
+    let storagePath = formData.fileUrl;
+
     try {
+      if (selectedFile) {
+        storagePath = await uploadImportantFile(selectedFile);
+      }
+
       const token = await getToken();
       const payload = {
         name: formData.name,
         description: formData.description,
         size: formData.size,
         type: formData.type,
-        fileUrl: formData.fileUrl || null,
+        fileUrl: storagePath || null,
       };
 
       if (editingId) {
@@ -141,6 +195,10 @@ export function ImportantFilesManager() {
       }
       handleCloseDialog();
     } catch (err: any) {
+      // Roll back the uploaded storage file if the DB step failed
+      if (selectedFile && storagePath && storagePath !== formData.fileUrl) {
+        deleteStorageFile(storagePath).catch(() => {});
+      }
       toast.error(err.message || 'Failed to save file');
     } finally {
       setSaving(false);
@@ -163,11 +221,25 @@ export function ImportantFilesManager() {
     }
   };
 
-  const handleDownload = (file: FileItem) => {
-    if (file.fileUrl) {
-      window.open(file.fileUrl, '_blank');
-    } else {
-      toast.info('No download URL set for this file');
+  const handleDownload = async (file: FileItem) => {
+    if (!file.fileUrl) {
+      toast.info('No file available for download');
+      return;
+    }
+    try {
+      // Storage path (no http prefix) → generate signed URL; full URL → use directly
+      const isStoragePath = !file.fileUrl.startsWith('http');
+      const url = isStoragePath ? await getSignedUrl(file.fileUrl) : file.fileUrl;
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = file.name;
+      a.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      toast.error('Failed to download file');
     }
   };
 
@@ -176,7 +248,9 @@ export function ImportantFilesManager() {
       {isLocked && <LockedBanner />}
       <div className="mb-6 flex items-center justify-between">
         <p className="text-[var(--color-text-600)]">
-          Manage essential documents, templates, and resources for graduation projects
+          {isCoordinator
+            ? 'Manage essential documents and resources for your course'
+            : 'Manage essential documents, templates, and resources for graduation projects'}
         </p>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
@@ -189,10 +263,48 @@ export function ImportantFilesManager() {
             <DialogHeader>
               <DialogTitle>{editingId ? 'Edit File Information' : 'Add New File'}</DialogTitle>
               <DialogDescription>
-                {editingId ? 'Update the file information below.' : 'Add a new file to the important files repository.'}
+                {editingId ? 'Update the file details below.' : 'Upload a file and fill in the details below.'}
               </DialogDescription>
             </DialogHeader>
+
             <div className="space-y-4 py-4">
+              {/* ── File picker ── */}
+              <div>
+                <Label>File {!editingId && <span className="text-red-500">*</span>}</Label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleFileSelect(f);
+                    e.target.value = '';
+                  }}
+                />
+                {selectedFile ? (
+                  <div className="mt-1.5 flex items-center gap-3 p-3 border border-[var(--color-border)] rounded-lg bg-[var(--color-surface-alt)]">
+                    <FileText className="w-5 h-5 text-blue-600 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[var(--color-text-900)] truncate text-sm">{selectedFile.name}</p>
+                      <p className="text-[var(--color-text-600)] text-xs">{formatBytes(selectedFile.size)}</p>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                      Change
+                    </Button>
+                  </div>
+                ) : (
+                  <div
+                    className="mt-1.5 border-2 border-dashed border-[var(--color-border)] rounded-lg p-6 text-center cursor-pointer hover:border-[var(--color-primary-600)] transition-colors"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Upload className="w-8 h-8 mx-auto mb-2 text-[var(--color-text-400)]" />
+                    <p className="text-[var(--color-text-600)] text-sm">
+                      {editingId ? 'Click to replace the current file (optional)' : 'Click to browse and select a file'}
+                    </p>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <Label htmlFor="fileName">File Name *</Label>
                 <Input
@@ -203,17 +315,19 @@ export function ImportantFilesManager() {
                   className="mt-1.5"
                 />
               </div>
+
               <div>
-                <Label htmlFor="fileDescription">Description *</Label>
+                <Label htmlFor="fileDescription">Description</Label>
                 <Textarea
                   id="fileDescription"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Enter file description"
+                  placeholder="Enter file description (optional)"
                   rows={3}
                   className="mt-1.5"
                 />
               </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="fileSize">File Size</Label>
@@ -221,7 +335,7 @@ export function ImportantFilesManager() {
                     id="fileSize"
                     value={formData.size}
                     onChange={(e) => setFormData({ ...formData, size: e.target.value })}
-                    placeholder="e.g., 2.4 MB"
+                    placeholder="Auto-filled on upload"
                     className="mt-1.5"
                   />
                 </div>
@@ -242,21 +356,12 @@ export function ImportantFilesManager() {
                   </Select>
                 </div>
               </div>
-              <div>
-                <Label htmlFor="fileUrl">Download URL</Label>
-                <Input
-                  id="fileUrl"
-                  value={formData.fileUrl}
-                  onChange={(e) => setFormData({ ...formData, fileUrl: e.target.value })}
-                  placeholder="https://... (leave empty if not yet available)"
-                  className="mt-1.5"
-                />
-              </div>
             </div>
+
             <DialogFooter>
               <Button variant="outline" onClick={handleCloseDialog}>Cancel</Button>
               <Button variant="primary" onClick={handleSaveFile} disabled={saving}>
-                {saving ? 'Saving...' : editingId ? 'Update' : 'Add File'}
+                {saving ? 'Uploading...' : editingId ? 'Update' : 'Add File'}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -276,7 +381,20 @@ export function ImportantFilesManager() {
                   {getFileIcon(file.type)}
                 </div>
                 <div className="flex-1">
-                  <h2 className="text-[var(--color-text-900)] mb-2">{file.name}</h2>
+                  <div className="flex items-center gap-2 mb-2">
+                    <h2 className="text-[var(--color-text-900)]">{file.name}</h2>
+                    {file.courseCode ? (
+                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                        {file.courseCode}
+                      </span>
+                    ) : (
+                      !isCoordinator && (
+                        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
+                          All Courses
+                        </span>
+                      )
+                    )}
+                  </div>
                   <p className="text-[var(--color-text-600)] mb-4">{file.description}</p>
                   <div className="flex items-center gap-4 text-[var(--color-text-600)]">
                     <span className="uppercase">{file.type}</span>
@@ -290,15 +408,17 @@ export function ImportantFilesManager() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" onClick={() => handleDownload(file)} disabled={!file.fileUrl}>
-                    <Download className="w-4 h-4 mr-2" />
-                    Download
+                  <Button variant="outline" size="sm" onClick={() => handleViewFile(file)} disabled={!file.fileUrl}>
+                    <Eye className="w-4 h-4 mr-1" /> View
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => handleOpenDialog(file.id)} disabled={isLocked}>
-                    <Edit className="w-4 h-4" />
+                  <Button variant="outline" size="sm" onClick={() => handleDownload(file)} disabled={!file.fileUrl}>
+                    <Download className="w-4 h-4 mr-1" /> Download
                   </Button>
-                  <Button variant="destructive" size="sm" onClick={() => handleDeleteFile(file.id)} disabled={isLocked}>
-                    <Trash2 className="w-4 h-4" />
+                  <Button size="sm" onClick={() => handleOpenDialog(file.id)} disabled={isLocked} className="!bg-yellow-500 hover:!bg-yellow-600 !text-white !border-yellow-500">
+                    <Edit className="w-4 h-4 mr-1" /> Edit
+                  </Button>
+                  <Button size="sm" onClick={() => handleDeleteFile(file.id)} disabled={isLocked} className="!bg-red-600 hover:!bg-red-700 !text-white !border-red-600">
+                    <Trash2 className="w-4 h-4 mr-1" /> Delete
                   </Button>
                 </div>
               </div>
