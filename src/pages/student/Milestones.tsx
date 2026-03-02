@@ -1,21 +1,24 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { StatusBadge } from '../../features/submissions/components/StatusBadge';
 import { Button } from '../../components/ui/button';
 import { useAuth } from '../../lib/AuthContext';
 import { getMilestonesByStudentWithStatus } from '../../services/milestones';
+import { getSubmissionByMilestoneAndStudent } from '../../services/submissions';
+import { getSignedUrl } from '../../services/storage';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, FileText, X } from 'lucide-react';
+import { Calendar, FileText, X, Download } from 'lucide-react';
 import { useLockStatus } from '../../hooks/useLockStatus';
 import { LockedBanner } from '../../components/ui/LockedBanner';
-import { Milestone } from '../../types';
-import { useEffect } from 'react';
+import { Milestone, Submission } from '../../types';
+import { toast } from 'sonner';
 
 export function StudentMilestones() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { isLocked } = useLockStatus('submissions');
   const [selectedMilestone, setSelectedMilestone] = useState<Milestone | null>(null);
+  const [drawerSubmission, setDrawerSubmission] = useState<Submission | null>(null);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -25,6 +28,27 @@ export function StudentMilestones() {
       .then(setMilestones)
       .finally(() => setLoading(false));
   }, [user]);
+
+  useEffect(() => {
+    if (!selectedMilestone || !user) {
+      setDrawerSubmission(null);
+      return;
+    }
+    getSubmissionByMilestoneAndStudent(selectedMilestone.id, user.id)
+      .then(s => setDrawerSubmission(s));
+  }, [selectedMilestone, user]);
+
+  const handleDownload = async (filePath: string, fileName: string) => {
+    try {
+      const url = await getSignedUrl(filePath);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      a.click();
+    } catch {
+      toast.error('Failed to get download link');
+    }
+  };
 
   if (!user) return null;
   if (loading) return <Layout user={user} pageTitle="Chapter Submissions"><div className="p-6">Loading...</div></Layout>;
@@ -174,6 +198,38 @@ export function StudentMilestones() {
                         {selectedMilestone.rubric.reduce((sum, c) => sum + c.maxScore, 0)} points
                       </span>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Submitted Files */}
+              {drawerSubmission && drawerSubmission.versions.length > 0 && (
+                <div>
+                  <label className="text-[var(--color-text-600)] mb-2 block">Submitted Files</label>
+                  <div className="space-y-2">
+                    {drawerSubmission.versions.map((v) => (
+                      <div
+                        key={v.version}
+                        className="flex items-center gap-3 p-3 border border-[var(--color-border)] rounded-lg bg-[var(--color-surface-alt)]"
+                      >
+                        <FileText className="w-4 h-4 text-blue-600 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[var(--color-text-900)] truncate">{v.fileName}</p>
+                          <p className="text-[var(--color-text-600)] text-xs">
+                            v{v.version} · {v.fileSize} · {new Date(v.uploadedAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                        {v.filePath && (
+                          <button
+                            onClick={() => handleDownload(v.filePath!, v.fileName)}
+                            className="p-1.5 hover:bg-[var(--color-border)] rounded transition-colors"
+                            title="Download"
+                          >
+                            <Download className="w-4 h-4 text-[var(--color-text-600)]" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}

@@ -64,6 +64,7 @@ export interface Milestone {
   lastAction?: string;
   description?: string;
   rubric?: RubricCriterion[];
+  allowLateSubmission?: boolean;
 }
 
 // ─── Rubric ───────────────────────────────────────────────────────────────────
@@ -98,6 +99,7 @@ export interface SubmissionVersion {
   fileSize: string;
   uploadedAt: string;
   notes?: string;
+  filePath?: string;
 }
 
 export interface Feedback {
@@ -405,11 +407,13 @@ export interface MilestoneConfig {
   id: string;
   name: string;
   course: string;
+  courseId?: string;
   openDate: string;
   closeDate: string;
   visible: boolean;
   allowLateSubmission: boolean;
   requireJustification: boolean;
+  description?: string;
 }
 
 // ─── Audit Log ────────────────────────────────────────────────────────────────

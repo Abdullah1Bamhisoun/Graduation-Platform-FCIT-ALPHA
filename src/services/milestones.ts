@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase';
 import type { Milestone, MilestoneConfig, RubricCriterion } from '../types';
-import { mapMilestoneType, mapCourseCode, mapSubmissionStatus, toDbCourseCode, toDbMilestoneType } from './mappers';
+import { mapMilestoneType, mapCourseCode, mapSubmissionStatus } from './mappers';
 
 function mapDbRubric(data: any): RubricCriterion {
   return {
@@ -20,25 +20,29 @@ function mapDbMilestone(data: any): Milestone {
     dueDate: data.due_date,
     status: 'draft', // default; overridden when joined with submissions
     description: data.description ?? undefined,
+    allowLateSubmission: data.allow_late_submission ?? false,
     rubric: (data.rubric_criteria || [])
       .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
       .map(mapDbRubric),
   };
 }
 
-function mapDbMilestoneConfig(data: any): MilestoneConfig {
+function mapApiMilestoneConfig(data: any): MilestoneConfig {
   return {
-    id: data.id,
-    name: data.name,
-    course: data.course ? mapCourseCode(data.course.code) : 'CPIS-498',
-    openDate: data.open_date,
-    closeDate: data.due_date,
-    visible: data.visible ?? true,
-    allowLateSubmission: data.allow_late_submission ?? false,
-    requireJustification: data.require_justification ?? false,
+    id:                   data.id,
+    name:                 data.name,
+    course:               mapCourseCode(data.courseCode ?? ''),
+    courseId:             data.courseId,
+    openDate:             data.openDate,
+    closeDate:            data.dueDate,
+    visible:              data.visible ?? true,
+    allowLateSubmission:  data.allowLateSubmission ?? false,
+    requireJustification: data.requireJustification ?? false,
+    description:          data.description ?? '',
   };
 }
 
+/** Fetch milestones directly from Supabase (used by student view). */
 export async function getMilestones(courseCode?: string): Promise<Milestone[]> {
   try {
     let query = supabase
@@ -47,12 +51,10 @@ export async function getMilestones(courseCode?: string): Promise<Milestone[]> {
       .order('due_date');
 
     if (courseCode) {
-      // Filter by joining courses table
-      const dbCode = toDbCourseCode(courseCode);
       const { data: courses } = await supabase
         .from('courses')
         .select('id')
-        .eq('code', dbCode);
+        .eq('code', courseCode);
       const courseIds = (courses || []).map((c: any) => c.id);
       if (courseIds.length > 0) {
         query = query.in('course_id', courseIds);
@@ -68,18 +70,44 @@ export async function getMilestones(courseCode?: string): Promise<Milestone[]> {
   }
 }
 
+/**
+ * Fetch visible milestones for a student, filtered to their course only.
+ * Students without a group see no milestones (empty array).
+ */
 export async function getMilestonesByStudentWithStatus(studentId: string): Promise<Milestone[]> {
   try {
-    // Fetch all visible milestones
+    // Resolve the student's course via their group membership
+    const { data: membership } = await supabase
+      .from('group_members')
+      .select('group_id')
+      .eq('student_id', studentId)
+      .limit(1)
+      .maybeSingle();
+
+    let courseId: string | null = null;
+    if (membership?.group_id) {
+      const { data: group } = await supabase
+        .from('groups')
+        .select('course_id')
+        .eq('id', membership.group_id)
+        .single();
+      courseId = group?.course_id ?? null;
+    }
+
+    // No group → no milestones
+    if (!courseId) return [];
+
+    // Fetch visible milestones for the student's course
     const { data: milestones, error: mError } = await supabase
       .from('milestones')
       .select('*, course:courses!course_id(code), rubric_criteria(id, name, max_score, sort_order)')
       .eq('visible', true)
+      .eq('course_id', courseId)
       .order('due_date');
 
     if (mError) throw mError;
 
-    // Fetch student's submissions to determine status per milestone
+    // Fetch submission statuses for this student
     const { data: submissions, error: sError } = await supabase
       .from('submissions')
       .select('milestone_id, status')
@@ -122,73 +150,121 @@ export async function getMilestoneById(id: string): Promise<Milestone | null> {
   }
 }
 
-export async function getMilestoneConfigs(courseCode?: string): Promise<MilestoneConfig[]> {
+/** Fetch milestone configs via the backend API (enforces coordinator course scope). */
+export async function getMilestoneConfigs(courseId?: string): Promise<MilestoneConfig[]> {
   try {
-    let query = supabase
-      .from('milestones')
-      .select('*, course:courses!course_id(code)')
-      .order('due_date');
+    const session = await supabase.auth.getSession();
+    const token = session.data.session?.access_token;
+    const activeRole = session.data.session?.user
+      ? (localStorage.getItem(`activeRole_${session.data.session.user.id}`) ?? 'coordinator')
+      : 'coordinator';
 
-    if (courseCode) {
-      const dbCode = toDbCourseCode(courseCode);
-      const { data: courses } = await supabase
-        .from('courses')
-        .select('id')
-        .eq('code', dbCode);
-      const courseIds = (courses || []).map((c: any) => c.id);
-      if (courseIds.length > 0) {
-        query = query.in('course_id', courseIds);
-      }
+    const params = new URLSearchParams();
+    if (courseId) params.set('course_id', courseId);
+
+    const response = await fetch(`/api/milestones?${params.toString()}`, {
+      headers: {
+        Authorization: `Bearer ${token ?? ''}`,
+        'X-Active-Role': activeRole,
+      },
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(err.error || 'Failed to fetch milestone configs');
     }
 
-    const { data, error } = await query;
-    if (error) throw error;
-    return (data || []).map(mapDbMilestoneConfig);
+    const data = await response.json();
+    return (data || []).map(mapApiMilestoneConfig);
   } catch (error) {
     console.error('Error fetching milestone configs:', error);
     return [];
   }
 }
 
-export async function createMilestone(config: Omit<MilestoneConfig, 'id'> & { type?: string }): Promise<void> {
-  // Look up course_id from course code
-  const dbCode = toDbCourseCode(config.course);
-  const { data: courses } = await supabase
-    .from('courses')
-    .select('id')
-    .eq('code', dbCode)
-    .limit(1);
+/** Create a milestone via the backend API (validates course scope server-side). */
+export async function createMilestone(config: Omit<MilestoneConfig, 'id'>): Promise<string> {
+  const session = await supabase.auth.getSession();
+  const token = session.data.session?.access_token;
+  const userId = session.data.session?.user?.id ?? '';
+  const activeRole = localStorage.getItem(`activeRole_${userId}`) ?? 'coordinator';
 
-  const courseId = courses?.[0]?.id;
-  if (!courseId) throw new Error(`Course ${config.course} not found`);
-
-  const { error } = await supabase.from('milestones').insert({
-    name: config.name,
-    type: toDbMilestoneType(config.type ?? 'chapter'),
-    course_id: courseId,
-    open_date: config.openDate,
-    due_date: config.closeDate,
-    visible: config.visible,
-    allow_late_submission: config.allowLateSubmission,
-    require_justification: config.requireJustification,
+  const response = await fetch('/api/milestones', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token ?? ''}`,
+      'X-Active-Role': activeRole,
+    },
+    body: JSON.stringify({
+      name:                 config.name,
+      courseId:             config.courseId,
+      openDate:             config.openDate,
+      dueDate:              config.closeDate,
+      visible:              config.visible,
+      allowLateSubmission:  config.allowLateSubmission,
+      requireJustification: config.requireJustification,
+      description:          config.description ?? '',
+    }),
   });
 
-  if (error) throw error;
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(err.error || 'Failed to create milestone');
+  }
+
+  const data = await response.json();
+  return data.id as string;
 }
 
+/** Update a milestone via the backend API (validates course scope server-side). */
 export async function updateMilestone(id: string, updates: Partial<MilestoneConfig>): Promise<void> {
-  const dbUpdates: Record<string, any> = {};
-  if (updates.name !== undefined) dbUpdates.name = updates.name;
-  if (updates.openDate !== undefined) dbUpdates.open_date = updates.openDate;
-  if (updates.closeDate !== undefined) dbUpdates.due_date = updates.closeDate;
-  if (updates.visible !== undefined) dbUpdates.visible = updates.visible;
-  if (updates.allowLateSubmission !== undefined) dbUpdates.allow_late_submission = updates.allowLateSubmission;
-  if (updates.requireJustification !== undefined) dbUpdates.require_justification = updates.requireJustification;
+  const session = await supabase.auth.getSession();
+  const token = session.data.session?.access_token;
+  const userId = session.data.session?.user?.id ?? '';
+  const activeRole = localStorage.getItem(`activeRole_${userId}`) ?? 'coordinator';
 
-  const { error } = await supabase
-    .from('milestones')
-    .update(dbUpdates)
-    .eq('id', id);
+  const response = await fetch(`/api/milestones/${id}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token ?? ''}`,
+      'X-Active-Role': activeRole,
+    },
+    body: JSON.stringify({
+      name:                 updates.name,
+      openDate:             updates.openDate,
+      closeDate:            updates.closeDate,
+      visible:              updates.visible,
+      allowLateSubmission:  updates.allowLateSubmission,
+      requireJustification: updates.requireJustification,
+      description:          updates.description,
+    }),
+  });
 
-  if (error) throw error;
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(err.error || 'Failed to update milestone');
+  }
+}
+
+/** Delete a milestone via the backend API (also deletes its linked announcement). */
+export async function deleteMilestone(id: string): Promise<void> {
+  const session = await supabase.auth.getSession();
+  const token = session.data.session?.access_token;
+  const userId = session.data.session?.user?.id ?? '';
+  const activeRole = localStorage.getItem(`activeRole_${userId}`) ?? 'coordinator';
+
+  const response = await fetch(`/api/milestones/${id}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${token ?? ''}`,
+      'X-Active-Role': activeRole,
+    },
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(err.error || 'Failed to delete milestone');
+  }
 }

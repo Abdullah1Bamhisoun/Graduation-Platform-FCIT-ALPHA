@@ -9,6 +9,7 @@ function mapDbVersion(data: any): SubmissionVersion {
     fileSize: data.file_size,
     uploadedAt: data.uploaded_at,
     notes: data.notes ?? undefined,
+    filePath: data.file_path ?? undefined,
   };
 }
 

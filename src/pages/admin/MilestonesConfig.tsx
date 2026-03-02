@@ -3,65 +3,153 @@ import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
 import { useLockStatus } from '../../hooks/useLockStatus';
 import { LockedBanner } from '../../components/ui/LockedBanner';
-import { getMilestoneConfigs } from '../../services/milestones';
+import { getMilestoneConfigs, createMilestone, updateMilestone, deleteMilestone } from '../../services/milestones';
+import { supabase } from '../../lib/supabase';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Switch } from '../../components/ui/switch';
-import { Settings, Plus, Edit2, Save, X } from 'lucide-react';
+import { Textarea } from '../../components/ui/textarea';
+import { Settings, Plus, Edit2, Save, X, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { MilestoneConfig } from '../../types';
 
 export function AdminMilestonesConfig() {
   const { user } = useAuth();
   const { isLocked } = useLockStatus('milestones');
+
+  // For coordinators, their assigned course code (locked); for admins, freely selectable
+  const [coordinatorCourseCode, setCoordinatorCourseCode] = useState<string | null>(null);
+  const [coordinatorCourseId, setCoordinatorCourseId] = useState<string | null>(null);
   const [selectedCourse, setSelectedCourse] = useState<'CPIS-498' | 'CPIS-499'>('CPIS-498');
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [configs, setConfigs] = useState<MilestoneConfig[]>([]);
-  const [initialConfigs, setInitialConfigs] = useState<MilestoneConfig[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
+  const isCoordinator = user?.activeRole === 'coordinator';
+  const isAdmin = user?.roles?.includes('admin') ?? false;
+
+  // Resolve coordinator's assigned course code from their courseId UUID
   useEffect(() => {
-    getMilestoneConfigs().then((data) => {
-      setConfigs(data);
-      setInitialConfigs(data);
-    });
-  }, []);
+    if (!user) return;
+    if (isCoordinator && !isAdmin && user.coordinatorCourseId) {
+      supabase
+        .from('courses')
+        .select('id, code')
+        .eq('id', user.coordinatorCourseId)
+        .single()
+        .then(({ data }) => {
+          if (data?.code) {
+            const code = data.code.includes('499') ? 'CPIS-499' : 'CPIS-498';
+            setCoordinatorCourseCode(code);
+            setCoordinatorCourseId(data.id);
+            setSelectedCourse(code as 'CPIS-498' | 'CPIS-499');
+          }
+        });
+    }
+  }, [user, isCoordinator, isAdmin]);
+
+  // Load milestone configs whenever the resolved course is ready
+  useEffect(() => {
+    if (!user) return;
+    if (isCoordinator && !isAdmin) {
+      if (!coordinatorCourseId) return;
+      getMilestoneConfigs(coordinatorCourseId).then(setConfigs);
+    } else {
+      getMilestoneConfigs().then(setConfigs);
+    }
+  }, [user, isCoordinator, isAdmin, coordinatorCourseId]);
 
   if (!user) return null;
 
-  const filteredConfigs = configs.filter(c => c.course === selectedCourse);
+  const filteredConfigs = configs.filter((c) => {
+    if (isCoordinator && !isAdmin) return true; // already filtered server-side
+    return c.course === selectedCourse;
+  });
 
-  const handleSave = () => {
-    setEditingId(null);
-    toast.success('Chapter configuration saved successfully');
-  };
-
-  const handleCancel = () => {
-    setEditingId(null);
-    setConfigs(initialConfigs);
+  const updateConfigField = (id: string, field: string, value: any) => {
+    setConfigs((prev) => prev.map((c) => (c.id === id ? { ...c, [field]: value } : c)));
   };
 
   const handleAddMilestone = () => {
-    const newId = `cfg-new-${Date.now()}`;
+    const courseIdForNew = isCoordinator && !isAdmin ? coordinatorCourseId : null;
+    const courseForNew = isCoordinator && !isAdmin
+      ? (coordinatorCourseCode as 'CPIS-498' | 'CPIS-499')
+      : selectedCourse;
+
+    const newId = `new-${Date.now()}`;
     const newMilestone: MilestoneConfig = {
       id: newId,
       name: 'New Milestone',
-      course: selectedCourse,
+      course: courseForNew ?? selectedCourse,
+      courseId: courseIdForNew ?? undefined,
       openDate: new Date().toISOString().split('T')[0],
-      closeDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      closeDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       visible: true,
       allowLateSubmission: false,
       requireJustification: false,
+      description: '',
     };
-    setConfigs([...configs, newMilestone]);
+    setConfigs((prev) => [...prev, newMilestone]);
     setEditingId(newId);
-    toast.success('New milestone created');
   };
 
-  const updateConfig = (id: string, field: string, value: any) => {
-    setConfigs(configs.map(c => 
-      c.id === id ? { ...c, [field]: value } : c
-    ));
+  const handleSave = async (config: MilestoneConfig) => {
+    setSaving(true);
+    try {
+      const isNew = config.id.startsWith('new-');
+
+      if (isNew) {
+        let courseId = config.courseId;
+        if (!courseId) {
+          const { data: courses } = await supabase
+            .from('courses')
+            .select('id')
+            .eq('code', config.course)
+            .limit(1);
+          courseId = courses?.[0]?.id;
+        }
+        if (!courseId) throw new Error('Could not resolve course');
+
+        const savedId = await createMilestone({ ...config, courseId });
+        setConfigs((prev) =>
+          prev.map((c) => (c.id === config.id ? { ...c, id: savedId, courseId } : c))
+        );
+        toast.success('Milestone created and announcement sent to students');
+      } else {
+        await updateMilestone(config.id, config);
+        toast.success('Milestone updated successfully');
+      }
+
+      setEditingId(null);
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to save milestone');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancel = (configId: string) => {
+    if (configId.startsWith('new-')) {
+      setConfigs((prev) => prev.filter((c) => c.id !== configId));
+    }
+    setEditingId(null);
+  };
+
+  const handleDelete = async (config: MilestoneConfig) => {
+    if (!window.confirm(`Delete milestone "${config.name}"? This will also remove the related announcement.`)) return;
+    setDeleting(config.id);
+    try {
+      await deleteMilestone(config.id);
+      setConfigs((prev) => prev.filter((c) => c.id !== config.id));
+      toast.success('Milestone deleted');
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to delete milestone');
+    } finally {
+      setDeleting(null);
+    }
   };
 
   return (
@@ -75,31 +163,46 @@ export function AdminMilestonesConfig() {
           variant="primary"
           onClick={handleAddMilestone}
           className="gap-2"
-          disabled={isLocked}
+          disabled={isLocked || (isCoordinator && !isAdmin && !coordinatorCourseId)}
         >
           <Plus className="w-4 h-4" />
           Add Milestone
         </Button>
       </div>
 
-      {/* Course Selector */}
-      <div className="mb-6 flex gap-4">
-        <Button
-          variant={selectedCourse === 'CPIS-498' ? 'default' : 'outline'}
-          onClick={() => setSelectedCourse('CPIS-498')}
-        >
-          CPIS-498
-        </Button>
-        <Button
-          variant={selectedCourse === 'CPIS-499' ? 'default' : 'outline'}
-          onClick={() => setSelectedCourse('CPIS-499')}
-        >
-          CPIS-499
-        </Button>
+      {/* Course Selector — coordinators see their locked course; admins can switch freely */}
+      <div className="mb-6 flex gap-4 items-center">
+        {isCoordinator && !isAdmin ? (
+          <div className="px-4 py-2 rounded-lg bg-[var(--color-primary-100)] text-[var(--color-primary-700)] font-semibold border border-[var(--color-primary-300)]">
+            {coordinatorCourseCode ?? 'Loading course…'}
+            <span className="ml-2 text-xs font-normal text-[var(--color-primary-600)]">(your assigned course)</span>
+          </div>
+        ) : (
+          <>
+            <Button
+              variant={selectedCourse === 'CPIS-498' ? 'default' : 'outline'}
+              onClick={() => setSelectedCourse('CPIS-498')}
+            >
+              CPIS-498
+            </Button>
+            <Button
+              variant={selectedCourse === 'CPIS-499' ? 'default' : 'outline'}
+              onClick={() => setSelectedCourse('CPIS-499')}
+            >
+              CPIS-499
+            </Button>
+          </>
+        )}
       </div>
 
       {/* Milestones List */}
       <div className="space-y-4">
+        {filteredConfigs.length === 0 && (
+          <p className="text-center text-[var(--color-text-600)] py-12">
+            No milestones yet. Click &quot;Add Milestone&quot; to create the first one.
+          </p>
+        )}
+
         {filteredConfigs.map((config) => (
           <div
             key={config.id}
@@ -107,15 +210,27 @@ export function AdminMilestonesConfig() {
           >
             <div className="p-6">
               {editingId === config.id ? (
-                // Edit Mode
+                /* Edit Mode */
                 <div className="space-y-6">
                   <div>
                     <Label htmlFor="name">Milestone Name</Label>
                     <Input
                       id="name"
                       value={config.name}
-                      onChange={(e) => updateConfig(config.id, 'name', e.target.value)}
+                      onChange={(e) => updateConfigField(config.id, 'name', e.target.value)}
                       className="mt-2"
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="description">Description</Label>
+                    <Textarea
+                      id="description"
+                      value={config.description ?? ''}
+                      onChange={(e) => updateConfigField(config.id, 'description', e.target.value)}
+                      placeholder="Describe the submission requirements…"
+                      className="mt-2"
+                      rows={3}
                     />
                   </div>
 
@@ -126,7 +241,7 @@ export function AdminMilestonesConfig() {
                         id="openDate"
                         type="date"
                         value={config.openDate}
-                        onChange={(e) => updateConfig(config.id, 'openDate', e.target.value)}
+                        onChange={(e) => updateConfigField(config.id, 'openDate', e.target.value)}
                         className="mt-2"
                       />
                     </div>
@@ -136,7 +251,7 @@ export function AdminMilestonesConfig() {
                         id="closeDate"
                         type="date"
                         value={config.closeDate}
-                        onChange={(e) => updateConfig(config.id, 'closeDate', e.target.value)}
+                        onChange={(e) => updateConfigField(config.id, 'closeDate', e.target.value)}
                         className="mt-2"
                       />
                     </div>
@@ -155,7 +270,7 @@ export function AdminMilestonesConfig() {
                       <Switch
                         id="visible"
                         checked={config.visible}
-                        onCheckedChange={(checked) => updateConfig(config.id, 'visible', checked)}
+                        onCheckedChange={(checked) => updateConfigField(config.id, 'visible', checked)}
                       />
                     </div>
 
@@ -171,7 +286,7 @@ export function AdminMilestonesConfig() {
                       <Switch
                         id="allowLate"
                         checked={config.allowLateSubmission}
-                        onCheckedChange={(checked) => updateConfig(config.id, 'allowLateSubmission', checked)}
+                        onCheckedChange={(checked) => updateConfigField(config.id, 'allowLateSubmission', checked)}
                       />
                     </div>
 
@@ -188,7 +303,7 @@ export function AdminMilestonesConfig() {
                         <Switch
                           id="requireJustification"
                           checked={config.requireJustification}
-                          onCheckedChange={(checked) => updateConfig(config.id, 'requireJustification', checked)}
+                          onCheckedChange={(checked) => updateConfigField(config.id, 'requireJustification', checked)}
                         />
                       </div>
                     )}
@@ -197,47 +312,65 @@ export function AdminMilestonesConfig() {
                   <div className="flex gap-3 pt-4">
                     <Button
                       variant="outline"
-                      onClick={handleCancel}
+                      onClick={() => handleCancel(config.id)}
                       className="gap-2"
+                      disabled={saving}
                     >
                       <X className="w-4 h-4" />
                       Cancel
                     </Button>
                     <Button
                       variant="primary"
-                      onClick={handleSave}
+                      onClick={() => handleSave(config)}
                       className="gap-2"
-                      disabled={isLocked}
+                      disabled={isLocked || saving}
                     >
                       <Save className="w-4 h-4" />
-                      Save Changes
+                      {saving ? 'Saving…' : 'Save Changes'}
                     </Button>
                   </div>
                 </div>
               ) : (
-                // View Mode
+                /* View Mode */
                 <div>
                   <div className="flex items-start justify-between mb-4">
                     <div>
-                      <h2 className="text-[var(--color-text-900)] mb-2">{config.name}</h2>
+                      <h2 className="text-[var(--color-text-900)] mb-1">{config.name}</h2>
+                      {config.description && (
+                        <p className="text-[var(--color-text-600)] mb-2">{config.description}</p>
+                      )}
                       <p className="text-[var(--color-text-600)]">
-                        Opens: {new Date(config.openDate).toLocaleDateString()} • 
+                        Opens: {new Date(config.openDate).toLocaleDateString()} •{' '}
                         Closes: {new Date(config.closeDate).toLocaleDateString()}
                       </p>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setEditingId(config.id)}
-                      className="gap-2"
-                      disabled={isLocked}
-                    >
-                      <Edit2 className="w-4 h-4" />
-                      Edit
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setEditingId(config.id)}
+                        className="gap-2"
+                        disabled={isLocked}
+                      >
+                        <Edit2 className="w-4 h-4" />
+                        Edit
+                      </Button>
+                      {!config.id.startsWith('new-') && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDelete(config)}
+                          className="gap-2 text-red-600 hover:text-red-700 hover:border-red-400"
+                          disabled={isLocked || deleting === config.id}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          {deleting === config.id ? 'Deleting…' : 'Delete'}
+                        </Button>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="flex gap-4 mt-4">
+                  <div className="flex flex-wrap gap-4 mt-4">
                     <div className={`px-3 py-1 rounded-full text-sm ${
                       config.visible
                         ? 'bg-white text-green-700 border border-green-500'
@@ -273,8 +406,9 @@ export function AdminMilestonesConfig() {
             <h3 className="text-blue-900 mb-2">Configuration Tips</h3>
             <ul className="text-blue-800 space-y-1 list-disc list-inside">
               <li>Ensure close date is after open date</li>
-              <li>Changes are logged in the audit trail</li>
-              <li>Students are notified of deadline changes</li>
+              <li>Creating a milestone automatically notifies students via an announcement</li>
+              <li>Deleting a milestone also removes the related student announcement</li>
+              <li>Students will only see milestones for their enrolled course</li>
               <li>Late submissions require coordinator approval when justification is required</li>
             </ul>
           </div>
