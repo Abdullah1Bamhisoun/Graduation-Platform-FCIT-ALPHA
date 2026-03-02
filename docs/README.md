@@ -1,177 +1,162 @@
-# Supabase CLI
+# Graduation Platform FCIT — Alpha
 
-[![Coverage Status](https://coveralls.io/repos/github/supabase/cli/badge.svg?branch=main)](https://coveralls.io/github/supabase/cli?branch=main) [![Bitbucket Pipelines](https://img.shields.io/bitbucket/pipelines/supabase-cli/setup-cli/master?style=flat-square&label=Bitbucket%20Canary)](https://bitbucket.org/supabase-cli/setup-cli/pipelines) [![Gitlab Pipeline Status](https://img.shields.io/gitlab/pipeline-status/sweatybridge%2Fsetup-cli?label=Gitlab%20Canary)
-](https://gitlab.com/sweatybridge/setup-cli/-/pipelines)
+A full-stack web platform for managing graduation projects at the Faculty of Computing and Information Technology (FCIT). It supports the full project lifecycle — from group formation and milestone tracking to submissions, evaluations, and report generation.
 
-[Supabase](https://supabase.io) is an open source Firebase alternative. We're building the features of Firebase using enterprise-grade open source tools.
+---
 
-This repository contains all the functionality for Supabase CLI.
+## Tech Stack
 
-- [x] Running Supabase locally
-- [x] Managing database migrations
-- [x] Creating and deploying Supabase Functions
-- [x] Generating types directly from your database schema
-- [x] Making authenticated HTTP requests to [Management API](https://supabase.com/docs/reference/api/introduction)
+### Frontend
+- **React 18** + **TypeScript** with **Vite**
+- **Tailwind CSS** + **Radix UI** components
+- **React Router v6** for client-side routing
+- **React Hook Form** + **Zod** for form validation
+- **Recharts** for data visualization
+- **Supabase JS** client for real-time data
 
-## Getting started
+### Backend
+- **Node.js** + **Express** REST API
+- **Supabase** (PostgreSQL) as the primary database
+- **JWT** authentication with role-based access control
+- **BullMQ** + **Redis** for background job queues
+- **MinIO** for file/object storage
+- **Nodemailer** for email notifications
+- **Helmet** + **express-rate-limit** for security
 
-### Install the CLI
+### Infrastructure
+- **Docker Compose** for local development (Redis, MinIO, devcontainer)
 
-Available via [NPM](https://www.npmjs.com) as dev dependency. To install:
+---
+
+## User Roles
+
+| Role | Description |
+|---|---|
+| **Admin** | Full platform management, user and settings control |
+| **Coordinator** | Oversees groups, milestones, evaluations, and reports |
+| **Supervisor** | Mentors assigned student groups, reviews submissions |
+| **Student** | Submits work, tracks milestones, views feedback |
+
+---
+
+## Key Features
+
+- **Authentication** — Secure login with JWT and role-based routing
+- **Project Groups** — Group creation, member management, and project assignment
+- **Milestones** — Define and track graduation project milestones with deadlines
+- **Submissions** — File uploads via MinIO, submission history, and status tracking
+- **Evaluations & Grading** — Structured evaluation forms with scoring
+- **Presentations** — Schedule and manage project presentations
+- **Announcements** — Platform-wide and group-targeted announcements
+- **Reports** — Generate and export project progress reports
+- **Calendar Events** — Shared academic calendar for deadlines and events
+- **Week Statuses** — Weekly progress tracking per group
+- **Email Notifications** — Automated emails via background job queues
+
+---
+
+## Project Structure
+
+```
+.
+├── src/                    # React frontend
+│   ├── pages/              # Route-level page components
+│   │   ├── admin/
+│   │   ├── coordinator/
+│   │   ├── supervisor/
+│   │   └── student/
+│   ├── features/           # Feature modules (auth, dashboard, evaluations, etc.)
+│   ├── components/         # Shared UI components
+│   ├── services/           # API service layer
+│   ├── hooks/              # Custom React hooks
+│   └── types/              # TypeScript type definitions
+│
+├── server/                 # Express backend
+│   └── src/
+│       ├── routes/         # API route handlers
+│       ├── controllers/    # Business logic
+│       ├── middleware/      # Auth, validation, rate limiting
+│       ├── services/       # External service integrations
+│       ├── jobs/           # BullMQ background jobs
+│       ├── migrations/     # Database migration scripts
+│       └── config/         # App configuration
+│
+├── docs/                   # Project documentation
+├── docker-compose.yml      # Local infrastructure (Redis, MinIO)
+└── package.json            # Root scripts
+```
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js >= 20
+- Docker & Docker Compose
+- A [Supabase](https://supabase.com) project (for database and auth)
+
+### 1. Start infrastructure
 
 ```bash
-npm i supabase --save-dev
+docker-compose up -d
 ```
 
-When installing with yarn 4, you need to disable experimental fetch with the following nodejs config.
+This starts Redis and MinIO locally.
 
+### 2. Configure environment variables
+
+Create a `.env` file in `server/` based on the required variables:
+
+```env
+SUPABASE_URL=your_supabase_url
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+JWT_SECRET=your_jwt_secret
+REDIS_URL=redis://localhost:6379
+MINIO_ENDPOINT=localhost
+MINIO_PORT=9000
+MINIO_ROOT_USER=your_minio_user
+MINIO_ROOT_PASSWORD=your_minio_password
 ```
-NODE_OPTIONS=--no-experimental-fetch yarn add supabase
-```
 
-> **Note**
-For Bun versions below v1.0.17, you must add `supabase` as a [trusted dependency](https://bun.sh/guides/install/trusted) before running `bun add -D supabase`.
-
-<details>
-  <summary><b>macOS</b></summary>
-
-  Available via [Homebrew](https://brew.sh). To install:
-
-  ```sh
-  brew install supabase/tap/supabase
-  ```
-
-  To install the beta release channel:
-  
-  ```sh
-  brew install supabase/tap/supabase-beta
-  brew link --overwrite supabase-beta
-  ```
-  
-  To upgrade:
-
-  ```sh
-  brew upgrade supabase
-  ```
-</details>
-
-<details>
-  <summary><b>Windows</b></summary>
-
-  Available via [Scoop](https://scoop.sh). To install:
-
-  ```powershell
-  scoop bucket add supabase https://github.com/supabase/scoop-bucket.git
-  scoop install supabase
-  ```
-
-  To upgrade:
-
-  ```powershell
-  scoop update supabase
-  ```
-</details>
-
-<details>
-  <summary><b>Linux</b></summary>
-
-  Available via [Homebrew](https://brew.sh) and Linux packages.
-
-  #### via Homebrew
-
-  To install:
-
-  ```sh
-  brew install supabase/tap/supabase
-  ```
-
-  To upgrade:
-
-  ```sh
-  brew upgrade supabase
-  ```
-
-  #### via Linux packages
-
-  Linux packages are provided in [Releases](https://github.com/supabase/cli/releases). To install, download the `.apk`/`.deb`/`.rpm`/`.pkg.tar.zst` file depending on your package manager and run the respective commands.
-
-  ```sh
-  sudo apk add --allow-untrusted <...>.apk
-  ```
-
-  ```sh
-  sudo dpkg -i <...>.deb
-  ```
-
-  ```sh
-  sudo rpm -i <...>.rpm
-  ```
-
-  ```sh
-  sudo pacman -U <...>.pkg.tar.zst
-  ```
-</details>
-
-<details>
-  <summary><b>Other Platforms</b></summary>
-
-  You can also install the CLI via [go modules](https://go.dev/ref/mod#go-install) without the help of package managers.
-
-  ```sh
-  go install github.com/supabase/cli@latest
-  ```
-
-  Add a symlink to the binary in `$PATH` for easier access:
-
-  ```sh
-  ln -s "$(go env GOPATH)/bin/cli" /usr/bin/supabase
-  ```
-
-  This works on other non-standard Linux distros.
-</details>
-
-<details>
-  <summary><b>Community Maintained Packages</b></summary>
-
-  Available via [pkgx](https://pkgx.sh/). Package script [here](https://github.com/pkgxdev/pantry/blob/main/projects/supabase.com/cli/package.yml).
-  To install in your working directory:
-
-  ```bash
-  pkgx install supabase
-  ```
-
-  Available via [Nixpkgs](https://nixos.org/). Package script [here](https://github.com/NixOS/nixpkgs/blob/master/pkgs/development/tools/supabase-cli/default.nix).
-</details>
-
-### Run the CLI
+### 3. Install dependencies
 
 ```bash
-supabase bootstrap
+npm install
+cd server && npm install
 ```
 
-Or using npx:
+### 4. Run the platform
 
 ```bash
-npx supabase bootstrap
+# From the project root — starts both client and server concurrently
+npm run dev
 ```
 
-The bootstrap command will guide you through the process of setting up a Supabase project using one of the [starter](https://github.com/supabase-community/supabase-samples/blob/main/samples.json) templates.
+- Frontend: `http://localhost:5173`
+- Backend API: `http://localhost:3000` (or configured port)
+- MinIO Console: `http://localhost:9001`
 
-## Docs
+### 5. Create an admin user
 
-Command & config reference can be found [here](https://supabase.com/docs/reference/cli/about).
-
-## Breaking changes
-
-We follow semantic versioning for changes that directly impact CLI commands, flags, and configurations.
-
-However, due to dependencies on other service images, we cannot guarantee that schema migrations, seed.sql, and generated types will always work for the same CLI major version. If you need such guarantees, we encourage you to pin a specific version of CLI in package.json.
-
-## Developing
-
-To run from source:
-
-```sh
-# Go >= 1.22
-go run . help
+```bash
+cd server && npm run create-admin
 ```
+
+---
+
+## Scripts
+
+| Command | Description |
+|---|---|
+| `npm run dev` | Start frontend and backend concurrently |
+| `npm run client` | Start frontend only (Vite dev server) |
+| `npm run server` | Start backend only (nodemon) |
+| `npm run build` | TypeScript compile + Vite production build |
+| `npm run lint` | Run ESLint on the frontend source |
+
+---
+
+## License
+
+See [LICENSE](../LICENSE).
