@@ -3,31 +3,20 @@
   "dockerComposeFile": "../docker-compose.yml",
   "service": "app",
   "workspaceFolder": "/workspace",
-  "forwardPorts": [3000, 5173, 5000, 6379, 9000, 9001],
+  "forwardPorts": [5000, 5173],
   "otherPortsAttributes": {
     "onAutoForward": "ignore"
   },
   "portsAttributes": {
-    "3000": {
-      "label": "Frontend (Vite)",
-      "onAutoForward": "notify"
+    "5000": {
+      "label": "Backend API",
+      "onAutoForward": "openBrowserOnce",
+      "visibility": "private"
     },
     "5173": {
       "label": "Vite Dev Server",
-      "onAutoForward": "notify"
-    },
-    "5000": {
-      "label": "Backend API",
-      "onAutoForward": "notify"
-    },
-    "6379": {
-      "label": "Redis"
-    },
-    "9000": {
-      "label": "MinIO API"
-    },
-    "9001": {
-      "label": "MinIO Console"
+      "onAutoForward": "openBrowserOnce",
+      "visibility": "public"
     }
   },
   "customizations": {
