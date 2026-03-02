@@ -281,7 +281,7 @@ export function StudentDashboard() {
               onClick={() => navigate('/student/feedback')}
             >
               <CheckCircle className="w-4 h-4 mr-2" />
-              View Grades
+              My Grades
             </Button>
             <Button
               variant="outline"

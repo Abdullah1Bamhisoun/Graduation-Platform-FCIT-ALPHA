@@ -14,7 +14,6 @@ import { StudentWeeklyReports } from './pages/student/WeeklyReports';
 import { StudentSubmissionDetail } from './pages/student/SubmissionDetail';
 import { StudentFeedback } from './pages/student/Feedback';
 import { StudentGradesOverview } from './pages/student/GradesOverview';
-import { StudentPeerFeedback } from './pages/student/PeerFeedback';
 import { StudentPresentationSelection } from './pages/student/PresentationSelection';
 import { StudentMyPresentation } from './pages/student/MyPresentation';
 
@@ -81,7 +80,6 @@ export default function App() {
           <Route path="/student/submissions/:id" element={<ProtectedRoute allowedRoles={['student']}><StudentSubmissionDetail /></ProtectedRoute>} />
           <Route path="/student/feedback" element={<ProtectedRoute allowedRoles={['student']}><StudentFeedback /></ProtectedRoute>} />
           <Route path="/student/grades" element={<ProtectedRoute allowedRoles={['student']}><StudentGradesOverview /></ProtectedRoute>} />
-          <Route path="/student/peer-feedback" element={<ProtectedRoute allowedRoles={['student']}><StudentPeerFeedback /></ProtectedRoute>} />
           <Route path="/student/presentation-selection" element={<ProtectedRoute allowedRoles={['student']}><StudentPresentationSelection /></ProtectedRoute>} />
           <Route path="/student/my-presentation" element={<ProtectedRoute allowedRoles={['student']}><StudentMyPresentation /></ProtectedRoute>} />
           <Route path="/student/announcements" element={<ProtectedRoute allowedRoles={['student']}><Announcements /></ProtectedRoute>} />

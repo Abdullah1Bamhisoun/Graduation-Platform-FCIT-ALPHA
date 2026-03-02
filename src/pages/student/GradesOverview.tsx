@@ -2,6 +2,7 @@ import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { getWeekStatuses, getDisplayStatus } from '../../services/week-statuses';
+import { createPeerEvaluation } from '../../services/grades';
 import {
   CheckCircle,
   Info,
@@ -121,6 +122,10 @@ export function StudentGradesOverview() {
   const [weekStatuses, setWeekStatuses]     = useState<WeekStatus[]>([]);
   const [weeklyExpanded, setWeeklyExpanded] = useState(false);
   const [delivExpanded, setDelivExpanded]   = useState(false);
+  const [peerRatings, setPeerRatings]       = useState<Record<string, number>>({});
+  const [peerSubmitting, setPeerSubmitting] = useState(false);
+  const [peerSubmitError, setPeerSubmitError] = useState<string | null>(null);
+  const [peerSubmitted, setPeerSubmitted]   = useState(false);
 
   const loadData = useCallback(async () => {
     if (!user) return;
@@ -145,6 +150,36 @@ export function StudentGradesOverview() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  async function handlePeerSubmit() {
+    if (!user || gradesData === 'loading' || !gradesData) return;
+    const g = gradesData;
+    const peers = g.students.filter((s) => s.id !== user.id);
+    if (peers.some((s) => !peerRatings[s.id])) {
+      setPeerSubmitError('Please rate all group members before submitting.');
+      return;
+    }
+    setPeerSubmitting(true);
+    setPeerSubmitError(null);
+    try {
+      await Promise.all(
+        peers.map((s) =>
+          createPeerEvaluation({
+            studentId:  s.id,
+            evaluatorId: user.id,
+            groupId:    g.groupId,
+            courseCode: g.courseCode,
+            score:      peerRatings[s.id],
+          })
+        )
+      );
+      setPeerSubmitted(true);
+    } catch (err) {
+      setPeerSubmitError('Failed to submit. Please try again.');
+    } finally {
+      setPeerSubmitting(false);
+    }
+  }
 
   if (!user) return null;
 
@@ -430,67 +465,101 @@ export function StudentGradesOverview() {
           </div>
         </div>
 
-        {/* Peer Evaluation — 498 only */}
-        {g.courseType === '498' ? (
-          <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5">
-            <div className="flex items-center gap-2 mb-3">
+        {/* Peer Evaluation */}
+        <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5">
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-2">
               <Star className="w-4 h-4 text-pink-500" />
               <h3 className="text-[var(--color-text-900)] font-semibold text-sm">Peer Evaluation</h3>
             </div>
+            <span className="text-xs font-semibold text-pink-600 bg-pink-50 border border-pink-200 px-2 py-0.5 rounded-full">
+              {g.peerEvaluation.componentWeight} marks
+            </span>
+          </div>
+          <p className="text-xs text-[var(--color-text-600)] mb-4">
+            Rate each teammate out of 5 — converted to {g.peerEvaluation.componentWeight} marks
+          </p>
 
-            {/* Received rating — read-only */}
-            {g.peerEvaluation.averageRaw != null ? (
-              <div className="mb-3">
-                <div className="flex items-center gap-1 mb-1">
-                  {Array.from({ length: 5 }, (_, i) => (
-                    <Star
-                      key={i}
-                      className={`w-5 h-5 ${
-                        i < Math.round(g.peerEvaluation.averageRaw ?? 0)
-                          ? 'text-yellow-400 fill-yellow-400'
-                          : 'text-gray-300'
-                      }`}
-                    />
-                  ))}
-                  <span className="ml-1 text-sm text-[var(--color-text-600)]">
-                    {g.peerEvaluation.averageRaw.toFixed(1)} / 5
-                  </span>
+          {/* Received rating — read-only */}
+          {g.peerEvaluation.averageRaw != null && (
+            <div className="mb-4 pb-4 border-b border-[var(--color-border)]">
+              <p className="text-xs text-[var(--color-text-600)] mb-1">Your received rating</p>
+              <div className="flex items-center gap-1 mb-1">
+                {Array.from({ length: 5 }, (_, i) => (
+                  <Star
+                    key={i}
+                    className={`w-4 h-4 ${
+                      i < Math.round(g.peerEvaluation.averageRaw ?? 0)
+                        ? 'text-yellow-400 fill-yellow-400'
+                        : 'text-gray-300'
+                    }`}
+                  />
+                ))}
+                <span className="ml-1 text-sm font-semibold text-[var(--color-text-900)]">
+                  {g.peerEvaluation.averageRaw.toFixed(1)} / 5
+                </span>
+                <span className="ml-2 text-xs text-[var(--color-text-600)]">
+                  → {g.peerEvaluation.convertedScore != null ? g.peerEvaluation.convertedScore.toFixed(1) : '—'} / {g.peerEvaluation.componentWeight} marks
+                </span>
+              </div>
+              <p className="text-xs text-[var(--color-text-600)]">
+                {g.peerEvaluation.receivedCount} peer{g.peerEvaluation.receivedCount !== 1 ? 's' : ''} rated you
+              </p>
+            </div>
+          )}
+
+          {/* Submit ratings for each peer */}
+          {g.peerEvaluation.hasSubmitted || peerSubmitted ? (
+            <div className="flex items-center gap-1.5 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+              <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
+              You have submitted your peer evaluations
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-[var(--color-text-700)] mb-2">Rate your teammates</p>
+              {g.students.filter((s) => s.id !== user.id).map((s) => (
+                <div key={s.id} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-alt)] px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium text-[var(--color-text-900)] truncate">{s.name}</span>
+                    <span className="text-xs font-mono text-[var(--color-text-600)] flex-shrink-0">
+                      {peerRatings[s.id] ?? 0} / 5
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-0.5 mt-1.5">
+                    {Array.from({ length: 5 }, (_, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setPeerRatings((prev) => ({ ...prev, [s.id]: i + 1 }))}
+                        className="focus:outline-none"
+                      >
+                        <Star
+                          className={`w-5 h-5 transition-colors ${
+                            (peerRatings[s.id] ?? 0) > i
+                              ? 'text-yellow-400 fill-yellow-400'
+                              : 'text-gray-300 hover:text-yellow-300'
+                          }`}
+                        />
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <p className="text-xs text-[var(--color-text-600)]">
-                  Grade:{' '}
-                  <span className="font-semibold text-[var(--color-text-900)]">
-                    {g.peerEvaluation.convertedScore != null
-                      ? g.peerEvaluation.convertedScore.toFixed(1)
-                      : '—'}
-                  </span>
-                  {' '}/ {g.peerEvaluation.componentWeight} marks &nbsp;
-                  ({g.peerEvaluation.receivedCount} peer{g.peerEvaluation.receivedCount !== 1 ? 's' : ''} rated you)
-                </p>
-              </div>
-            ) : (
-              <p className="text-sm text-[var(--color-text-600)] mb-3">No peer ratings received yet</p>
-            )}
-
-            {/* Submission status / action */}
-            {g.peerEvaluation.hasSubmitted ? (
-              <div className="flex items-center gap-1.5 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-                <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                You have submitted your peer evaluations
-              </div>
-            ) : (
-              <a
-                href="/student/peer-feedback"
-                className="flex items-center justify-center gap-1.5 text-xs text-white bg-pink-500 hover:bg-pink-600 rounded-lg px-3 py-2 transition-colors font-medium"
+              ))}
+              {peerSubmitError && (
+                <p className="text-xs text-red-600 pt-1">{peerSubmitError}</p>
+              )}
+              <button
+                type="button"
+                disabled={peerSubmitting}
+                onClick={handlePeerSubmit}
+                className="w-full mt-2 flex items-center justify-center gap-1.5 text-xs text-white bg-pink-500 hover:bg-pink-600 disabled:opacity-50 rounded-lg px-3 py-2 transition-colors font-medium"
               >
                 <Star className="w-3.5 h-3.5" />
-                Submit Peer Evaluations
-              </a>
-            )}
-          </div>
-        ) : (
-          /* Placeholder for 499 so the grid stays consistent */
-          <div />
-        )}
+                {peerSubmitting ? 'Submitting…' : 'Submit Peer Evaluations'}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── CPIS-498: Deliverables Table (collapsible) ──────────────────────── */}

@@ -19,7 +19,6 @@ const navItems: Record<UserRole, NavItem[]> = {
     { icon: CheckSquare,   label: 'Chapter Submissions',   href: '/student/milestones' },
     { icon: FileText,      label: 'Weekly Reports',        href: '/student/weekly-reports' },
     { icon: BarChart3,     label: 'My Grades',             href: '/student/grades' },
-    { icon: Users,         label: 'Peer Feedback',         href: '/student/peer-feedback' },
     { icon: Calendar,      label: 'Presentation Selection',href: '/student/presentation-selection' },
     { icon: Bell,          label: 'Announcements',         href: '/student/announcements' },
     { icon: Calendar,      label: 'Calendar',              href: '/student/calendar' },
