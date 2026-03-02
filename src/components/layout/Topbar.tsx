@@ -1,4 +1,4 @@
-import { Search, ChevronDown, RefreshCw } from 'lucide-react';
+import { ChevronDown, RefreshCw } from 'lucide-react';
 import { User, UserRole } from '../../types';
 import { Link } from 'react-router-dom';
 import { useState } from 'react';
@@ -57,16 +57,6 @@ export function Topbar({ user, pageTitle }: TopbarProps) {
       <h1 className="text-lg font-semibold text-[var(--color-text-900)] tracking-tight">{pageTitle}</h1>
 
       <div className="flex items-center gap-3">
-        {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-600)]" />
-          <input
-            type="text"
-            placeholder="Search... (Cmd+/)"
-            className="pl-10 pr-4 py-2 w-72 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-alt)] text-[var(--color-text-900)] placeholder:text-[var(--color-text-600)] focus:outline-none focus:ring-2 focus:ring-[var(--color-focus)] focus:border-transparent"
-          />
-        </div>
-
         {/* ── Role Switcher (faculty with multiple roles only) ── */}
         {isMultiRole && (
           <>

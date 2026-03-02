@@ -100,9 +100,9 @@ async function approveRegistration(req, res) {
       });
     }
 
-    // Coordinator scope check — coordinator can only approve their own course's registrations
+    // Coordinator scope check — coordinator can approve their own course's students and any supervisor
     if (req.user.activeRole === 'coordinator' && req.user.coordinatorCourseId) {
-      if (registration.course_id !== req.user.coordinatorCourseId) {
+      if (registration.account_type !== 'supervisor' && registration.course_id !== req.user.coordinatorCourseId) {
         return res.status(403).json({ error: 'You can only approve registrations for your assigned course' });
       }
     }
@@ -352,9 +352,9 @@ async function rejectRegistration(req, res) {
       });
     }
 
-    // Coordinator scope check
+    // Coordinator scope check — coordinator can reject their own course's students and any supervisor
     if (req.user.activeRole === 'coordinator' && req.user.coordinatorCourseId) {
-      if (registration.course_id !== req.user.coordinatorCourseId) {
+      if (registration.account_type !== 'supervisor' && registration.course_id !== req.user.coordinatorCourseId) {
         return res.status(403).json({ error: 'You can only reject registrations for your assigned course' });
       }
     }
@@ -532,7 +532,8 @@ async function listRegistrations(req, res) {
     if (status) query = query.eq('status', status);
 
     if (!isAdmin && isCoordinator) {
-      query = query.eq('course_id', req.user.coordinatorCourseId);
+      // Coordinators see student registrations for their course AND all supervisor registrations
+      query = query.or(`course_id.eq.${req.user.coordinatorCourseId},account_type.eq.supervisor`);
     } else if (!isAdmin) {
       return res.status(403).json({ error: 'Access denied' });
     }

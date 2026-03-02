@@ -10,9 +10,12 @@ import { toast } from 'sonner';
 
 interface PendingReg {
   id: string;
+  accountType: 'student' | 'supervisor';
   name: string;
   email: string;
+  department: string | null;
   studentId: string | null;
+  employeeNumber: string | null;
   course: string | null;
   term: string | null;
   projectName: string | null;
@@ -57,9 +60,12 @@ export function CoordinatorApprovals() {
       setRegistrations(
         (data || []).map((r: any) => ({
           id: r.id,
+          accountType: r.account_type ?? 'student',
           name: r.name,
           email: r.email,
+          department: r.department ?? null,
           studentId: r.student_id ?? null,
+          employeeNumber: r.employee_number ?? null,
           course: r.course ?? null,
           term: r.term ?? null,
           projectName: r.project_name ?? null,
@@ -100,7 +106,7 @@ export function CoordinatorApprovals() {
       const json = await response.json();
       if (!response.ok) throw new Error(json.error || 'Approval failed');
 
-      toast.success('Student approved successfully');
+      toast.success('Registration approved successfully');
       await loadRegistrations();
     } catch (err: any) {
       toast.error(err.message || 'Failed to approve registration');
@@ -139,7 +145,7 @@ export function CoordinatorApprovals() {
 
   if (!user?.coordinatorCourseId) {
     return (
-      <Layout user={user!} pageTitle="Student Approvals">
+      <Layout user={user!} pageTitle="Approvals">
         <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
           <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
           <p className="text-amber-800">No course assigned to your coordinator account. Contact an admin.</p>
@@ -149,7 +155,7 @@ export function CoordinatorApprovals() {
   }
 
   return (
-    <Layout user={user!} pageTitle="Student Approvals">
+    <Layout user={user!} pageTitle="Approvals">
       {isLocked && <LockedBanner />}
       <div className="space-y-5">
         {/* Header bar */}
@@ -221,6 +227,8 @@ function RegistrationCard({
     reg.status === 'approved' ? CheckCircle :
     reg.status === 'rejected' ? XCircle : Clock;
 
+  const isSupervisor = reg.accountType === 'supervisor';
+
   return (
     <div className="bg-[var(--color-surface-white)] border border-[var(--color-border)] rounded-xl p-5">
       <div className="flex items-start justify-between gap-4">
@@ -230,12 +238,31 @@ function RegistrationCard({
             <User className="w-5 h-5 text-[var(--color-primary-600)]" />
           </div>
           <div className="min-w-0">
-            <div className="font-semibold text-[var(--color-text-900)]">{reg.name}</div>
+            <div className="flex items-center gap-2">
+              <div className="font-semibold text-[var(--color-text-900)]">{reg.name}</div>
+              <span className={`text-xs font-medium px-2 py-0.5 rounded-full capitalize ${
+                isSupervisor
+                  ? 'bg-purple-100 text-purple-700'
+                  : 'bg-blue-100 text-blue-700'
+              }`}>
+                {isSupervisor ? 'Supervisor' : 'Student'}
+              </span>
+            </div>
             <div className="text-sm text-[var(--color-text-600)]">{reg.email}</div>
             <div className="flex flex-wrap gap-2 mt-2">
               {reg.studentId && (
                 <span className="text-xs bg-[var(--color-surface-alt)] px-2 py-0.5 rounded-full text-[var(--color-text-600)]">
-                  ID: {reg.studentId}
+                  Student ID: {reg.studentId}
+                </span>
+              )}
+              {reg.employeeNumber && (
+                <span className="text-xs bg-[var(--color-surface-alt)] px-2 py-0.5 rounded-full text-[var(--color-text-600)]">
+                  Employee #: {reg.employeeNumber}
+                </span>
+              )}
+              {reg.department && (
+                <span className="text-xs bg-[var(--color-surface-alt)] px-2 py-0.5 rounded-full text-[var(--color-text-600)]">
+                  {reg.department}
                 </span>
               )}
               {reg.course && (
