@@ -197,6 +197,20 @@ async function deleteEvent(req, res) {
       }
     }
 
+    // Clear any presentation_schedules row that references this calendar event.
+    // This prevents a FK constraint violation when the live DB has a FK on
+    // presentation_schedules.calendar_event_id → calendar_events(id).
+    // Wrapped in try/catch so a missing column (migration not yet applied)
+    // does not block the delete.
+    try {
+      await supabaseAdmin
+        .from('presentation_schedules')
+        .update({ calendar_event_id: null })
+        .eq('calendar_event_id', id);
+    } catch (_) {
+      // best-effort – ignore if column doesn't exist yet
+    }
+
     const { error } = await supabaseAdmin.from('calendar_events').delete().eq('id', id);
     if (error) throw error;
     res.json({ success: true });

@@ -38,7 +38,11 @@ async function authenticate(req, res, next) {
       .eq('user_id', user.id);
 
     const roles = (userRoles || []).map((ur) => ur.roles?.name).filter(Boolean);
-    const allRoles = roles.length > 0 ? roles : [profile.role];
+    // Always include profile.role so that a user's primary role (e.g. 'admin')
+    // is never silently dropped when they also have entries in user_roles.
+    const allRoles = roles.length > 0
+      ? Array.from(new Set([profile.role, ...roles]))
+      : [profile.role];
 
     // 4. Determine coordinatorCourseId
     //    Priority: user_roles.coordinator_course_id → profiles.coordinator_course_id → platform_locks
@@ -185,7 +189,7 @@ async function optionalAuth(req, res, next) {
           email:          profile.email,
           name:           profile.name,
           role:           profile.role,
-          roles:          roles.length > 0 ? roles : [profile.role],
+          roles:          roles.length > 0 ? Array.from(new Set([profile.role, ...roles])) : [profile.role],
           activeRole:     profile.role,
           coordinatorCourseId: null,
           studentId:      profile.student_id,

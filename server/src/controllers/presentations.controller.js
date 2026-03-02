@@ -262,11 +262,15 @@ async function assignSchedule(req, res) {
     const existingCalendarEventId = existing?.calendar_event_id ?? null;
 
     // ── Create or update linked calendar event ─────────────────────────────
+    // For coordinator-published events, scope the event to their course so
+    // they can manage (delete) it from the Calendar page. Admin events have
+    // no course scope (visible platform-wide).
     const calendarPayload = {
       title: `Presentation: ${projectName}`,
       date: presentationDate.toISOString().slice(0, 10), // YYYY-MM-DD
       type: 'presentation',
       time: timeSlot,
+      ...(!isAdmin && req.user.coordinatorCourseId ? { course_id: req.user.coordinatorCourseId } : {}),
     };
     let calendarEventId = existingCalendarEventId;
 
