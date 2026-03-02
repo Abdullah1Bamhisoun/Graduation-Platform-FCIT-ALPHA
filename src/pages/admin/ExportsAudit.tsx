@@ -6,7 +6,9 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
-import { Download, FileText, BarChart3, Activity, X } from 'lucide-react';
+import { MetricCard } from '../../features/dashboard/components/MetricCard';
+import { DashboardCard } from '../../features/dashboard/components/DashboardCard';
+import { Download, FileText, BarChart3, Activity, X, ClipboardList, Calendar, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import type { AuditLogEntry } from '../../types';
 
@@ -16,6 +18,7 @@ export function AdminExportsAudit() {
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportType, setExportType] = useState<'grades' | 'submissions' | 'activity' | null>(null);
   const [dateRange, setDateRange] = useState({ from: '', to: '' });
+  const [filterAction, setFilterAction] = useState('All Actions');
 
   useEffect(() => {
     getAuditLog().then(setAuditLog);
@@ -34,173 +37,179 @@ export function AdminExportsAudit() {
     setShowExportModal(true);
   };
 
+  // Derived audit stats
+  const today = new Date().toDateString();
+  const todayEntries = auditLog.filter(e => new Date(e.timestamp).toDateString() === today).length;
+  const uniqueActors = new Set(auditLog.map(e => e.actor)).size;
+
+  const filteredLog = auditLog.filter(entry =>
+    filterAction === 'All Actions' || entry.action === filterAction
+  );
+
   return (
     <Layout user={user} pageTitle="Exports & Audit">
       <Tabs defaultValue="exports" className="w-full">
-        <TabsList className="mb-6">
-          <TabsTrigger value="exports">Export Center</TabsTrigger>
-          <TabsTrigger value="audit">Audit Log</TabsTrigger>
+        <TabsList className="grid w-fit grid-cols-2 mb-6 h-11 border border-gray-300 rounded-lg bg-gray-100 p-1">
+          <TabsTrigger
+            value="exports"
+            className="rounded-md font-semibold data-[state=active]:bg-white data-[state=active]:border data-[state=active]:border-gray-300 data-[state=active]:shadow-sm"
+          >
+            Export Center
+          </TabsTrigger>
+          <TabsTrigger
+            value="audit"
+            className="rounded-md font-semibold data-[state=active]:bg-white data-[state=active]:border data-[state=active]:border-gray-300 data-[state=active]:shadow-sm"
+          >
+            Audit Log
+          </TabsTrigger>
         </TabsList>
 
+        {/* ── Export Center ──────────────────────────────────────────── */}
         <TabsContent value="exports">
-          <div className="mb-6">
-            <p className="text-[var(--color-text-600)]">
-              Export data for analysis and record keeping
-            </p>
-          </div>
-
-          <div className="grid grid-cols-3 gap-6">
-            {/* Grades Export */}
-            <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
-              <div className="w-12 h-12 rounded-lg bg-white border border-green-500 flex items-center justify-center mb-4">
-                <BarChart3 className="w-6 h-6 text-green-600" />
-              </div>
-              <h2 className="text-[var(--color-text-900)] mb-2">Grades Report</h2>
-              <p className="text-[var(--color-text-600)] mb-4">
-                Export student grades, rubric scores, and evaluation summaries
-              </p>
-              <div className="space-y-2">
-                <Button
-                  variant="outline"
-                  className="w-full justify-start"
-                  onClick={() => openExportModal('grades')}
-                >
+          {/* Export type cards */}
+          <DashboardCard title="Export Data" icon={Download} className="mb-6">
+            <div className="grid grid-cols-3 gap-6">
+              {/* Grades */}
+              <div className="rounded-xl border border-[var(--color-border)] p-5">
+                <div className="w-12 h-12 rounded-lg bg-white border border-green-500 flex items-center justify-center mb-4">
+                  <BarChart3 className="w-6 h-6 text-green-600" />
+                </div>
+                <h3 className="font-semibold text-[var(--color-text-900)] mb-2">Grades Report</h3>
+                <p className="text-sm text-[var(--color-text-600)] mb-4">
+                  Export student grades, rubric scores, and evaluation summaries
+                </p>
+                <Button variant="outline" className="w-full justify-start" onClick={() => openExportModal('grades')}>
                   <Download className="w-4 h-4 mr-2" />
                   Export Grades
                 </Button>
               </div>
-            </div>
 
-            {/* Submissions Export */}
-            <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
-              <div className="w-12 h-12 rounded-lg bg-white border border-blue-500 flex items-center justify-center mb-4">
-                <FileText className="w-6 h-6 text-blue-600" />
-              </div>
-              <h2 className="text-[var(--color-text-900)] mb-2">Submissions Report</h2>
-              <p className="text-[var(--color-text-600)] mb-4">
-                Export submission history, versions, and status information
-              </p>
-              <div className="space-y-2">
-                <Button
-                  variant="outline"
-                  className="w-full justify-start"
-                  onClick={() => openExportModal('submissions')}
-                >
+              {/* Submissions */}
+              <div className="rounded-xl border border-[var(--color-border)] p-5">
+                <div className="w-12 h-12 rounded-lg bg-white border border-blue-500 flex items-center justify-center mb-4">
+                  <FileText className="w-6 h-6 text-blue-600" />
+                </div>
+                <h3 className="font-semibold text-[var(--color-text-900)] mb-2">Submissions Report</h3>
+                <p className="text-sm text-[var(--color-text-600)] mb-4">
+                  Export submission history, versions, and status information
+                </p>
+                <Button variant="outline" className="w-full justify-start" onClick={() => openExportModal('submissions')}>
                   <Download className="w-4 h-4 mr-2" />
                   Export Submissions
                 </Button>
               </div>
-            </div>
 
-            {/* Activity Log Export */}
-            <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
-              <div className="w-12 h-12 rounded-lg bg-white border border-purple-500 flex items-center justify-center mb-4">
-                <Activity className="w-6 h-6 text-purple-600" />
-              </div>
-              <h2 className="text-[var(--color-text-900)] mb-2">Activity Log</h2>
-              <p className="text-[var(--color-text-600)] mb-4">
-                Export system activity and user actions for auditing
-              </p>
-              <div className="space-y-2">
-                <Button
-                  variant="outline"
-                  className="w-full justify-start"
-                  onClick={() => openExportModal('activity')}
-                >
+              {/* Activity */}
+              <div className="rounded-xl border border-[var(--color-border)] p-5">
+                <div className="w-12 h-12 rounded-lg bg-white border border-purple-500 flex items-center justify-center mb-4">
+                  <Activity className="w-6 h-6 text-purple-600" />
+                </div>
+                <h3 className="font-semibold text-[var(--color-text-900)] mb-2">Activity Log</h3>
+                <p className="text-sm text-[var(--color-text-600)] mb-4">
+                  Export system activity and user actions for auditing
+                </p>
+                <Button variant="outline" className="w-full justify-start" onClick={() => openExportModal('activity')}>
                   <Download className="w-4 h-4 mr-2" />
                   Export Activity
                 </Button>
               </div>
             </div>
-          </div>
+          </DashboardCard>
 
           {/* Recent Exports */}
-          <div className="mt-8 bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)]">
-            <div className="p-6 border-b border-[var(--color-border)]">
-              <h2 className="text-[var(--color-text-900)]">Recent Exports</h2>
-            </div>
-            <div className="p-8 text-center text-[var(--color-text-600)]">
+          <DashboardCard title="Recent Exports" icon={ClipboardList}>
+            <div className="py-10 text-center text-[var(--color-text-600)]">
               <FileText className="w-10 h-10 mx-auto mb-3 opacity-40" />
-              <p>No recent exports</p>
+              <p className="font-medium">No recent exports</p>
+              <p className="text-sm mt-1">Your exported files will appear here</p>
             </div>
-          </div>
+          </DashboardCard>
         </TabsContent>
 
+        {/* ── Audit Log ──────────────────────────────────────────────── */}
         <TabsContent value="audit">
-          <div className="mb-6">
-            <p className="text-[var(--color-text-600)]">
-              System activity and user action logs
-            </p>
+          {/* Metric row */}
+          <div className="grid grid-cols-3 gap-4 mb-6">
+            <MetricCard label="Total Entries" value={auditLog.length} icon={ClipboardList} color="primary" />
+            <MetricCard label="Today's Activity" value={todayEntries} icon={Calendar} color="success" />
+            <MetricCard label="Unique Actors" value={uniqueActors} icon={Users} color="info" />
           </div>
 
-          {/* Filters */}
-          <div className="mb-6 flex gap-4">
-            <Input type="date" placeholder="From" className="w-48" />
-            <Input type="date" placeholder="To" className="w-48" />
-            <select className="px-4 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-white)]">
-              <option>All Actions</option>
-              <option>Submitted</option>
-              <option>Reviewed</option>
-              <option>Published</option>
-              <option>Updated</option>
-            </select>
-            <select className="px-4 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-white)]">
-              <option>All Users</option>
-              <option>Students</option>
-              <option>Supervisors</option>
-              <option>Admins</option>
-            </select>
-          </div>
-
-          {/* Audit Log Table */}
-          <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] shadow-sm">
-            <div className="grid grid-cols-12 gap-4 p-4 border-b border-[var(--color-border)] text-[var(--color-text-600)]">
-              <div className="col-span-3">Date & Time</div>
-              <div className="col-span-2">Actor</div>
-              <div className="col-span-2">Action</div>
-              <div className="col-span-3">Entity</div>
-              <div className="col-span-2">Context</div>
-            </div>
-
-            <div className="divide-y divide-[var(--color-border)]">
-              {auditLog.map((entry) => (
-                <div
-                  key={entry.id}
-                  className="grid grid-cols-12 gap-4 p-4 hover:bg-[var(--color-surface-alt)] transition-colors"
+          {/* Filters + Table */}
+          <DashboardCard
+            title="Activity Log"
+            icon={Activity}
+            actions={
+              <div className="flex gap-2 items-center">
+                <select
+                  className="px-3 py-1.5 text-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-white)]"
+                  value={filterAction}
+                  onChange={e => setFilterAction(e.target.value)}
                 >
-                  <div className="col-span-3 flex items-center">
-                    <p className="text-[var(--color-text-900)]">
-                      {new Date(entry.timestamp).toLocaleString()}
-                    </p>
-                  </div>
-                  <div className="col-span-2 flex items-center">
-                    <p className="text-[var(--color-text-900)]">{entry.actor.split('(')[0].trim()}</p>
-                  </div>
-                  <div className="col-span-2 flex items-center">
-                    <span className="px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-900/50">
-                      {entry.action}
-                    </span>
-                  </div>
-                  <div className="col-span-3 flex items-center">
-                    <p className="text-[var(--color-text-900)]">{entry.entity}</p>
-                  </div>
-                  <div className="col-span-2 flex items-center">
-                    <p className="text-[var(--color-text-600)]">{entry.context}</p>
-                  </div>
+                  <option>All Actions</option>
+                  <option>Submitted</option>
+                  <option>Reviewed</option>
+                  <option>Published</option>
+                  <option>Updated</option>
+                </select>
+                <Input type="date" className="w-36 h-8 text-sm" />
+                <Input type="date" className="w-36 h-8 text-sm" />
+              </div>
+            }
+          >
+            {filteredLog.length === 0 ? (
+              <div className="py-12 text-center text-[var(--color-text-600)]">
+                <Activity className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                <p className="font-medium">No activity recorded</p>
+                <p className="text-sm mt-1">System events and user actions will appear here</p>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-[var(--color-border)] overflow-hidden">
+                <div className="grid grid-cols-12 gap-4 px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface-alt)] text-xs font-medium uppercase tracking-wide text-[var(--color-text-600)]">
+                  <div className="col-span-3">Date & Time</div>
+                  <div className="col-span-2">Actor</div>
+                  <div className="col-span-2">Action</div>
+                  <div className="col-span-3">Entity</div>
+                  <div className="col-span-2">Context</div>
                 </div>
-              ))}
-            </div>
-          </div>
+                <div className="divide-y divide-[var(--color-border)]">
+                  {filteredLog.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="grid grid-cols-12 gap-4 px-4 py-3 hover:bg-[var(--color-surface-alt)] transition-colors"
+                    >
+                      <div className="col-span-3 flex items-center">
+                        <p className="text-sm text-[var(--color-text-900)]">
+                          {new Date(entry.timestamp).toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="col-span-2 flex items-center">
+                        <p className="text-sm text-[var(--color-text-900)]">{entry.actor.split('(')[0].trim()}</p>
+                      </div>
+                      <div className="col-span-2 flex items-center">
+                        <span className="px-2.5 py-1 text-xs rounded-full bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-900/50">
+                          {entry.action}
+                        </span>
+                      </div>
+                      <div className="col-span-3 flex items-center">
+                        <p className="text-sm text-[var(--color-text-900)]">{entry.entity}</p>
+                      </div>
+                      <div className="col-span-2 flex items-center">
+                        <p className="text-sm text-[var(--color-text-600)] truncate">{entry.context}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </DashboardCard>
         </TabsContent>
       </Tabs>
 
       {/* Export Modal */}
       {showExportModal && exportType && (
         <>
-          <div
-            className="fixed inset-0 bg-black/50 z-40"
-            onClick={() => setShowExportModal(false)}
-          />
+          <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setShowExportModal(false)} />
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="bg-[var(--color-surface-white)] rounded-xl shadow-2xl max-w-2xl w-full">
               <div className="p-6 border-b border-[var(--color-border)] flex items-center justify-between">
@@ -258,17 +267,10 @@ export function AdminExportsAudit() {
                 </div>
 
                 <div className="flex gap-3 pt-4">
-                  <Button
-                    variant="outline"
-                    className="flex-1"
-                    onClick={() => setShowExportModal(false)}
-                  >
+                  <Button variant="outline" className="flex-1" onClick={() => setShowExportModal(false)}>
                     Cancel
                   </Button>
-                  <Button
-                    className="flex-1"
-                    onClick={handleExport}
-                  >
+                  <Button className="flex-1" onClick={handleExport}>
                     <Download className="w-4 h-4 mr-2" />
                     Export
                   </Button>
