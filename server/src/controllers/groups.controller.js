@@ -1074,19 +1074,23 @@ async function getGroupsWithCoordinatorGrades(req, res) {
     if (componentError) throw componentError;
 
     // 5. Batch fetch all assessment data to populate grade component scores
+    // Collect the course IDs from the fetched groups to scope coordinator_deliverable_scores
+    const courseIds = [...new Set((groups || []).map(g => g.course_id).filter(Boolean))];
+
     const [
       { data: allSupAssessments },
       { data: allCommEvaluations },
       { data: allDelivScores },
-      { data: allAdminCommScores },
       { data: allWeeklyReports },
       { data: allCoordAssessments },
       { data: allPeerEvaluations },
     ] = await Promise.all([
       supabaseAdmin.from('supervisor_assessments').select('group_id, score, max_score').in('group_id', groupIds),
       supabaseAdmin.from('committee_evaluations').select('group_id, student_id, score, max_score').in('group_id', groupIds),
-      supabaseAdmin.from('coordinator_deliverable_scores').select('group_id, score').in('group_id', groupIds),
-      supabaseAdmin.from('admin_committee_scores').select('group_id, poster_day_score, implementation_score, testing_score').in('group_id', groupIds),
+      // Filter by both group_id and course_id so scores from other courses are never mixed in
+      (courseIds.length > 0
+        ? supabaseAdmin.from('coordinator_deliverable_scores').select('group_id, score').in('group_id', groupIds).in('course_id', courseIds)
+        : supabaseAdmin.from('coordinator_deliverable_scores').select('group_id, score').in('group_id', groupIds)),
       supabaseAdmin.from('weekly_reports').select('group_id, student_mark, supervisor_mark').in('group_id', groupIds),
       (isAdmin
         ? supabaseAdmin.from('coordinator_assessments').select('group_id, component_key, normalized_score, max_score, submission_status').in('group_id', groupIds)
@@ -1142,13 +1146,6 @@ async function getGroupsWithCoordinatorGrades(req, res) {
         ? groupDelivs.reduce((s, d) => s + Number(d.score ?? 0), 0)
         : null;
 
-      const groupAdminComm = (allAdminCommScores || []).find(a => a.group_id === group.id);
-      const adminCommitteeTotal = groupAdminComm
-        ? (Number(groupAdminComm.poster_day_score ?? 0) +
-           Number(groupAdminComm.implementation_score ?? 0) +
-           Number(groupAdminComm.testing_score ?? 0))
-        : null;
-
       const groupWeekly = (allWeeklyReports || []).filter(r => r.group_id === group.id);
       const weeklyRaw = groupWeekly.reduce((s, r) => s + (r.student_mark ?? 0) + (r.supervisor_mark ?? 0), 0);
       const weeklyMaxScore = courseType === '499' ? 22 : 20;
@@ -1197,7 +1194,7 @@ async function getGroupsWithCoordinatorGrades(req, res) {
               score = committeeScore;
               break;
             case 'coordinator_deliverables':
-              score = courseType === '499' ? adminCommitteeTotal : deliverablesTotal;
+              score = deliverablesTotal;
               break;
             case 'progress_reports':
               score = weeklyScore;
