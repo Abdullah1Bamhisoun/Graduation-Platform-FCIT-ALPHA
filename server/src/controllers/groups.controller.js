@@ -985,31 +985,35 @@ async function getGroupsWithCoordinatorGrades(req, res) {
       return res.status(400).json({ error: 'Valid courseType (498 or 499) required' });
     }
 
-    // Resolve course ID: coordinator uses assigned course, admin looks up by courseType
-    let resolvedCourseId = req.user.coordinatorCourseId;
-    if (!resolvedCourseId) {
-      if (isAdmin) {
-        const { data: courseRow } = await supabaseAdmin
-          .from('courses')
-          .select('id')
-          .ilike('code', `%${courseType}%`)
-          .limit(1)
-          .maybeSingle();
-        if (!courseRow) {
-          return res.status(404).json({ error: `No course found for courseType ${courseType}` });
-        }
-        resolvedCourseId = courseRow.id;
-      } else {
-        return res.status(403).json({ error: 'No course assigned to your coordinator account' });
-      }
-    }
-
-    // 1. Fetch all groups in the resolved course (include group_code and supervisor_id)
-    const { data: groups, error: groupsError } = await supabaseAdmin
+    // Build the groups query based on role
+    let groupsQuery = supabaseAdmin
       .from('groups')
       .select('id, group_code, group_number, project_name, course_id, status, supervisor_id')
-      .eq('course_id', resolvedCourseId)
       .order('group_number');
+
+    if (isAdmin) {
+      // Admin: look up all course UUIDs matching courseType, then filter groups by either
+      // course_id (UUID) or course_number ('498'/'499') to cover both old and new groups.
+      const { data: courseRows } = await supabaseAdmin
+        .from('courses')
+        .select('id')
+        .ilike('code', `%${courseType}%`);
+      const courseIds = (courseRows || []).map(c => c.id);
+
+      if (courseIds.length > 0) {
+        groupsQuery = groupsQuery.or(`course_number.eq.${courseType},course_id.in.(${courseIds.join(',')})`);
+      } else {
+        // No course records found — fall back to matching course_number only
+        groupsQuery = groupsQuery.eq('course_number', courseType);
+      }
+    } else if (req.user.coordinatorCourseId) {
+      groupsQuery = groupsQuery.eq('course_id', req.user.coordinatorCourseId);
+    } else {
+      return res.status(403).json({ error: 'No course assigned to your coordinator account' });
+    }
+
+    // 1. Fetch all groups in the resolved course(s)
+    const { data: groups, error: groupsError } = await groupsQuery;
 
     if (groupsError) throw groupsError;
 
@@ -1084,7 +1088,9 @@ async function getGroupsWithCoordinatorGrades(req, res) {
       supabaseAdmin.from('coordinator_deliverable_scores').select('group_id, score').in('group_id', groupIds),
       supabaseAdmin.from('admin_committee_scores').select('group_id, poster_day_score, implementation_score, testing_score').in('group_id', groupIds),
       supabaseAdmin.from('weekly_reports').select('group_id, student_mark, supervisor_mark').in('group_id', groupIds),
-      supabaseAdmin.from('coordinator_assessments').select('group_id, component_key, normalized_score, max_score, submission_status').eq('coordinator_id', coordinatorId).in('group_id', groupIds),
+      (isAdmin
+        ? supabaseAdmin.from('coordinator_assessments').select('group_id, component_key, normalized_score, max_score, submission_status').in('group_id', groupIds)
+        : supabaseAdmin.from('coordinator_assessments').select('group_id, component_key, normalized_score, max_score, submission_status').eq('coordinator_id', coordinatorId).in('group_id', groupIds)),
       supabaseAdmin.from('peer_evaluations').select('group_id, student_id, score').in('group_id', groupIds),
     ]);
 
@@ -1103,22 +1109,21 @@ async function getGroupsWithCoordinatorGrades(req, res) {
         rejected: approvals?.filter(a => a.status === 'rejected').length || 0,
       };
 
-      // Get coordinator evaluation status
-     const { data: coordEval, error: coordEvalError } = await supabaseAdmin
+      // Get coordinator evaluation status (admin sees any coordinator's evaluation)
+      let coordEvalQuery = supabaseAdmin
         .from('coordinator_evaluations')
         .select('id, submission_status')
-        .eq('group_id', group.id)
-        .eq('coordinator_id', coordinatorId)
-        .limit(1)
-        .maybeSingle();
+        .eq('group_id', group.id);
+      if (!isAdmin) coordEvalQuery = coordEvalQuery.eq('coordinator_id', coordinatorId);
+      const { data: coordEval } = await coordEvalQuery.limit(1).maybeSingle();
 
-      // Get normalized coordinator score (any component_key for this coordinator)
-      const { data: coordAssess, error: coordAssessError } = await supabaseAdmin
+      // Get normalized coordinator score (admin sees any coordinator's assessment)
+      let coordAssessQuery = supabaseAdmin
         .from('coordinator_assessments')
         .select('normalized_score, max_score, submission_status')
-        .eq('group_id', group.id)
-        .eq('coordinator_id', coordinatorId)
-        .maybeSingle();
+        .eq('group_id', group.id);
+      if (!isAdmin) coordAssessQuery = coordAssessQuery.eq('coordinator_id', coordinatorId);
+      const { data: coordAssess } = await coordAssessQuery.limit(1).maybeSingle();
 
       // Compute per-component scores from batched data
       const groupSupScores = (allSupAssessments || []).filter(a => a.group_id === group.id);
