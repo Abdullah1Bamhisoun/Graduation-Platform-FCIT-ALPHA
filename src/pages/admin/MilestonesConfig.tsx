@@ -4,13 +4,16 @@ import { useAuth } from '../../lib/AuthContext';
 import { useLockStatus } from '../../hooks/useLockStatus';
 import { LockedBanner } from '../../components/ui/LockedBanner';
 import { getMilestoneConfigs, createMilestone, updateMilestone, deleteMilestone } from '../../services/milestones';
+import { getRubricCriteria, type RubricCriterion } from '../../services/grading-rubric';
+import { getCourseTypeFromUUID } from '../../services/courses';
 import { supabase } from '../../lib/supabase';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Switch } from '../../components/ui/switch';
 import { Textarea } from '../../components/ui/textarea';
-import { Settings, Plus, Edit2, Save, X, Trash2 } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import { Settings, Plus, Edit2, Save, X, Trash2, Award } from 'lucide-react';
 import { toast } from 'sonner';
 import { MilestoneConfig } from '../../types';
 
@@ -27,6 +30,9 @@ export function AdminMilestonesConfig() {
   const [configs, setConfigs] = useState<MilestoneConfig[]>([]);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+
+  // Grade Scheme criteria for coordinator_deliverables component
+  const [deliverableCriteria, setDeliverableCriteria] = useState<RubricCriterion[]>([]);
 
   const isCoordinator = user?.activeRole === 'coordinator';
   const isAdmin = user?.roles?.includes('admin') ?? false;
@@ -62,6 +68,22 @@ export function AdminMilestonesConfig() {
     }
   }, [user, isCoordinator, isAdmin, coordinatorCourseId]);
 
+  // Load coordinator_deliverables criteria from Grade Scheme Editor
+  useEffect(() => {
+    const loadCriteria = async () => {
+      let courseType: '498' | '499' | null = null;
+      if (isCoordinator && !isAdmin && coordinatorCourseId) {
+        courseType = await getCourseTypeFromUUID(coordinatorCourseId);
+      } else if (!isCoordinator || isAdmin) {
+        courseType = selectedCourse.includes('499') ? '499' : '498';
+      }
+      if (!courseType) return;
+      const criteria = await getRubricCriteria(courseType, 'coordinator_deliverables');
+      setDeliverableCriteria(criteria);
+    };
+    loadCriteria();
+  }, [isCoordinator, isAdmin, coordinatorCourseId, selectedCourse]);
+
   if (!user) return null;
 
   const filteredConfigs = configs.filter((c) => {
@@ -91,6 +113,7 @@ export function AdminMilestonesConfig() {
       allowLateSubmission: false,
       requireJustification: false,
       description: '',
+      gradingCriterionId: undefined,
     };
     setConfigs((prev) => [...prev, newMilestone]);
     setEditingId(newId);
@@ -257,6 +280,40 @@ export function AdminMilestonesConfig() {
                     </div>
                   </div>
 
+                  {/* Grade Scheme Criterion Selector */}
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Award className="w-4 h-4 text-blue-600" />
+                      <Label className="text-blue-900 font-semibold">Grade Scheme Mark</Label>
+                    </div>
+                    <p className="text-xs text-blue-700 mb-2">
+                      Select the deliverable criterion from the Grade Scheme Editor that will be graded when reviewing submissions for this milestone.
+                    </p>
+                    <Select
+                      value={config.gradingCriterionId ?? 'none'}
+                      onValueChange={(val) =>
+                        updateConfigField(config.id, 'gradingCriterionId', val === 'none' ? undefined : val)
+                      }
+                    >
+                      <SelectTrigger className="bg-white">
+                        <SelectValue placeholder="No grade linked" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No grade linked</SelectItem>
+                        {deliverableCriteria.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.criterionName} (max {c.maxRawScore})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {deliverableCriteria.length === 0 && (
+                      <p className="text-xs text-blue-600 italic">
+                        No criteria defined yet. Add them in Grade Scheme Editor → Coordinator Deliverables.
+                      </p>
+                    )}
+                  </div>
+
                   <div className="space-y-4 p-4 bg-[var(--color-surface-alt)] rounded-lg">
                     <div className="flex items-center justify-between">
                       <div>
@@ -388,6 +445,16 @@ export function AdminMilestonesConfig() {
                     {config.requireJustification && (
                       <div className="px-3 py-1 rounded-full text-sm bg-white text-blue-700 border border-blue-500">
                         Justification Required
+                      </div>
+                    )}
+                    {config.gradingCriterionName ? (
+                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-sm bg-white text-purple-700 border border-purple-400">
+                        <Award className="w-3.5 h-3.5" />
+                        {config.gradingCriterionName} (max {config.gradingCriterionMax})
+                      </div>
+                    ) : (
+                      <div className="px-3 py-1 rounded-full text-sm bg-white text-gray-400 border border-gray-200">
+                        No grade linked
                       </div>
                     )}
                   </div>

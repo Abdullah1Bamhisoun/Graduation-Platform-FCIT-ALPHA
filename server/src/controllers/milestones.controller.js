@@ -24,7 +24,7 @@ async function listMilestones(req, res) {
 
     let query = supabaseAdmin
       .from('milestones')
-      .select('*, course:courses!course_id(id, code, name), rubric_criteria(id, name, max_score, sort_order)')
+      .select('*, course:courses!course_id(id, code, name), rubric_criteria(id, name, max_score, sort_order), grading_criterion:grading_rubric_criteria!grading_criterion_id(id, criterion_key, criterion_name, max_raw_score)')
       .order('due_date');
 
     if (courseId) {
@@ -46,6 +46,10 @@ async function listMilestones(req, res) {
       allowLateSubmission:   m.allow_late_submission ?? false,
       requireJustification:  m.require_justification ?? false,
       description:           m.description ?? '',
+      gradingCriterionId:    m.grading_criterion?.id ?? null,
+      gradingCriterionKey:   m.grading_criterion?.criterion_key ?? null,
+      gradingCriterionName:  m.grading_criterion?.criterion_name ?? null,
+      gradingCriterionMax:   m.grading_criterion?.max_raw_score ?? null,
     })));
   } catch (error) {
     console.error('Error listing milestones:', error);
@@ -63,6 +67,7 @@ async function createMilestone(req, res) {
     const {
       name, type, courseId, openDate, dueDate,
       visible, allowLateSubmission, requireJustification, description,
+      gradingCriterionId,
     } = req.body;
 
     if (!name || !courseId || !openDate || !dueDate) {
@@ -104,6 +109,7 @@ async function createMilestone(req, res) {
         allow_late_submission: allowLateSubmission ?? false,
         require_justification: requireJustification ?? false,
         description:           description ?? null,
+        grading_criterion_id:  gradingCriterionId ?? null,
       })
       .select('id')
       .single();
@@ -185,6 +191,8 @@ async function updateMilestone(req, res) {
     if (updates.allowLateSubmission  !== undefined) dbUpdates.allow_late_submission = updates.allowLateSubmission;
     if (updates.requireJustification !== undefined) dbUpdates.require_justification = updates.requireJustification;
     if (updates.description          !== undefined) dbUpdates.description           = updates.description;
+    // Allow null to explicitly unlink a criterion
+    if ('gradingCriterionId' in updates) dbUpdates.grading_criterion_id = updates.gradingCriterionId ?? null;
 
     const { error: uErr } = await supabaseAdmin
       .from('milestones')

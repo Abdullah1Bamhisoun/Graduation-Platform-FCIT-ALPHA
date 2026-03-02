@@ -20,6 +20,7 @@ import {
   AlertCircle,
   CheckCircle,
   UserCheck,
+  Download,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -38,6 +39,7 @@ import type { CoordinatorGroupWithGrades } from '../../services/groups';
 
 interface CoordinatorGroupsEvaluationTabProps {
   courseType: '498' | '499';
+  refreshKey?: number;
 }
 
 interface ExpandedGroups {
@@ -48,7 +50,7 @@ interface EvaluationScores {
   [criterionKey: string]: number;
 }
 
-export function CoordinatorGroupsEvaluationTab({ courseType }: CoordinatorGroupsEvaluationTabProps) {
+export function CoordinatorGroupsEvaluationTab({ courseType, refreshKey }: CoordinatorGroupsEvaluationTabProps) {
   const { user } = useAuth();
   const [groups, setGroups] = useState<CoordinatorGroupWithGrades[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -68,11 +70,11 @@ export function CoordinatorGroupsEvaluationTab({ courseType }: CoordinatorGroups
   const [evaluationScores, setEvaluationScores] = useState<EvaluationScores>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Load groups and the grading component on mount / courseType change
+  // Load groups and the grading component on mount / courseType change / external refresh signal
   useEffect(() => {
     loadGroups();
     getCoordinatorEvalComponent(courseType).then(setEvalComponent);
-  }, [courseType]);
+  }, [courseType, refreshKey]);
 
   async function loadGroups() {
     setIsLoading(true);
@@ -182,6 +184,62 @@ export function CoordinatorGroupsEvaluationTab({ courseType }: CoordinatorGroups
     return typeof val === 'string' ? val : undefined;
   };
 
+  const downloadGradesCSV = () => {
+    if (filteredGroups.length === 0) {
+      toast.error('No groups to export');
+      return;
+    }
+
+    const componentNames = filteredGroups[0]?.gradeComponents.map(c => c.componentName) ?? [];
+
+    const headers = [
+      'Group Number',
+      'Group Name',
+      'Group Code',
+      'Course',
+      'Supervisor',
+      'Students',
+      ...componentNames,
+      'Total Score',
+      'Coordinator Evaluation Status',
+      'Coordinator Score',
+      'Coordinator Max Score',
+    ];
+
+    const rows = filteredGroups.map(group => {
+      const studentNames = group.students.map(s => s.name).join('; ');
+      const componentScores = group.gradeComponents.map(c =>
+        c.score !== null ? c.score.toFixed(1) : ''
+      );
+
+      return [
+        group.number ?? '',
+        group.name,
+        group.groupCode ?? '',
+        group.courseCode,
+        group.supervisorName ?? '',
+        studentNames,
+        ...componentScores,
+        group.totalScore !== null ? group.totalScore : '',
+        group.coordinatorEvaluation?.submissionStatus ?? 'not started',
+        group.coordinatorEvaluation?.normalizedScore?.toFixed(1) ?? '',
+        group.coordinatorEvaluation?.maxScore ?? '',
+      ];
+    });
+
+    const csvContent = [headers, ...rows]
+      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `course-grades-CPIS-${courseType}-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   if (!user) return null;
 
   // Derive unique supervisors and filtered groups before render
@@ -207,24 +265,39 @@ export function CoordinatorGroupsEvaluationTab({ courseType }: CoordinatorGroups
         </p>
       </div>
 
-      {/* Supervisor Filter */}
-      {!isLoading && uniqueSupervisors.length > 0 && (
-        <div className="flex items-center gap-3">
-          <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
-            <UserCheck className="w-4 h-4" />
-            Filter by Supervisor:
-          </label>
-          <Select value={selectedSupervisor} onValueChange={setSelectedSupervisor}>
-            <SelectTrigger className="w-64">
-              <SelectValue placeholder="All Supervisors" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Supervisors</SelectItem>
-              {uniqueSupervisors.map(s => (
-                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      {/* Supervisor Filter + Download CSV */}
+      {!isLoading && (
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            {uniqueSupervisors.length > 0 && (
+              <>
+                <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+                  <UserCheck className="w-4 h-4" />
+                  Filter by Supervisor:
+                </label>
+                <Select value={selectedSupervisor} onValueChange={setSelectedSupervisor}>
+                  <SelectTrigger className="w-64">
+                    <SelectValue placeholder="All Supervisors" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Supervisors</SelectItem>
+                    {uniqueSupervisors.map(s => (
+                      <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
+            )}
+          </div>
+          <Button
+            variant="outline"
+            onClick={downloadGradesCSV}
+            disabled={filteredGroups.length === 0}
+            className="gap-2"
+          >
+            <Download className="w-4 h-4" />
+            Download CSV
+          </Button>
         </div>
       )}
 

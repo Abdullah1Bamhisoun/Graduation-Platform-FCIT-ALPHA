@@ -11,6 +11,7 @@ export function CoordinatorCourseGrades() {
   const [assignedCourseType, setAssignedCourseType] = useState<'498' | '499' | null>(null);
   const [courseLoading, setCourseLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [groupsRefreshKey, setGroupsRefreshKey] = useState(0);
 
   useEffect(() => {
     if (!user?.coordinatorCourseId) {
@@ -82,11 +83,18 @@ export function CoordinatorCourseGrades() {
           </TabsList>
 
           <TabsContent value="chapter-submissions">
-            <CoordinatorChapterSubmissionsTab courseType={assignedCourseType} />
+            <CoordinatorChapterSubmissionsTab
+              courseType={assignedCourseType}
+              courseId={user?.coordinatorCourseId ?? ''}
+              onGradeSaved={() => setGroupsRefreshKey((k) => k + 1)}
+            />
           </TabsContent>
 
           <TabsContent value="groups-evaluation">
-            <CoordinatorGroupsEvaluationTab courseType={assignedCourseType} />
+            <CoordinatorGroupsEvaluationTab
+              courseType={assignedCourseType}
+              refreshKey={groupsRefreshKey}
+            />
           </TabsContent>
         </Tabs>
       </div>

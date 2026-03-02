@@ -414,6 +414,11 @@ export interface MilestoneConfig {
   allowLateSubmission: boolean;
   requireJustification: boolean;
   description?: string;
+  /** Grading criterion linked from Grade Scheme Editor (coordinator_deliverables) */
+  gradingCriterionId?: string;
+  gradingCriterionKey?: string;
+  gradingCriterionName?: string;
+  gradingCriterionMax?: number;
 }
 
 // ─── Audit Log ────────────────────────────────────────────────────────────────
