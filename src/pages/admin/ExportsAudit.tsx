@@ -1,16 +1,66 @@
 import { useState, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
 import { getAuditLog } from '../../services/audit';
+import { getAllCourses, getCourseById, getCourseTypeFromUUID } from '../../services/courses';
+import { getCoordinatorGroupsWithGrades } from '../../services/groups';
+import { supabase } from '../../lib/supabase';
+import type { CoordinatorGroupWithGrades } from '../../services/groups';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { MetricCard } from '../../features/dashboard/components/MetricCard';
 import { DashboardCard } from '../../features/dashboard/components/DashboardCard';
-import { Download, FileText, BarChart3, Activity, X, ClipboardList, Calendar, Users } from 'lucide-react';
+import { Download, FileText, BarChart3, Activity, X, ClipboardList, Calendar, Users, Lock } from 'lucide-react';
 import { toast } from 'sonner';
-import type { AuditLogEntry } from '../../types';
+import type { AuditLogEntry, Course } from '../../types';
+
+// ── Excel helpers ─────────────────────────────────────────────────────────────
+
+/** Convert a 0-based column index to an Excel column letter (A, B, …, Z, AA, …). */
+function colLetter(index: number): string {
+  let letter = '';
+  let n = index + 1; // 1-based
+  while (n > 0) {
+    const mod = (n - 1) % 26;
+    letter = String.fromCharCode(65 + mod) + letter;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letter;
+}
+
+function downloadXlsx(wb: XLSX.WorkBook, filename: string) {
+  const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([buf], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── CSV helpers ───────────────────────────────────────────────────────────────
+
+function toCsv(rows: string[][]): string {
+  return rows
+    .map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\r\n');
+}
+
+function triggerDownload(content: string, filename: string, mime = 'text/csv;charset=utf-8;') {
+  const blob = new Blob(['\uFEFF' + content, ''], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 export function AdminExportsAudit() {
   const { user } = useAuth();
@@ -19,32 +69,289 @@ export function AdminExportsAudit() {
   const [exportType, setExportType] = useState<'grades' | 'submissions' | 'activity' | null>(null);
   const [dateRange, setDateRange] = useState({ from: '', to: '' });
   const [filterAction, setFilterAction] = useState('All Actions');
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [selectedCourse, setSelectedCourse] = useState('');
+  const [selectedFormat, setSelectedFormat] = useState('Excel (.xlsx)');
+
+  const isCoordinator = user?.activeRole === 'coordinator';
 
   useEffect(() => {
     getAuditLog().then(setAuditLog);
-  }, []);
+
+    if (isCoordinator && user?.coordinatorCourseId) {
+      getCourseById(user.coordinatorCourseId).then((course) => {
+        if (course) {
+          setCourses([course]);
+          setSelectedCourse(course.id);
+        }
+      });
+    } else {
+      getAllCourses().then((all) => {
+        setCourses(all);
+        setSelectedCourse('');
+      });
+    }
+  }, [isCoordinator, user?.coordinatorCourseId]);
 
   if (!user) return null;
-
-  const handleExport = () => {
-    toast.success('Export started. Download will be ready shortly.');
-    setShowExportModal(false);
-    setExportType(null);
-  };
-
-  const openExportModal = (type: 'grades' | 'submissions' | 'activity') => {
-    setExportType(type);
-    setShowExportModal(true);
-  };
 
   // Derived audit stats
   const today = new Date().toDateString();
   const todayEntries = auditLog.filter(e => new Date(e.timestamp).toDateString() === today).length;
   const uniqueActors = new Set(auditLog.map(e => e.actor)).size;
 
-  const filteredLog = auditLog.filter(entry =>
+  // Coordinators see only audit entries where they are the actor
+  const scopedLog = isCoordinator
+    ? auditLog.filter(entry => entry.actor.startsWith(user.name))
+    : auditLog;
+
+  const filteredLog = scopedLog.filter(entry =>
     filterAction === 'All Actions' || entry.action === filterAction
   );
+
+  const handleExport = async () => {
+    const type = exportType;
+    const courseId = selectedCourse;
+    const from = dateRange.from ? new Date(dateRange.from) : null;
+    const to = dateRange.to ? new Date(dateRange.to + 'T23:59:59') : null;
+    const dateStr = new Date().toISOString().split('T')[0];
+
+    setShowExportModal(false);
+    setExportType(null);
+    toast.loading('Preparing export…', { id: 'export' });
+
+    try {
+      // ── Grades ────────────────────────────────────────────────────────────
+      if (type === 'grades') {
+        // Determine which courseType(s) to fetch
+        let courseTypesToFetch: ('498' | '499')[] = [];
+        if (courseId) {
+          const ct = await getCourseTypeFromUUID(courseId);
+          if (ct) courseTypesToFetch = [ct];
+        } else {
+          courseTypesToFetch = ['498', '499'];
+        }
+
+        const allGroups: CoordinatorGroupWithGrades[] = [];
+        for (const ct of courseTypesToFetch) {
+          const gs = await getCoordinatorGroupsWithGrades(ct, user.activeRole);
+          allGroups.push(...gs);
+        }
+
+        // Collect all unique grade component names (same order across all groups)
+        const componentNames = Array.from(
+          new Set(allGroups.flatMap(g => g.gradeComponents.map(c => c.componentName)))
+        );
+
+        const headers = [
+          'Course', 'Group Code', 'Project Name', 'Supervisor',
+          'Student Name', 'Student ID',
+          ...componentNames.map(n => `${n} Score`),
+          'Total Score',
+        ];
+
+        // Grade component columns start at index 6 (column G)
+        const gradeStartColIdx = 6;
+        const totalScoreColIdx = gradeStartColIdx + componentNames.length;
+        const firstGradeCol   = colLetter(gradeStartColIdx);
+        const lastGradeCol    = colLetter(totalScoreColIdx - 1);
+        const totalScoreCol   = colLetter(totalScoreColIdx);
+
+        // Build data rows – grade scores formatted as "X/Y" (e.g. "18/20")
+        // Total Score column is left empty here; formulas are injected below.
+        const dataRows: string[][] = [];
+        for (const g of allGroups) {
+          const compMap = new Map(g.gradeComponents.map(c => [c.componentName, c]));
+          for (const student of g.students) {
+            dataRows.push([
+              g.courseCode,
+              g.groupCode ?? '',
+              g.name,
+              g.supervisorName ?? '',
+              student.name,
+              student.studentId ?? '',
+              ...componentNames.map(cn => {
+                const comp = compMap.get(cn);
+                return comp?.score != null ? `${comp.score}/${comp.maxScore}` : '-';
+              }),
+              '', // Total Score – filled by formula below
+            ]);
+          }
+        }
+
+        if (selectedFormat === 'Excel (.xlsx)') {
+          // ── Build .xlsx with per-row SUMPRODUCT in the Total Score column ─
+          const wb = XLSX.utils.book_new();
+          const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+
+          // SheetJS auto-parses "3/22" as a date. Force grade cells to string
+          // so LEFT/FIND work correctly when Excel evaluates the formula.
+          dataRows.forEach((row, i) => {
+            const excelRow = i + 2;
+            for (let ci = gradeStartColIdx; ci < totalScoreColIdx; ci++) {
+              ws[`${colLetter(ci)}${excelRow}`] = { t: 's', v: row[ci] as string };
+            }
+          });
+
+          // Inject formula into every data row's Total Score cell.
+          // Build one IFERROR(VALUE(LEFT(...))) term per grade cell and join with +.
+          // e.g. =IFERROR(VALUE(LEFT(G2,FIND("/",G2)-1)),0)+IFERROR(VALUE(LEFT(H2,...)),0)+...
+          // This avoids horizontal-range SUMPRODUCT issues in Excel on recalculation.
+          dataRows.forEach((row, i) => {
+            const excelRow = i + 2; // row 1 is the header
+
+            // Pre-calculate cached value from the original "X/Y" strings
+            let cached = 0;
+            const terms: string[] = [];
+            for (let ci = gradeStartColIdx; ci < totalScoreColIdx; ci++) {
+              const ref = `${colLetter(ci)}${excelRow}`;
+              terms.push(`IFERROR(VALUE(LEFT(${ref},FIND("/",${ref})-1)),0)`);
+              const slash = (row[ci] as string).indexOf('/');
+              if (slash > 0) cached += parseFloat((row[ci] as string).slice(0, slash)) || 0;
+            }
+
+            ws[`${totalScoreCol}${excelRow}`] = {
+              t: 'n',
+              v: cached,
+              f: terms.join('+'),
+            };
+          });
+
+          XLSX.utils.book_append_sheet(wb, ws, 'Grades');
+          downloadXlsx(wb, `grades-report-${dateStr}.xlsx`);
+        } else {
+          // CSV fallback
+          triggerDownload(toCsv([headers, ...dataRows]), `grades-report-${dateStr}.csv`);
+        }
+      }
+
+      // ── Submissions ───────────────────────────────────────────────────────
+      if (type === 'submissions') {
+        const { data: subs, error } = await supabase
+          .from('submissions')
+          .select(`
+            status, current_version, updated_at,
+            milestone:milestones!milestone_id(name, course:courses!course_id(id, code)),
+            student:profiles!student_id(name, student_id),
+            group:groups!group_id(group_code, project_name)
+          `)
+          .order('updated_at', { ascending: false });
+
+        if (error) throw error;
+
+        const filtered = (subs ?? []).filter((s: any) => {
+          const courseMatch = !courseId || s.milestone?.course?.id === courseId;
+          const t = s.updated_at ? new Date(s.updated_at) : null;
+          const dateMatch = (!from || (t && t >= from)) && (!to || (t && t <= to));
+          return courseMatch && dateMatch;
+        });
+
+        const rows: string[][] = [[
+          'Course', 'Group Code', 'Project Name', 'Student Name', 'Student ID',
+          'Milestone', 'Status', 'Version', 'Submitted At',
+        ]];
+
+        for (const s of filtered) {
+          rows.push([
+            (s.milestone?.course as any)?.code ?? '',
+            (s.group as any)?.group_code ?? '',
+            (s.group as any)?.project_name ?? '',
+            (s.student as any)?.name ?? '',
+            (s.student as any)?.student_id ?? '',
+            (s.milestone as any)?.name ?? '',
+            s.status ?? '',
+            String(s.current_version ?? ''),
+            s.updated_at ? new Date(s.updated_at).toLocaleString() : '',
+          ]);
+        }
+
+        triggerDownload(toCsv(rows), `submissions-report-${dateStr}.csv`);
+      }
+
+      // ── Activity ──────────────────────────────────────────────────────────
+      if (type === 'activity') {
+        // Pull real activity from submissions + weekly_reports
+        const [{ data: subs }, { data: weekly }] = await Promise.all([
+          supabase
+            .from('submissions')
+            .select(`
+              status, updated_at,
+              milestone:milestones!milestone_id(name, course:courses!course_id(id, code)),
+              student:profiles!student_id(name),
+              group:groups!group_id(group_code)
+            `)
+            .order('updated_at', { ascending: false }),
+          supabase
+            .from('weekly_reports')
+            .select(`
+              week_number, student_mark, supervisor_mark, updated_at,
+              group:groups!group_id(group_code, course:courses!course_id(id, code))
+            `)
+            .order('updated_at', { ascending: false }),
+        ]);
+
+        const rows: string[][] = [[
+          'Date & Time', 'Course', 'Group', 'Actor', 'Action', 'Details',
+        ]];
+
+        for (const s of subs ?? []) {
+          const courseMatch = !courseId || s.milestone?.course?.id === courseId;
+          const t = s.updated_at ? new Date(s.updated_at) : null;
+          const dateMatch = (!from || (t && t >= from)) && (!to || (t && t <= to));
+          if (!courseMatch || !dateMatch) continue;
+
+          const action =
+            s.status === 'submitted' ? 'Submitted'
+            : s.status === 'under-review' ? 'Under Review'
+            : s.status === 'approved' ? 'Approved'
+            : s.status === 'changes-requested' ? 'Changes Requested'
+            : s.status ?? 'Updated';
+
+          rows.push([
+            t ? t.toLocaleString() : '',
+            (s.milestone?.course as any)?.code ?? '',
+            (s.group as any)?.group_code ?? '',
+            (s.student as any)?.name ?? '',
+            action,
+            (s.milestone as any)?.name ?? '',
+          ]);
+        }
+
+        for (const w of weekly ?? []) {
+          const courseMatch = !courseId || (w.group as any)?.course?.id === courseId;
+          const t = w.updated_at ? new Date(w.updated_at) : null;
+          const dateMatch = (!from || (t && t >= from)) && (!to || (t && t <= to));
+          if (!courseMatch || !dateMatch) continue;
+
+          rows.push([
+            t ? t.toLocaleString() : '',
+            (w.group as any)?.course?.code ?? '',
+            (w.group as any)?.group_code ?? '',
+            '',
+            'Weekly Report',
+            `Week ${w.week_number} — Student: ${w.student_mark ?? '-'}, Supervisor: ${w.supervisor_mark ?? '-'}`,
+          ]);
+        }
+
+        // Sort combined rows by date descending (skip header)
+        const header = rows.shift()!;
+        rows.sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime());
+        rows.unshift(header);
+
+        triggerDownload(toCsv(rows), `activity-log-${dateStr}.csv`);
+      }
+
+      toast.success('Export downloaded successfully.', { id: 'export' });
+    } catch (err) {
+      console.error('Export failed:', err);
+      toast.error('Export failed. Please try again.', { id: 'export' });
+    }
+  };
+
+  const openExportModal = (type: 'grades' | 'submissions' | 'activity') => {
+    setExportType(type);
+    setShowExportModal(true);
+  };
 
   return (
     <Layout user={user} pageTitle="Exports & Audit">
@@ -250,16 +557,32 @@ export function AdminExportsAudit() {
 
                 <div>
                   <Label>Course</Label>
-                  <select className="w-full mt-2 px-4 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-white)]">
-                    <option>All Courses</option>
-                    <option>CPIS-498</option>
-                    <option>CPIS-499</option>
-                  </select>
+                  {isCoordinator ? (
+                    <div className="w-full mt-2 px-4 py-2 rounded-lg border border-(--color-border) bg-(--color-surface-alt) flex items-center gap-2 text-sm text-(--color-text-900)">
+                      <Lock className="w-4 h-4 text-(--color-text-600) shrink-0" />
+                      <span>{courses[0]?.code ?? '—'} — {courses[0]?.name ?? 'Your course'}</span>
+                    </div>
+                  ) : (
+                    <select
+                      className="w-full mt-2 px-4 py-2 rounded-lg border border-(--color-border) bg-(--color-surface-white)"
+                      value={selectedCourse}
+                      onChange={(e) => setSelectedCourse(e.target.value)}
+                    >
+                      <option value="">All Courses</option>
+                      {courses.map((c) => (
+                        <option key={c.id} value={c.id}>{c.code} — {c.name}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
 
                 <div>
                   <Label>Format</Label>
-                  <select className="w-full mt-2 px-4 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-white)]">
+                  <select
+                    className="w-full mt-2 px-4 py-2 rounded-lg border border-(--color-border) bg-(--color-surface-white)"
+                    value={selectedFormat}
+                    onChange={(e) => setSelectedFormat(e.target.value)}
+                  >
                     <option>Excel (.xlsx)</option>
                     <option>CSV (.csv)</option>
                     <option>PDF (.pdf)</option>

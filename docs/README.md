@@ -134,7 +134,7 @@ npm run dev
 ```
 
 - Frontend: `http://localhost:5173`
-- Backend API: `http://localhost:3000` (or configured port)
+- Backend API: `http://localhost:5000` (or configured port)
 - MinIO Console: `http://localhost:9001`
 
 ### 5. Create an admin user
