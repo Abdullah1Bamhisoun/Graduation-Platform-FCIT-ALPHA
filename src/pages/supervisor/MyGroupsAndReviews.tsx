@@ -42,7 +42,6 @@ import {
 } from '../../components/ui/dialog';
 import { useAuth } from '../../lib/AuthContext';
 import { getGroupsForSupervisor } from '../../services/groups';
-import { getRubricCriteria } from '../../services/grading-rubric';
 import {
   CheckCircle,
   XCircle,
@@ -72,6 +71,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 
 interface Group {
   id: string;
+  groupCode: string;
   groupNumber: number;
   course: string;
   projectTitle: string;
@@ -155,23 +155,6 @@ interface GroupGradeData {
   };
 }
 
-// ─── Evaluation Modal Types ────────────────────────────────────────────────────
-
-interface RubricCriterionItem {
-  criterionKey: string;
-  criterionName: string;
-  maxRawScore: number;
-  description1?: string;
-  description2?: string;
-  description3?: string;
-  description4?: string;
-  description5?: string;
-}
-
-interface EvalModalTarget {
-  group: GroupGradeData;
-}
-
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
 async function fetchChapterSubmissions(token: string): Promise<ChapterSubmission[]> {
@@ -233,29 +216,6 @@ async function requestMarkAsIP(
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Request failed' }));
     throw new Error(err.error || 'Failed to update project status');
-  }
-  return res.json();
-}
-
-/**
- * POST /api/groups/:id/supervisor-evaluation
- * Submits rubric-based scores for multiple students at once.
- * Normalized scores are calculated server-side.
- */
-async function submitEvaluations(
-  groupId: string,
-  evaluations: { studentId: string; scores: Record<string, number> }[],
-  submissionStatus: 'draft' | 'submitted',
-  token: string
-): Promise<{ results: { studentId: string; normalizedScore: number; maxScore: number; submissionStatus: string }[] }> {
-  const res = await fetch(`/api/groups/${groupId}/supervisor-evaluation`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ evaluations, submissionStatus }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(err.error || 'Failed to submit evaluation');
   }
   return res.json();
 }
@@ -381,15 +341,6 @@ export function SupervisorMyGroupsAndReviews() {
   const [newDiscussionComment, setNewDiscussionComment] = useState('');
   const [discussionPosting, setDiscussionPosting]   = useState(false);
 
-  // Supervisor evaluation modal
-  const [evalTarget, setEvalTarget]                 = useState<EvalModalTarget | null>(null);
-  const [evalCriteria, setEvalCriteria]             = useState<RubricCriterionItem[]>([]);
-  // evalScores[studentId][criterionKey] = rawScore (1-5)
-  const [evalScores, setEvalScores]                 = useState<Record<string, Record<string, number>>>({});
-  const [evalActiveStudent, setEvalActiveStudent]   = useState<string>('');
-  const [evalCriteriaLoading, setEvalCriteriaLoading] = useState(false);
-  const [evalSubmitting, setEvalSubmitting]         = useState(false);
-
   // ── Load groups ───────────────────────────────────────────────────────────
 
   const loadGroups = useCallback(async () => {
@@ -400,6 +351,7 @@ export function SupervisorMyGroupsAndReviews() {
       setGroups(
         data.map((g) => ({
           id: g.id,
+          groupCode: g.groupCode,
           groupNumber: g.groupNumber ?? 0,
           course: g.courseCode,
           projectTitle: g.projectName,
@@ -628,140 +580,6 @@ export function SupervisorMyGroupsAndReviews() {
     }
   };
 
-  // ── Open evaluation modal ─────────────────────────────────────────────────
-
-  const handleOpenEvalForm = async (group: GroupGradeData) => {
-    setEvalCriteriaLoading(true);
-    try {
-      const criteria = await getRubricCriteria(group.courseType, 'supervisor_eval');
-      setEvalCriteria(
-        criteria.map((c) => ({
-          criterionKey:  c.criterionKey,
-          criterionName: c.criterionName,
-          maxRawScore:   c.maxRawScore,
-          description1:  c.description1,
-          description2:  c.description2,
-          description3:  c.description3,
-          description4:  c.description4,
-          description5:  c.description5,
-        }))
-      );
-
-      // Pre-fill from existing rubric scores saved by this supervisor
-      const prefill: Record<string, Record<string, number>> = {};
-      for (const r of group.rubricScores) {
-        if (!prefill[r.studentId]) prefill[r.studentId] = {};
-        prefill[r.studentId][r.criterionKey] = r.rawScore;
-      }
-      setEvalScores(prefill);
-      setEvalActiveStudent(group.students[0]?.id ?? '');
-      setEvalTarget({ group });
-    } catch {
-      toast.error('Failed to load rubric criteria');
-    } finally {
-      setEvalCriteriaLoading(false);
-    }
-  };
-
-  // ── Submit evaluation ─────────────────────────────────────────────────────
-
-  const handleSubmitEval = async (submissionStatus: 'draft' | 'submitted') => {
-    if (!evalTarget || !user) return;
-    const { group } = evalTarget;
-
-    // Validate: all criteria must be scored for all students when submitting
-    if (submissionStatus === 'submitted') {
-      for (const student of group.students) {
-        const studentScores = evalScores[student.id] ?? {};
-        const missing = evalCriteria.filter((c) => !studentScores[c.criterionKey]);
-        if (missing.length > 0) {
-          toast.error(`Please score all criteria for ${student.name} before submitting`);
-          setEvalActiveStudent(student.id);
-          return;
-        }
-      }
-    }
-
-    setEvalSubmitting(true);
-    try {
-      const session = await import('../../lib/supabase').then((m) =>
-        m.supabase.auth.getSession()
-      );
-      const token = session.data.session?.access_token ?? '';
-
-      const evaluations = group.students.map((s) => ({
-        studentId: s.id,
-        scores: evalScores[s.id] ?? {},
-      }));
-
-      const { results } = await submitEvaluations(group.id, evaluations, submissionStatus, token);
-
-      // Patch gradesData state optimistically
-      const resultMap = Object.fromEntries(results.map((r) => [r.studentId, r]));
-      setGradesData((prev) =>
-        prev.map((g) => {
-          if (g.id !== group.id) return g;
-
-          // Update supervisorEvaluation entries
-          const updatedEval = g.students.map((s) => {
-            const r = resultMap[s.id];
-            const existing = g.supervisorEvaluation.find((e) => e.studentId === s.id);
-            return r
-              ? {
-                  studentId:        s.id,
-                  score:            r.normalizedScore,
-                  maxScore:         r.maxScore,
-                  gradedAt:         new Date().toISOString(),
-                  submissionStatus: r.submissionStatus,
-                }
-              : existing ?? { studentId: s.id, score: null, maxScore: g.supervisorMaxScore, gradedAt: null, submissionStatus: 'draft' };
-          });
-
-          // Rebuild rubric scores from updated evalScores state
-          const updatedRubric = g.rubricScores.filter(
-            (r) => !evaluations.find((e) => e.studentId === r.studentId)
-          );
-          for (const ev of evaluations) {
-            for (const [criterionKey, rawScore] of Object.entries(ev.scores)) {
-              updatedRubric.push({
-                studentId:        ev.studentId,
-                criterionKey,
-                rawScore,
-                submissionStatus,
-                gradedAt:         new Date().toISOString(),
-              });
-            }
-          }
-
-          const scores = updatedEval.map((e) => e.score).filter((s): s is number => s != null);
-          const supervisorTotalScore = scores.length
-            ? scores.reduce((a, b) => a + b, 0) / scores.length
-            : null;
-
-          return {
-            ...g,
-            supervisorEvaluation: updatedEval,
-            supervisorTotalScore,
-            rubricScores: updatedRubric,
-          };
-        })
-      );
-
-      toast.success(
-        submissionStatus === 'submitted'
-          ? `Evaluation submitted for Group ${group.groupNumber}`
-          : `Draft saved for Group ${group.groupNumber}`
-      );
-      setEvalTarget(null);
-      setEvalScores({});
-      setEvalCriteria([]);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to submit evaluation');
-    } finally {
-      setEvalSubmitting(false);
-    }
-  };
-
   if (!user) return null;
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -849,6 +667,9 @@ export function SupervisorMyGroupsAndReviews() {
                         Group
                       </th>
                       <th className="p-4 text-left text-[var(--color-text-900)] border-r border-[var(--color-border)]">
+                        Group ID
+                      </th>
+                      <th className="p-4 text-left text-[var(--color-text-900)] border-r border-[var(--color-border)]">
                         Project Title
                       </th>
                       <th className="p-4 text-left text-[var(--color-text-900)] border-r border-[var(--color-border)]">
@@ -871,6 +692,11 @@ export function SupervisorMyGroupsAndReviews() {
                         <td className="p-4 border-r border-[var(--color-border)]">
                           <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-[var(--color-primary-100)] text-[var(--color-primary-700)] text-sm font-semibold">
                             Group {group.groupNumber}
+                          </span>
+                        </td>
+                        <td className="p-4 border-r border-[var(--color-border)]">
+                          <span className="font-mono text-xs text-[var(--color-text-500)] select-all">
+                            {group.groupCode}
                           </span>
                         </td>
                         <td className="p-4 border-r border-[var(--color-border)]">
@@ -1017,6 +843,9 @@ export function SupervisorMyGroupsAndReviews() {
                           <th className="p-4 text-left text-[var(--color-text-900)] border-r border-[var(--color-border)]">
                             Group
                           </th>
+                          <th className="p-4 text-left text-[var(--color-text-900)] border-r border-[var(--color-border)]">
+                            Group ID
+                          </th>
                           <th className="p-4 text-center text-[var(--color-text-900)] border-r border-[var(--color-border)]">
                             Submitted
                           </th>
@@ -1057,6 +886,11 @@ export function SupervisorMyGroupsAndReviews() {
                                 <div className="text-[var(--color-text-600)] text-xs truncate max-w-[140px]">
                                   {sub.projectName}
                                 </div>
+                              </td>
+                              <td className="p-4 border-r border-[var(--color-border)]">
+                                <span className="font-mono text-xs text-[var(--color-text-500)] select-all">
+                                  {groups.find((g) => g.id === sub.groupId)?.groupCode ?? sub.groupId}
+                                </span>
                               </td>
                               <td className="p-4 text-center border-r border-[var(--color-border)]">
                                 <span className="text-[var(--color-text-600)] text-sm">
@@ -1488,17 +1322,12 @@ export function SupervisorMyGroupsAndReviews() {
                                 size="sm"
                                 variant="outline"
                                 className="h-7 text-xs gap-1.5"
-                                disabled={evalCriteriaLoading}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleOpenEvalForm(group);
+                                  navigate(`/supervisor/evaluate-group/${group.id}`);
                                 }}
                               >
-                                {evalCriteriaLoading ? (
-                                  <Loader2 className="w-3 h-3 animate-spin" />
-                                ) : (
-                                  <ClipboardList className="w-3 h-3" />
-                                )}
+                                <ClipboardList className="w-3 h-3" />
                                 {group.supervisorEvaluation.some((e) => e.score != null)
                                   ? 'Edit Evaluation'
                                   : 'Evaluate Group'}
@@ -1796,179 +1625,6 @@ export function SupervisorMyGroupsAndReviews() {
                 ? ipTarget?.projectStatus === 'ip' ? 'Removing…' : 'Marking…'
                 : ipTarget?.projectStatus === 'ip' ? 'Remove IP Status' : 'Confirm — Mark as IP'
               }
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Supervisor Evaluation Dialog ── */}
-      <Dialog
-        open={!!evalTarget}
-        onOpenChange={(open) => {
-          if (!open) { setEvalTarget(null); setEvalScores({}); setEvalCriteria([]); }
-        }}
-      >
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ClipboardList className="w-5 h-5 text-purple-600" />
-              Evaluate Group — Group {evalTarget?.group.groupNumber} · {evalTarget?.group.courseCode}
-            </DialogTitle>
-            <DialogDescription>
-              This evaluation is separate from official Coordinator grading.
-              Scores follow the rubric criteria defined in the Grading Scheme Editor.
-            </DialogDescription>
-          </DialogHeader>
-
-          {evalTarget && (
-            <div className="py-2">
-              {/* Student tabs */}
-              {evalTarget.group.students.length > 1 && (
-                <div className="flex gap-1 mb-4 border-b border-[var(--color-border)] pb-2 flex-wrap">
-                  {evalTarget.group.students.map((s) => {
-                    const scored   = evalCriteria.filter((c) => (evalScores[s.id] ?? {})[c.criterionKey]).length;
-                    const allDone  = scored === evalCriteria.length && evalCriteria.length > 0;
-                    return (
-                      <button
-                        key={s.id}
-                        onClick={() => setEvalActiveStudent(s.id)}
-                        className={`px-3 py-1.5 text-sm rounded-lg border transition-colors flex items-center gap-1.5 ${
-                          evalActiveStudent === s.id
-                            ? 'bg-purple-600 text-white border-purple-600'
-                            : 'bg-[var(--color-surface-alt)] text-[var(--color-text-700)] border-[var(--color-border)] hover:border-purple-400'
-                        }`}
-                      >
-                        {s.name}
-                        {allDone && <CheckCircle className="w-3.5 h-3.5 text-green-400" />}
-                        {!allDone && scored > 0 && (
-                          <span className="text-xs opacity-75">{scored}/{evalCriteria.length}</span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Criteria table for active student */}
-              {(() => {
-                const activeStudentId = evalTarget.group.students.length === 1
-                  ? evalTarget.group.students[0].id
-                  : evalActiveStudent;
-                const activeStudent = evalTarget.group.students.find((s) => s.id === activeStudentId);
-                const studentScores = evalScores[activeStudentId] ?? {};
-
-                // Live normalized score preview
-                const rawTotal    = evalCriteria.reduce((s, c) => s + (studentScores[c.criterionKey] ?? 0), 0);
-                const maxRawTotal = evalCriteria.reduce((s, c) => s + c.maxRawScore, 0);
-                const compWeight  = evalTarget.group.components.find((c) => c.componentKey === 'supervisor_eval')?.totalMarks
-                  ?? evalTarget.group.supervisorMaxScore;
-                const normalized  = maxRawTotal > 0 ? Math.round((rawTotal / maxRawTotal) * compWeight * 100) / 100 : 0;
-
-                return (
-                  <div>
-                    {evalTarget.group.students.length === 1 && activeStudent && (
-                      <p className="text-sm font-medium text-[var(--color-text-700)] mb-3">
-                        Evaluating: <span className="text-[var(--color-text-900)]">{activeStudent.name}</span>
-                      </p>
-                    )}
-
-                    <div className="overflow-x-auto rounded-lg border border-[var(--color-border)]">
-                      <table className="w-full text-sm">
-                        <thead className="bg-[var(--color-surface-alt)]">
-                          <tr>
-                            <th className="p-3 text-left text-[var(--color-text-700)] font-medium w-1/3">Criterion</th>
-                            <th className="p-3 text-center text-[var(--color-text-700)] font-medium">Score (1–5)</th>
-                            <th className="p-3 text-left text-[var(--color-text-700)] font-medium">Level Description</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[var(--color-border)]">
-                          {evalCriteria.map((criterion) => {
-                            const selected = studentScores[criterion.criterionKey];
-                            const desc = selected
-                              ? (criterion as any)[`description${selected}`]
-                              : undefined;
-
-                            return (
-                              <tr key={criterion.criterionKey} className="hover:bg-[var(--color-surface-alt)]/50">
-                                <td className="p-3 text-[var(--color-text-900)] font-medium align-top">
-                                  {criterion.criterionName}
-                                </td>
-                                <td className="p-3 align-top">
-                                  <div className="flex items-center justify-center gap-1">
-                                    {[1, 2, 3, 4, 5].map((v) => (
-                                      <button
-                                        key={v}
-                                        onClick={() =>
-                                          setEvalScores((prev) => ({
-                                            ...prev,
-                                            [activeStudentId]: {
-                                              ...(prev[activeStudentId] ?? {}),
-                                              [criterion.criterionKey]: v,
-                                            },
-                                          }))
-                                        }
-                                        className={`w-8 h-8 rounded-full text-sm font-semibold border-2 transition-all ${
-                                          selected === v
-                                            ? 'bg-purple-600 text-white border-purple-600 scale-110'
-                                            : 'bg-[var(--color-surface-white)] text-[var(--color-text-700)] border-[var(--color-border)] hover:border-purple-400 hover:text-purple-600'
-                                        }`}
-                                      >
-                                        {v}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </td>
-                                <td className="p-3 text-xs text-[var(--color-text-600)] align-top max-w-[240px]">
-                                  {desc ?? (
-                                    <span className="italic text-[var(--color-text-400)]">Select a score to see the description</span>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {/* Live score preview */}
-                    <div className="mt-3 flex items-center justify-end gap-3 text-sm text-[var(--color-text-600)]">
-                      <span>Raw: <strong className="text-[var(--color-text-900)]">{rawTotal} / {maxRawTotal}</strong></span>
-                      <span className="text-[var(--color-border)]">→</span>
-                      <span>
-                        Normalized:{' '}
-                        <strong className="text-purple-700">{normalized.toFixed(1)} / {compWeight}</strong>
-                      </span>
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-          )}
-
-          <DialogFooter className="flex-col sm:flex-row gap-2">
-            <Button
-              variant="outline"
-              onClick={() => { setEvalTarget(null); setEvalScores({}); setEvalCriteria([]); }}
-              disabled={evalSubmitting}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => handleSubmitEval('draft')}
-              disabled={evalSubmitting}
-              className="border-blue-300 text-blue-700 hover:bg-blue-50"
-            >
-              {evalSubmitting ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : null}
-              Save as Draft
-            </Button>
-            <Button
-              onClick={() => handleSubmitEval('submitted')}
-              disabled={evalSubmitting}
-              className="bg-purple-600 text-black hover:bg-purple-700 gap-1.5"
-            >
-              {evalSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-              Submit Evaluation
             </Button>
           </DialogFooter>
         </DialogContent>

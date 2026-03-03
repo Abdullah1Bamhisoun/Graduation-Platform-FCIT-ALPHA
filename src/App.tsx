@@ -27,6 +27,7 @@ import { SupervisorGradesCommittee } from './pages/supervisor/GradesCommittee';
 import { SupervisorEvaluation } from './pages/supervisor/Evaluation';
 import { SupervisorMyAvailability } from './pages/supervisor/MyAvailability';
 import { SupervisorGradingEvaluation } from './pages/supervisor/GradingEvaluation';
+import { SupervisorEvaluateGroup } from './pages/supervisor/EvaluateGroup';
 
 // Coordinator Pages
 import { CoordinatorDashboard } from './pages/coordinator/Dashboard';
@@ -101,6 +102,7 @@ export default function App() {
           <Route path="/supervisor/evaluation" element={<ProtectedRoute allowedRoles={[...SUPERVISOR_ROLES]}><SupervisorEvaluation /></ProtectedRoute>} />
           <Route path="/supervisor/my-availability" element={<ProtectedRoute allowedRoles={[...SUPERVISOR_ROLES]}><SupervisorMyAvailability /></ProtectedRoute>} />
           <Route path="/supervisor/grading-evaluation" element={<ProtectedRoute allowedRoles={[...SUPERVISOR_ROLES]}><SupervisorGradingEvaluation /></ProtectedRoute>} />
+          <Route path="/supervisor/evaluate-group/:groupId" element={<ProtectedRoute allowedRoles={[...SUPERVISOR_ROLES]}><SupervisorEvaluateGroup /></ProtectedRoute>} />
           <Route path="/supervisor/settings" element={<ProtectedRoute allowedRoles={[...SUPERVISOR_ROLES]}><Settings /></ProtectedRoute>} />
 
           {/* ── Coordinator Routes ── */}
