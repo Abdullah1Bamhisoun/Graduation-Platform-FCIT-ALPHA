@@ -75,9 +75,39 @@ export function CoordinatorApprovals() {
           groupId: r.group_id ?? null,
         }))
       );
-    } catch (err) {
-      console.error('Error loading registrations:', err);
-      toast.error('Failed to load registrations');
+    } catch {
+      // Fallback: query Supabase directly
+      try {
+        let query = supabase
+          .from('pending_registrations')
+          .select('*')
+          .order('submitted_at', { ascending: false });
+        if (filter !== 'all') query = (query as any).eq('status', filter);
+        if (user?.coordinatorCourseId) query = (query as any).eq('course_id', user.coordinatorCourseId);
+        const { data, error } = await query;
+        if (error) throw error;
+        setRegistrations(
+          (data || []).map((r: any) => ({
+            id: r.id,
+            accountType: r.account_type ?? 'student',
+            name: r.name,
+            email: r.email,
+            department: r.department ?? null,
+            studentId: r.student_id ?? null,
+            employeeNumber: r.employee_number ?? null,
+            course: r.course ?? null,
+            term: r.term ?? null,
+            projectName: r.project_name ?? null,
+            projectIdea: r.project_idea ?? null,
+            submittedAt: r.submitted_at,
+            status: r.status,
+            groupId: r.group_id ?? null,
+          }))
+        );
+      } catch (fbErr) {
+        console.error('Supabase fallback failed:', fbErr);
+        toast.error('Failed to load registrations');
+      }
     } finally {
       setLoading(false);
     }

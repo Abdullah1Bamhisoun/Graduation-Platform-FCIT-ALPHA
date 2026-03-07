@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { toast } from 'sonner';
 import { Search, CheckCircle, XCircle, Eye, Clock, Users, UserCheck, Pencil, Trash2 } from 'lucide-react';
 import { getPendingRegistrationsViaAPI, approveRegistration, rejectRegistration, subscribe, type PendingRegistration } from '../../lib/pending-registrations';
-import { assignSupervisor, updateGroupStatus, deleteGroup, updateGroup, type GroupData } from '../../services/groups';
+import { assignSupervisor, updateGroupStatus, deleteGroup, updateGroup, getAllGroups, type GroupData } from '../../services/groups';
 import { getProfilesByRole } from '../../services/profiles';
 import type { User as ProfileUser } from '../../types';
 
@@ -140,15 +140,7 @@ export function AdminUserManagement() {
 
   const reloadGroups = async () => {
     try {
-      const token = await getToken();
-      const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
-      if (user?.activeRole) headers['X-Active-Role'] = user.activeRole;
-      const res = await fetch('/api/groups', { headers });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error((body as { error?: string }).error ?? `Server error (${res.status})`);
-      }
-      const data: GroupData[] = await res.json();
+      const data = await getAllGroups(user?.activeRole);
       setGroups(data);
     } catch (err) {
       toast.error(`Failed to load groups: ${err instanceof Error ? err.message : 'Server error'}`);
@@ -162,18 +154,22 @@ export function AdminUserManagement() {
       reloadGroups(),
       (async () => {
         try {
-          const token = await getToken();
-          const res = await fetch('/api/users?role=supervisor', {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (res.ok) setSupervisors(await res.json());
+          const sups = await getProfilesByRole('supervisor');
+          setSupervisors(sups);
         } catch { /* non-fatal */ }
       })(),
       (async () => {
         try {
           const res = await fetch('/api/courses/active');
-          if (res.ok) setCourses(await res.json());
-        } catch { /* non-fatal */ }
+          if (res.ok) { setCourses(await res.json()); return; }
+          throw new Error('api failed');
+        } catch {
+          try {
+            const { supabase: sb } = await import('../../lib/supabase');
+            const { data } = await sb.from('courses').select('id, code, name').order('code');
+            if (data) setCourses(data);
+          } catch { /* non-fatal */ }
+        }
       })(),
       (async () => {
         try {
@@ -188,8 +184,24 @@ export function AdminUserManagement() {
               map[c.userId] = c.courseCode ?? 'Coordinator';
             });
             setCoordinatorMap(map);
+            return;
           }
-        } catch { /* non-fatal */ }
+          throw new Error('api failed');
+        } catch {
+          try {
+            const { supabase: sb } = await import('../../lib/supabase');
+            const { data: roleRow } = await sb.from('roles').select('id').eq('name', 'coordinator').maybeSingle();
+            if (roleRow) {
+              const { data: coordRoles } = await sb
+                .from('user_roles')
+                .select('user_id, coordinator_course_id, course:courses!coordinator_course_id(code)')
+                .eq('role_id', roleRow.id);
+              const map: Record<string, string> = {};
+              (coordRoles || []).forEach((r: any) => { map[r.user_id] = r.course?.code ?? 'Coordinator'; });
+              setCoordinatorMap(map);
+            }
+          } catch { /* non-fatal */ }
+        }
       })(),
     ]).finally(() => setIsLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps

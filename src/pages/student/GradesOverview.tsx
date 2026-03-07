@@ -72,11 +72,68 @@ interface StudentMyGradesData {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async function fetchMyGrades(token: string): Promise<StudentMyGradesData | null> {
-  const res = await fetch('/api/students/my-grades', {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error(`Failed to fetch grades: ${res.status}`);
-  return res.json();
+  try {
+    const res = await fetch('/api/students/my-grades', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  } catch {
+    // Fallback: build minimal grade data directly from Supabase
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+
+      const { data: membership } = await supabase
+        .from('group_members')
+        .select('group_id')
+        .eq('student_id', user.id)
+        .maybeSingle();
+      if (!membership) return null;
+
+      const { data: group } = await supabase
+        .from('groups')
+        .select('id, group_number, project_name, status, project_status, ip_marked_at, ip_reason, course_id, course:courses!course_id(code, course_number), supervisor:profiles!supervisor_id(name), members:group_members(student:profiles!student_id(id, name))')
+        .eq('id', membership.group_id)
+        .maybeSingle();
+      if (!group) return null;
+
+      const courseCode = (group.course as any)?.code ?? '';
+      const courseNum = (group.course as any)?.course_number ?? 498;
+      const courseType: '498' | '499' = (String(courseNum).includes('499') || courseCode.includes('499')) ? '499' : '498';
+
+      return {
+        groupId: group.id,
+        groupNumber: group.group_number ?? 0,
+        projectName: group.project_name ?? '',
+        status: group.status ?? 'active',
+        projectStatus: (group.project_status === 'ip' ? 'ip' : 'normal') as 'normal' | 'ip',
+        ipMarkedAt: (group as any).ip_marked_at ?? null,
+        ipReason: (group as any).ip_reason ?? null,
+        courseCode,
+        courseType,
+        supervisorName: (group.supervisor as any)?.name ?? null,
+        students: ((group.members ?? []) as any[]).map((m: any) => ({ id: m.student?.id ?? '', name: m.student?.name ?? '' })),
+        components: [],
+        supervisorEvaluation: null,
+        committeeEvaluation: null,
+        approvalCounts: { total: 0, pending: 0, approved: 0, rejected: 0 },
+        weeklyScore: 0,
+        weeklyMaxScore: 0,
+        weeklyTotalRaw: 0,
+        weeksOpened: 0,
+        weeklyIsAtCap: false,
+        weeklyBreakdown: [],
+        peerEvaluation: { receivedCount: 0, averageRaw: null, convertedScore: null, componentWeight: 0, hasSubmitted: false },
+        deliverables: null,
+        deliverablesTotal: 0,
+        totalScore: 0,
+        finalGrade: '—',
+      };
+    } catch {
+      return null;
+    }
+  }
 }
 
 function getScoreColor(score: number, max: number) {
