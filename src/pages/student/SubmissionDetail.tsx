@@ -173,14 +173,34 @@ export function StudentSubmissionDetail() {
           filePath: uploadedPath,
         });
       } else {
-        await createSubmission({
-          milestoneId: id,
-          studentId: user.id,
-          groupId: group.id,
-          fileName: selectedFile.name,
-          fileSize,
-          filePath: uploadedPath,
-        });
+        try {
+          await createSubmission({
+            milestoneId: id,
+            studentId: user.id,
+            groupId: group.id,
+            fileName: selectedFile.name,
+            fileSize,
+            filePath: uploadedPath,
+          });
+        } catch (createErr: any) {
+          // Duplicate key: a submission already exists but wasn't loaded (RLS gap).
+          // Fetch it now and add a new version instead.
+          if (createErr?.message?.includes('duplicate key') || createErr?.code === '23505') {
+            const existing = await getSubmissionByMilestoneAndGroup(id, group.id);
+            if (existing) {
+              await createSubmissionVersion(existing.id, {
+                version: existing.currentVersion + 1,
+                fileName: selectedFile.name,
+                fileSize,
+                filePath: uploadedPath,
+              });
+            } else {
+              throw createErr;
+            }
+          } else {
+            throw createErr;
+          }
+        }
       }
 
       const updated = await getSubmissionByMilestoneAndGroup(id, group!.id);

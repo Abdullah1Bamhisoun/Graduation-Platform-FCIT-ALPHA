@@ -183,12 +183,27 @@ export async function getSubmissionByMilestoneAndGroup(
   } catch {
     console.warn('Backend unavailable, falling back to Supabase for group submission');
     try {
-      const { data, error } = await supabase
+      // Try group_id first (group-shared submission view)
+      let { data, error } = await supabase
         .from('submissions')
         .select(SUBMISSION_SELECT)
         .eq('milestone_id', milestoneId)
         .eq('group_id', groupId)
         .maybeSingle();
+      // If RLS blocks group_id query, try by the current student's own submission
+      if (!data && !error) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const res2 = await supabase
+            .from('submissions')
+            .select(SUBMISSION_SELECT)
+            .eq('milestone_id', milestoneId)
+            .eq('student_id', user.id)
+            .maybeSingle();
+          data = res2.data;
+          error = res2.error;
+        }
+      }
       if (error) throw error;
       if (!data) return null;
       const mapped = mapDbSubmission(data);
