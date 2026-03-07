@@ -487,7 +487,7 @@ export async function getCoordinatorGroupsWithGrades(
 
       let query = supabase
         .from('groups')
-        .select('*, course:courses(code, course_number), supervisor:profiles!supervisor_id(id, name), members:group_members(student:profiles!student_id(id, name, student_id))')
+        .select('*, course:courses!course_id(code), supervisor:profiles!supervisor_id(id, name), members:group_members(student:profiles!student_id(id, name, student_id))')
         .order('group_number');
       if (courseId) query = (query as any).eq('course_id', courseId);
 

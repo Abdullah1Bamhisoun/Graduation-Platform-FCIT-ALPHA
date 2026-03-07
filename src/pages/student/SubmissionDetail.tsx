@@ -72,9 +72,29 @@ export function StudentSubmissionDetail() {
         const res = await fetch(`/api/submissions/${submission.id}/comments`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (!res.ok) return;
-        const data: SubmissionComment[] = await res.json();
-        setComments(data);
+        if (res.ok) {
+          const data: SubmissionComment[] = await res.json();
+          setComments(data);
+          return;
+        }
+        // Backend unavailable — fallback to Supabase
+        const { supabase } = await import('../../lib/supabase');
+        const { data: rows } = await supabase
+          .from('submission_comments')
+          .select('id, content, author_id, author_role, created_at')
+          .eq('submission_id', submission.id)
+          .order('created_at', { ascending: true });
+        if (rows && rows.length > 0) {
+          const authorIds = [...new Set(rows.map((r: any) => r.author_id))];
+          const { data: profiles } = await supabase.from('profiles').select('id, name').in('id', authorIds);
+          const nameMap = Object.fromEntries((profiles || []).map((p: any) => [p.id, p.name]));
+          setComments(rows.map((r: any) => ({
+            id: r.id, content: r.content, authorId: r.author_id,
+            authorName: nameMap[r.author_id] ?? 'Unknown',
+            authorRole: r.author_role as 'student' | 'supervisor',
+            createdAt: r.created_at,
+          })));
+        }
       })
       .catch(() => { /* silently ignore – discussion is non-critical */ })
       .finally(() => setCommentsLoading(false));

@@ -103,6 +103,22 @@ async function fetchMyGrades(token: string): Promise<StudentMyGradesData | null>
       const courseNum = String(g.course_number ?? '');
       const courseType: '498' | '499' = (courseNum.includes('499') || courseCode.includes('499')) ? '499' : '498';
 
+      // Fetch grade components from Supabase so grade scheme is visible
+      const { data: comps } = await supabase
+        .from('grading_components')
+        .select('*')
+        .eq('course_type', courseType)
+        .eq('is_active', true)
+        .order('display_order');
+      const components: GradeComponentItem[] = (comps || []).map((c: any) => ({
+        componentKey: c.component_key,
+        componentName: c.component_name,
+        totalMarks: c.total_marks,
+        evaluatorRole: c.evaluator_role,
+        score: null,
+        maxScore: c.total_marks,
+      }));
+
       return {
         groupId: g.id,
         groupNumber: g.group_number ?? 0,
@@ -115,7 +131,7 @@ async function fetchMyGrades(token: string): Promise<StudentMyGradesData | null>
         courseType,
         supervisorName: g.supervisor?.name ?? null,
         students: ((g.members ?? []) as any[]).map((m: any) => ({ id: m.student?.id ?? '', name: m.student?.name ?? '' })),
-        components: [],
+        components,
         supervisorEvaluation: null,
         committeeEvaluation: null,
         approvalCounts: { total: 0, pending: 0, approved: 0, rejected: 0 },

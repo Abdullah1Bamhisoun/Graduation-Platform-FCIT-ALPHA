@@ -190,7 +190,21 @@ export async function getSubmissionByMilestoneAndGroup(
         .eq('group_id', groupId)
         .maybeSingle();
       if (error) throw error;
-      return data ? mapDbSubmission(data) : null;
+      if (!data) return null;
+      const mapped = mapDbSubmission(data);
+      // submission_feedback may have no RLS SELECT policy → joined data is empty
+      // Try a direct query so feedback shows up once the policy is in place
+      if (!mapped.feedback) {
+        const { data: fb } = await supabase
+          .from('submission_feedback')
+          .select('*, reviewer:profiles!reviewed_by(name), scores:feedback_scores(*, criterion:rubric_criteria!rubric_criterion_id(id, name, max_score))')
+          .eq('submission_id', data.id)
+          .order('reviewed_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (fb) mapped.feedback = mapDbFeedback(fb);
+      }
+      return mapped;
     } catch (sbError) {
       console.error('Supabase fallback failed for group submission:', sbError);
       return null;

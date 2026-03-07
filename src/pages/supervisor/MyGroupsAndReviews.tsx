@@ -240,16 +240,49 @@ async function fetchSupervisorGrades(token: string): Promise<GroupGradeData[]> {
       .from('groups')
       .select('*, course:courses!course_id(code, name), members:group_members(student:profiles!student_id(id, name))')
       .eq('supervisor_id', user.id);
-    return (groups || []).map((g: any) => ({
-      id: g.id, groupNumber: g.group_number, groupCode: g.group_code,
-      projectName: g.project_name, status: g.status, projectStatus: 'normal' as const,
-      ipMarkedAt: null, ipReason: null, courseCode: g.course?.code ?? '',
-      courseType: '498' as const, courseId: g.course_id,
-      students: (g.members || []).map((m: any) => ({ id: m.student?.id ?? '', name: m.student?.name ?? '' })),
-      components: [], deliverablesTotal: 0, supervisorEvaluation: [],
-      supervisorTotalScore: null, supervisorMaxScore: 0, rubricScores: [],
-      weeklyScore: 0, approvalCounts: { total: 0, pending: 0, approved: 0, rejected: 0 },
-    }));
+    if (!groups || groups.length === 0) return [];
+
+    // Fetch grading components per unique courseType
+    const courseTypes = [...new Set((groups as any[]).map((g: any) => {
+      const code: string = g.course?.code ?? '';
+      return code.includes('499') ? '499' : '498';
+    }))] as ('498' | '499')[];
+
+    const componentsMap: Record<string, GradeComponent[]> = {};
+    for (const ct of courseTypes) {
+      const { data: comps } = await supabase
+        .from('grading_components')
+        .select('*')
+        .eq('course_type', ct)
+        .eq('is_active', true)
+        .order('display_order');
+      componentsMap[ct] = (comps || []).map((c: any) => ({
+        componentKey: c.component_key,
+        componentName: c.component_name,
+        totalMarks: c.total_marks,
+        evaluatorRole: c.evaluator_role,
+        score: null,
+        maxScore: c.total_marks,
+      }));
+    }
+
+    return (groups as any[]).map((g: any) => {
+      const code: string = g.course?.code ?? '';
+      const courseType: '498' | '499' = code.includes('499') ? '499' : '498';
+      const components = componentsMap[courseType] ?? [];
+      const supervisorComp = components.find((c) => c.componentKey === 'supervisor_eval');
+      return {
+        id: g.id, groupNumber: g.group_number, groupCode: g.group_code,
+        projectName: g.project_name, status: g.status, projectStatus: 'normal' as const,
+        ipMarkedAt: null, ipReason: null, courseCode: code,
+        courseType, courseId: g.course_id,
+        students: (g.members || []).map((m: any) => ({ id: m.student?.id ?? '', name: m.student?.name ?? '' })),
+        components, deliverablesTotal: 0, supervisorEvaluation: [],
+        supervisorTotalScore: null, supervisorMaxScore: supervisorComp?.totalMarks ?? 0,
+        rubricScores: [], weeklyScore: 0,
+        approvalCounts: { total: 0, pending: 0, approved: 0, rejected: 0 },
+      };
+    });
   }
 }
 
@@ -290,10 +323,33 @@ async function fetchComments(submissionId: string, token: string): Promise<Submi
     const res = await fetch(`/api/submissions/${submissionId}/comments`, {
       headers: { Authorization: `Bearer ${token}`, 'X-Active-Role': 'supervisor' },
     });
-    if (!res.ok) return [];
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   } catch {
-    return [];
+    try {
+      const { supabase } = await import('../../lib/supabase');
+      const { data: rows } = await supabase
+        .from('submission_comments')
+        .select('id, content, author_id, author_role, created_at')
+        .eq('submission_id', submissionId)
+        .order('created_at', { ascending: true });
+      if (!rows || rows.length === 0) return [];
+      const authorIds = [...new Set((rows as any[]).map((r: any) => r.author_id))];
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, name')
+        .in('id', authorIds);
+      const nameMap = Object.fromEntries((profiles || []).map((p: any) => [p.id, p.name]));
+      return (rows as any[]).map((r: any) => ({
+        id: r.id,
+        content: r.content,
+        authorName: nameMap[r.author_id] ?? 'Unknown',
+        authorRole: r.author_role as 'student' | 'supervisor',
+        createdAt: r.created_at,
+      }));
+    } catch {
+      return [];
+    }
   }
 }
 
