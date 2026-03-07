@@ -12,7 +12,6 @@ export function CoordinatorCourseGrades() {
   const [courseLoading, setCourseLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [groupsRefreshKey, setGroupsRefreshKey] = useState(0);
-  const [chapterRefreshKey, setChapterRefreshKey] = useState(0);
 
   useEffect(() => {
     if (!user?.coordinatorCourseId) {
