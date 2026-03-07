@@ -93,27 +93,28 @@ async function fetchMyGrades(token: string): Promise<StudentMyGradesData | null>
 
       const { data: group } = await supabase
         .from('groups')
-        .select('id, group_number, project_name, status, project_status, ip_marked_at, ip_reason, course_id, course:courses!course_id(code, course_number), supervisor:profiles!supervisor_id(name), members:group_members(student:profiles!student_id(id, name))')
+        .select('*, course:courses(code), supervisor:profiles!supervisor_id(name), members:group_members(student:profiles!student_id(id, name))')
         .eq('id', membership.group_id)
         .maybeSingle();
       if (!group) return null;
 
-      const courseCode = (group.course as any)?.code ?? '';
-      const courseNum = (group.course as any)?.course_number ?? 498;
-      const courseType: '498' | '499' = (String(courseNum).includes('499') || courseCode.includes('499')) ? '499' : '498';
+      const g = group as any;
+      const courseCode = g.course?.code ?? '';
+      const courseNum = String(g.course_number ?? '');
+      const courseType: '498' | '499' = (courseNum.includes('499') || courseCode.includes('499')) ? '499' : '498';
 
       return {
-        groupId: group.id,
-        groupNumber: group.group_number ?? 0,
-        projectName: group.project_name ?? '',
-        status: group.status ?? 'active',
-        projectStatus: (group.project_status === 'ip' ? 'ip' : 'normal') as 'normal' | 'ip',
-        ipMarkedAt: (group as any).ip_marked_at ?? null,
-        ipReason: (group as any).ip_reason ?? null,
+        groupId: g.id,
+        groupNumber: g.group_number ?? 0,
+        projectName: g.project_name ?? '',
+        status: g.status ?? 'active',
+        projectStatus: (g.project_status === 'ip' ? 'ip' : 'normal') as 'normal' | 'ip',
+        ipMarkedAt: g.ip_marked_at ?? null,
+        ipReason: g.ip_reason ?? null,
         courseCode,
         courseType,
-        supervisorName: (group.supervisor as any)?.name ?? null,
-        students: ((group.members ?? []) as any[]).map((m: any) => ({ id: m.student?.id ?? '', name: m.student?.name ?? '' })),
+        supervisorName: g.supervisor?.name ?? null,
+        students: ((g.members ?? []) as any[]).map((m: any) => ({ id: m.student?.id ?? '', name: m.student?.name ?? '' })),
         components: [],
         supervisorEvaluation: null,
         committeeEvaluation: null,

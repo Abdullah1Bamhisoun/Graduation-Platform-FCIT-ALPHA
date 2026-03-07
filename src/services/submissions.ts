@@ -403,6 +403,7 @@ export async function getChapterSubmissionsForCoordinator(
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return { submissions: [], stats: { total: 0, pending: 0, approved: 0, rejected: 0 } };
 
+      // Try coordinator's assigned course first; fall back to all courses of this type (admin)
       const { data: userRoleData } = await supabase
         .from('user_roles')
         .select('coordinator_course_id')
@@ -410,12 +411,19 @@ export async function getChapterSubmissionsForCoordinator(
         .maybeSingle();
 
       const coordinatorCourseId = userRoleData?.coordinator_course_id;
-      if (!coordinatorCourseId) return { submissions: [], stats: { total: 0, pending: 0, approved: 0, rejected: 0 } };
 
-      const { data: milestones } = await supabase
-        .from('milestones')
-        .select('id, name, type, due_date')
-        .eq('course_id', coordinatorCourseId);
+      let milestoneQuery = supabase.from('milestones').select('id, name, type, due_date, course_id, course:courses!course_id(code)');
+      if (coordinatorCourseId) {
+        milestoneQuery = (milestoneQuery as any).eq('course_id', coordinatorCourseId);
+      } else {
+        // Admin: filter by courseType via course code pattern
+        const { data: courses } = await supabase.from('courses').select('id').ilike('code', `%-${courseType}`);
+        const courseIds = (courses || []).map((c: any) => c.id);
+        if (courseIds.length === 0) return { submissions: [], stats: { total: 0, pending: 0, approved: 0, rejected: 0 } };
+        milestoneQuery = (milestoneQuery as any).in('course_id', courseIds);
+      }
+
+      const { data: milestones } = await milestoneQuery;
 
       const milestoneIds = (milestones || []).map((m: any) => m.id);
       if (milestoneIds.length === 0) return { submissions: [], stats: { total: 0, pending: 0, approved: 0, rejected: 0 } };

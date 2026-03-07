@@ -464,9 +464,68 @@ export async function getCoordinatorGroupsWithGrades(
 
     const data = await response.json();
     return data.groups || [];
-  } catch (error) {
-    console.error('Error fetching coordinator groups:', error);
-    return [];
+  } catch {
+    console.warn('Backend unavailable, falling back to Supabase for coordinator grades');
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
+
+      let courseId: string | null = null;
+      if (activeRole !== 'admin') {
+        const { data: roleRow } = await supabase
+          .from('roles').select('id').eq('name', 'coordinator').maybeSingle();
+        if (roleRow) {
+          const { data: ur } = await supabase
+            .from('user_roles')
+            .select('coordinator_course_id')
+            .eq('user_id', user.id)
+            .eq('role_id', roleRow.id)
+            .maybeSingle();
+          courseId = (ur as any)?.coordinator_course_id ?? null;
+        }
+      }
+
+      let query = supabase
+        .from('groups')
+        .select('*, course:courses(code, course_number), supervisor:profiles!supervisor_id(id, name), members:group_members(student:profiles!student_id(id, name, student_id))')
+        .order('group_number');
+      if (courseId) query = (query as any).eq('course_id', courseId);
+
+      const { data: groups, error: gErr } = await query;
+      if (gErr) throw gErr;
+
+      return ((groups || []) as any[])
+        .filter((g: any) => {
+          const code: string = g.course?.code ?? '';
+          const num: string = String(g.course_number ?? '');
+          const type = (num.includes('499') || code.includes('499')) ? '499' : '498';
+          return type === courseType;
+        })
+        .map((g: any) => ({
+          id: g.id,
+          number: g.group_number ?? null,
+          groupCode: g.group_code ?? null,
+          name: g.project_name ?? '',
+          courseCode: g.course?.code ?? '',
+          courseType,
+          supervisorId: g.supervisor_id ?? null,
+          supervisorName: g.supervisor?.name ?? null,
+          students: ((g.members ?? []) as any[]).map((m: any) => ({
+            id: m.student?.id ?? '',
+            name: m.student?.name ?? '',
+            studentId: m.student?.student_id ?? undefined,
+          })),
+          projectStatus: g.project_status ?? 'normal',
+          ipMarkedAt: g.ip_marked_at ?? null,
+          totalScore: null,
+          gradeComponents: [],
+          approvalCounts: { total: 0, approved: 0, pending: 0, rejected: 0 },
+          coordinatorEvaluation: null,
+        }));
+    } catch (fbError) {
+      console.error('Supabase fallback failed for coordinator grades:', fbError);
+      return [];
+    }
   }
 }
 

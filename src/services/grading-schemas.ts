@@ -23,29 +23,33 @@ export async function getGradingSchemas(
   semester: string,
   department = 'IS'
 ): Promise<GradingSchema[]> {
-  // Try exact semester first
-  const { data: exact } = await supabase
-    .from('grading_schemas')
-    .select('*')
-    .eq('department', department)
-    .eq('course_type', courseType)
-    .eq('semester', semester)
-    .eq('is_active', true)
-    .order('weight', { ascending: false });
+  try {
+    // Try exact semester first
+    const { data: exact } = await supabase
+      .from('grading_schemas')
+      .select('*')
+      .eq('department', department)
+      .eq('course_type', courseType)
+      .eq('semester', semester)
+      .eq('is_active', true)
+      .order('weight', { ascending: false });
 
-  if (exact && exact.length > 0) return exact.map(mapRow);
+    if (exact && exact.length > 0) return exact.map(mapRow);
 
-  // Fall back to DEFAULT
-  const { data: fallback } = await supabase
-    .from('grading_schemas')
-    .select('*')
-    .eq('department', department)
-    .eq('course_type', courseType)
-    .eq('semester', 'DEFAULT')
-    .eq('is_active', true)
-    .order('weight', { ascending: false });
+    // Fall back to DEFAULT
+    const { data: fallback } = await supabase
+      .from('grading_schemas')
+      .select('*')
+      .eq('department', department)
+      .eq('course_type', courseType)
+      .eq('semester', 'DEFAULT')
+      .eq('is_active', true)
+      .order('weight', { ascending: false });
 
-  return (fallback || []).map(mapRow);
+    return (fallback || []).map(mapRow);
+  } catch {
+    return [];
+  }
 }
 
 /** Returns the weight for a given component (case-insensitive partial match). */

@@ -36,7 +36,14 @@ export async function getAnnouncementsForRole(role: UserRole): Promise<Announcem
         .contains('target_roles', [role])
         .order('created_at', { ascending: false });
       if (error) throw error;
-      return (data || []).map(mapDbAnnouncement);
+      // If role-filtered query returns results, use them
+      if (data && data.length > 0) return data.map(mapDbAnnouncement);
+      // Otherwise try fetching all (handles missing RLS policy that blocks contains filter)
+      const { data: all } = await supabase
+        .from('announcements')
+        .select('*')
+        .order('created_at', { ascending: false });
+      return (all || []).map(mapDbAnnouncement);
     } catch (sbError) {
       console.error('Supabase fallback failed for announcements:', sbError);
       return [];
