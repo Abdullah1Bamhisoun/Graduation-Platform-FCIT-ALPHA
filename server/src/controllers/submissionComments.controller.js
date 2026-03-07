@@ -40,7 +40,6 @@ async function getComments(req, res) {
     const userRoles = req.user.roles;
 
     if (!userRoles.includes('admin')) {
-      const isStudent = submission.student_id === userId;
       let isSupervisor = false;
 
       if (userRoles.includes('supervisor')) {
@@ -52,8 +51,18 @@ async function getComments(req, res) {
         isSupervisor = group?.supervisor_id === userId;
       }
 
-      if (!isStudent && !isSupervisor) {
-        return res.status(403).json({ error: 'Access denied' });
+      if (!isSupervisor) {
+        // Allow any member of the submission's group (group-shared submissions)
+        const { data: membership } = await supabaseAdmin
+          .from('group_members')
+          .select('student_id')
+          .eq('group_id', submission.group_id)
+          .eq('student_id', userId)
+          .maybeSingle();
+
+        if (!membership) {
+          return res.status(403).json({ error: 'Access denied' });
+        }
       }
     }
 
@@ -89,6 +98,7 @@ async function getComments(req, res) {
       comments.map((c) => ({
         id: c.id,
         content: c.content,
+        authorId: c.author_id,
         authorName: nameMap[c.author_id] ?? 'Unknown',
         authorRole: c.author_role,
         createdAt: c.created_at,
@@ -141,10 +151,19 @@ async function addComment(req, res) {
         }
       }
       authorRole = 'supervisor';
-    } else if (submission.student_id === userId) {
-      authorRole = 'student';
     } else {
-      return res.status(403).json({ error: 'Access denied' });
+      // Allow any member of the submission's group (group-shared submissions)
+      const { data: membership } = await supabaseAdmin
+        .from('group_members')
+        .select('student_id')
+        .eq('group_id', submission.group_id)
+        .eq('student_id', userId)
+        .maybeSingle();
+
+      if (!membership) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      authorRole = 'student';
     }
 
     const { data: comment, error: cError } = await supabaseAdmin
@@ -170,6 +189,7 @@ async function addComment(req, res) {
     res.status(201).json({
       id: comment.id,
       content: comment.content,
+      authorId: userId,
       authorName: req.user.name,
       authorRole: comment.author_role,
       createdAt: comment.created_at,

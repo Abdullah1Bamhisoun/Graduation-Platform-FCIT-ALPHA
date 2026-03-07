@@ -248,30 +248,44 @@ async function approveRegistration(req, res) {
             if (groupError) {
               console.error('Error creating group:', groupError);
             } else {
-              await supabaseAdmin.from('group_members').insert({
+              const { error: memberInsertError } = await supabaseAdmin.from('group_members').insert({
                 group_id: newGroup.id,
                 student_id: userId,
               });
+              if (memberInsertError) {
+                console.error(`approveRegistration: failed to add student ${userId} to new group ${newGroup.id}:`, memberInsertError.message);
+              }
             }
           }
         }
       } else if (registration.group_id) {
-        // ── NO IDEA: join an existing group ───────────────────────────────
-        const { data: group } = await supabaseAdmin
+        // ── NO IDEA: join an existing group selected during registration ──
+        const { data: group, error: groupLookupError } = await supabaseAdmin
           .from('groups')
           .select('id, members:group_members(student_id)')
           .eq('id', registration.group_id)
           .single();
 
-        if (group) {
+        if (groupLookupError || !group) {
+          console.error(`approveRegistration: group ${registration.group_id} not found for student ${userId}:`, groupLookupError?.message);
+        } else {
           const memberCount = (group.members || []).length;
-          if (memberCount < 3) {
-            await supabaseAdmin.from('group_members').insert({
-              group_id: registration.group_id,
-              student_id: userId,
-            });
+          if (memberCount >= 3) {
+            console.warn(`approveRegistration: group ${registration.group_id} is full (${memberCount}/3) — student ${userId} not added`);
           } else {
-            console.warn(`Group ${registration.group_id} is full — student ${userId} not added`);
+            // Guard against duplicate membership (avoids unique-constraint violations)
+            const alreadyMember = (group.members || []).some((m) => m.student_id === userId);
+            if (alreadyMember) {
+              console.warn(`approveRegistration: student ${userId} is already a member of group ${registration.group_id}`);
+            } else {
+              const { error: memberInsertError } = await supabaseAdmin.from('group_members').insert({
+                group_id: registration.group_id,
+                student_id: userId,
+              });
+              if (memberInsertError) {
+                console.error(`approveRegistration: failed to add student ${userId} to group ${registration.group_id}:`, memberInsertError.message);
+              }
+            }
           }
         }
       }
@@ -408,22 +422,25 @@ async function rejectRegistration(req, res) {
 
 /**
  * POST /api/auth/repair-groups
- * Admin only — retroactively creates missing groups for already-approved students.
+ * Admin only — retroactively assigns missing groups for already-approved students.
+ * Handles both paths:
+ *   1. Student submitted a project idea → create a new group for them
+ *   2. Student selected an existing group (group_id) → add them to that group
  * Safe to call multiple times (skips students already in a group).
  */
 async function repairGroups(req, res) {
   try {
-    // Fetch all approved student registrations that had a project idea
+    // Fetch ALL approved student registrations
     const { data: approvedRegs, error: fetchErr } = await supabaseAdmin
       .from('pending_registrations')
       .select('*')
       .eq('status', 'approved')
-      .eq('account_type', 'student')
-      .not('project_name', 'is', null);
+      .eq('account_type', 'student');
 
     if (fetchErr) throw fetchErr;
 
     let created = 0;
+    let assigned = 0;
     let skipped = 0;
 
     for (const reg of (approvedRegs || [])) {
@@ -436,7 +453,7 @@ async function repairGroups(req, res) {
 
       if (!profile) { skipped++; continue; }
 
-      // Check if the student is already in a group
+      // Check if the student is already in a group — skip if so
       const { data: existing } = await supabaseAdmin
         .from('group_members')
         .select('group_id')
@@ -444,6 +461,44 @@ async function repairGroups(req, res) {
         .maybeSingle();
 
       if (existing) { skipped++; continue; }
+
+      // ── PATH 1: student selected an existing group (no idea) ─────────────
+      if (reg.group_id && !reg.project_name) {
+        const { data: group, error: groupLookupErr } = await supabaseAdmin
+          .from('groups')
+          .select('id, members:group_members(student_id)')
+          .eq('id', reg.group_id)
+          .single();
+
+        if (groupLookupErr || !group) {
+          console.error(`repairGroups: group ${reg.group_id} not found for ${reg.email}`);
+          skipped++;
+          continue;
+        }
+
+        const memberCount = (group.members || []).length;
+        if (memberCount >= 3) {
+          console.warn(`repairGroups: group ${reg.group_id} is full — cannot add ${reg.email}`);
+          skipped++;
+          continue;
+        }
+
+        const { error: insertErr } = await supabaseAdmin.from('group_members').insert({
+          group_id: reg.group_id,
+          student_id: profile.id,
+        });
+
+        if (insertErr) {
+          console.error(`repairGroups: failed to add ${reg.email} to group ${reg.group_id}:`, insertErr.message);
+          skipped++;
+        } else {
+          assigned++;
+        }
+        continue;
+      }
+
+      // ── PATH 2: student submitted a project idea → create new group ──────
+      if (!reg.project_name) { skipped++; continue; }
 
       // Resolve course_id
       let resolvedCourseId = reg.course_id || null;
@@ -499,15 +554,20 @@ async function repairGroups(req, res) {
         continue;
       }
 
-      await supabaseAdmin.from('group_members').insert({
+      const { error: memberErr } = await supabaseAdmin.from('group_members').insert({
         group_id: newGroup.id,
         student_id: profile.id,
       });
 
-      created++;
+      if (memberErr) {
+        console.error(`repairGroups: failed to add ${reg.email} to new group ${newGroup.id}:`, memberErr.message);
+        skipped++;
+      } else {
+        created++;
+      }
     }
 
-    res.json({ success: true, created, skipped });
+    res.json({ success: true, created, assigned, skipped });
   } catch (error) {
     console.error('Error repairing groups:', error);
     res.status(500).json({ error: 'Failed to repair groups' });

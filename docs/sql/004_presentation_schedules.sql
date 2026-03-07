@@ -49,6 +49,9 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'presentation_schedules' AND column_name = 'updated_at') THEN
     ALTER TABLE presentation_schedules ADD COLUMN updated_at TIMESTAMPTZ DEFAULT now();
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'presentation_schedules' AND column_name = 'location') THEN
+    ALTER TABLE presentation_schedules ADD COLUMN location TEXT;
+  END IF;
 END $$;
 
 -- Index for fast lookups by group

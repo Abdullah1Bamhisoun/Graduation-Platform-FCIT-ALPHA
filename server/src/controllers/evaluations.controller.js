@@ -19,7 +19,8 @@ const { supabaseAdmin } = require('../config/supabase');
 function mapGroup(g, scheduleMap) {
   const sched = scheduleMap ? scheduleMap.get(g.id) : null;
   const scheduledAt = sched?.scheduled_at ?? null;
-  const evaluationActive = scheduledAt !== null;
+  // Evaluation unlocks only after the presentation time has passed (server time).
+  const evaluationActive = scheduledAt !== null && new Date(scheduledAt) <= new Date();
 
   return {
     id: g.id,
@@ -76,19 +77,37 @@ async function getGroupsForEvaluation(req, res) {
 
     const supervisedGroupIds = (supervisedRows || []).map((g) => g.id);
 
-    // ── Step 2: find groups where this supervisor is a committee member ────
-    // Groups are assigned via the presentation schedule UI (admin/coordinator
-    // selects committee members when publishing a schedule). The supervisor's
-    // profile name must appear in committee_members of a saved schedule row.
+    // ── Step 2: fetch all presentation schedules and filter in JavaScript ────
+    // Using JS-side filtering (.includes) instead of PostgREST's array
+    // containment operator (.contains / @>) to avoid silent failures caused
+    // by type-coercion differences between JSON arrays and PostgreSQL TEXT[].
     let assignedGroupIds = [];
+    let scheduleMap = new Map();
+
     if (supervisorName) {
-      const { data: schedRows } = await supabaseAdmin
+      const { data: allSchedules, error: schedErr } = await supabaseAdmin
         .from('presentation_schedules')
-        .select('group_id')
-        .contains('committee_members', [supervisorName]);
-      assignedGroupIds = (schedRows || [])
-        .map((s) => s.group_id)
-        .filter((id) => !supervisedGroupIds.includes(id));
+        .select('group_id, committee_members, scheduled_at');
+
+      if (schedErr) {
+        const isMissing =
+          schedErr.code === '42P01' ||
+          schedErr.code === '42703' ||
+          (schedErr.message || '').toLowerCase().includes('does not exist');
+        if (isMissing) return res.json({ groups: [], assignmentMode: true });
+        throw schedErr;
+      }
+
+      // Build schedule map (reuses the fetched rows — avoids a second DB query)
+      for (const s of (allSchedules || [])) {
+        scheduleMap.set(s.group_id, { scheduled_at: s.scheduled_at });
+      }
+
+      // Filter groups where this supervisor is listed as a committee member
+      assignedGroupIds = (allSchedules || [])
+        .filter(s => Array.isArray(s.committee_members) && s.committee_members.includes(supervisorName))
+        .map(s => s.group_id)
+        .filter(id => !supervisedGroupIds.includes(id));
     }
 
     if (assignedGroupIds.length === 0) {
@@ -103,8 +122,7 @@ async function getGroupsForEvaluation(req, res) {
 
     if (agError) throw agError;
 
-    // ── Fetch presentation schedules for evaluation lock check ─────────────
-    const scheduleMap = await fetchScheduleMap(assignedGroupIds);
+    // scheduleMap was already built above from the fetched schedules data
 
     return res.json({
       groups: (assignedGroups || []).map((g) => mapGroup(g, scheduleMap)),

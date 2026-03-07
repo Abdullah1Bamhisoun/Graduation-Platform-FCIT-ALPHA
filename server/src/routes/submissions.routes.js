@@ -14,6 +14,24 @@ const {
  *
  * GET  /api/submissions/chapter-submissions
  *   Supervisor: list chapter submissions for all groups assigned to this supervisor.
+ *
+ * GET  /api/submissions/group-submission?milestoneId=X&groupId=Y
+ *   Student (any group member): fetch the shared group submission for a milestone.
+ *   Bypasses RLS via supabaseAdmin; access enforced by group membership check.
+ *
+ * GET  /api/submissions/group-milestone-statuses?groupId=X
+ *   Student (any group member): fetch milestone_id→status map for a group.
+ *   Bypasses RLS so all teammates see the same submission statuses on the milestone list.
+ *
+ * PATCH /api/submissions/:id/approval
+ *   Supervisor: approve or reject a chapter submission.
+ */
+
+/**
+ * Submission routes
+ *
+ * GET  /api/submissions/chapter-submissions
+ *   Supervisor: list chapter submissions for all groups assigned to this supervisor.
  *   Backend-enforced filter by supervisor_id — supervisors cannot see other supervisors' groups.
  *
  * PATCH /api/submissions/:id/approval
@@ -27,6 +45,10 @@ router.get(
   requireSupervisorOrAdmin,
   controller.getChapterSubmissionsForSupervisor
 );
+
+// Student group-shared submission endpoints (bypass RLS via supabaseAdmin)
+router.get('/group-submission', authenticate, controller.getGroupSubmission);
+router.get('/group-milestone-statuses', authenticate, controller.getGroupMilestoneStatuses);
 
 router.get(
   '/coordinator/chapter-submissions',

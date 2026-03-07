@@ -18,6 +18,8 @@ function isMissingTable(err) {
  * Authenticated — returns calendar events.
  * - Admin: all events
  * - Coordinator: only events for their assigned course (course_id = coordinatorCourseId)
+ * - Supervisor: non-presentation events + only presentation events where they are a committee member
+ * - Student: non-presentation events + only the presentation event linked to their group
  * - Others: all events
  *
  * Falls back gracefully if course_id column has not been migrated yet.
@@ -25,6 +27,8 @@ function isMissingTable(err) {
 async function listEvents(req, res) {
   try {
     const isAdmin = req.user.roles && req.user.roles.includes('admin');
+    const isStudent = !isAdmin && req.user.roles && req.user.roles.includes('student');
+    const isSupervisor = !isAdmin && req.user.roles && req.user.roles.includes('supervisor');
     const coordinatorCourseId = req.user.coordinatorCourseId;
 
     // ── Attempt 1: with course_id column ─────────────────────────────────────
@@ -54,7 +58,60 @@ async function listEvents(req, res) {
 
     if (error) throw error;
 
-    res.json((data || []).map((e) => ({
+    let events = data || [];
+
+    // ── Filter presentation events for students ───────────────────────────────
+    // Students should only see the presentation event for their own group.
+    if (isStudent && !coordinatorCourseId) {
+      const { data: membership } = await supabaseAdmin
+        .from('group_members')
+        .select('group_id')
+        .eq('student_id', req.user.id)
+        .maybeSingle();
+
+      const allowedPresentationEventIds = new Set();
+      if (membership?.group_id) {
+        const { data: schedule } = await supabaseAdmin
+          .from('presentation_schedules')
+          .select('calendar_event_id')
+          .eq('group_id', membership.group_id)
+          .maybeSingle();
+        if (schedule?.calendar_event_id) {
+          allowedPresentationEventIds.add(schedule.calendar_event_id);
+        }
+      }
+
+      events = events.filter(
+        (e) => e.type !== 'presentation' || allowedPresentationEventIds.has(e.id)
+      );
+    }
+
+    // ── Filter presentation events for supervisors ────────────────────────────
+    // Supervisors should only see presentation events where they are a committee member.
+    if (isSupervisor && !coordinatorCourseId) {
+      const supervisorName = req.user.name;
+      const { data: schedules } = await supabaseAdmin
+        .from('presentation_schedules')
+        .select('calendar_event_id, committee_members')
+        .not('calendar_event_id', 'is', null);
+
+      const allowedPresentationEventIds = new Set(
+        (schedules || [])
+          .filter(
+            (s) =>
+              Array.isArray(s.committee_members) &&
+              s.committee_members.includes(supervisorName)
+          )
+          .map((s) => s.calendar_event_id)
+          .filter(Boolean)
+      );
+
+      events = events.filter(
+        (e) => e.type !== 'presentation' || allowedPresentationEventIds.has(e.id)
+      );
+    }
+
+    res.json(events.map((e) => ({
       id: e.id,
       title: e.title,
       date: e.date,

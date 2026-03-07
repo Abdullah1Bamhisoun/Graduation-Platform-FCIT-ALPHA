@@ -80,7 +80,7 @@ async function getStudentPresentationView(req, res) {
     // Fetch presentation schedule — excludes committee_members to hide supervisor data
     const { data: schedule, error: schedError } = await supabaseAdmin
       .from('presentation_schedules')
-      .select('day, time_slot')
+      .select('day, time_slot, scheduled_at, location')
       .eq('group_id', groupId)
       .maybeSingle();
 
@@ -99,6 +99,8 @@ async function getStudentPresentationView(req, res) {
         ? {
             day: schedule.day,
             timeSlot: schedule.time_slot,
+            scheduledAt: schedule.scheduled_at ?? null,
+            location: schedule.location ?? null,
           }
         : null,
     });
@@ -148,7 +150,7 @@ async function getPresentationsByCourse(req, res) {
     if (groupIds.length > 0) {
       const { data: schedData, error: schedError } = await supabaseAdmin
         .from('presentation_schedules')
-        .select('group_id, day, time_slot, committee_members, scheduled_at')
+        .select('group_id, day, time_slot, committee_members, scheduled_at, location')
         .in('group_id', groupIds);
 
       if (schedError) throw schedError;
@@ -168,6 +170,7 @@ async function getPresentationsByCourse(req, res) {
         timeSlot: schedule?.time_slot ?? null,
         committeeMembers: schedule?.committee_members ?? [],
         scheduledAt: schedule?.scheduled_at ?? null,
+        location: schedule?.location ?? null,
       };
     });
 
@@ -205,7 +208,7 @@ async function getServerTime(req, res) {
  */
 async function assignSchedule(req, res) {
   try {
-    const { groupId, scheduledAt, day, timeSlot, committeeMembers } = req.body;
+    const { groupId, scheduledAt, day, timeSlot, committeeMembers, location } = req.body;
     const isAdmin = (req.user.roles || []).includes('admin');
 
     // ── Validate required fields ───────────────────────────────────────────
@@ -220,8 +223,10 @@ async function assignSchedule(req, res) {
     if (isNaN(presentationDate.getTime())) {
       return res.status(400).json({ error: 'Invalid scheduledAt: must be an ISO datetime string' });
     }
+    // Admins can publish/update schedules for any date (e.g. correcting committee
+    // members after the fact). Only coordinators are restricted to future dates.
     const now = new Date();
-    if (presentationDate <= now) {
+    if (!isAdmin && presentationDate <= now) {
       return res.status(400).json({
         error: 'Presentation date must be in the future',
         serverTime: now.toISOString(),
@@ -302,6 +307,7 @@ async function assignSchedule(req, res) {
       committee_members: committeeMembers ?? [],
       scheduled_at: presentationDate.toISOString(),
       calendar_event_id: calendarEventId,
+      location: location ?? null,
     };
 
     // 1. Try UPDATE existing row (all fields first, then core-only fallback)
@@ -356,17 +362,19 @@ async function assignSchedule(req, res) {
       }
     }
 
-    // ── Auto-create announcement ───────────────────────────────────────────
+    // ── Announcement (broadcast to students & supervisors) ─────────────────
     const formatted = formatPresentationDateTime(presentationDate);
+    const locationLine = location ? `\nLocation: ${location}` : '';
     const announcementContent = [
-      `A presentation slot has been assigned for ${projectName}.`,
+      `A presentation slot has been scheduled for ${projectName}.`,
       '',
-      `${formatted}`,
-      `Slot: ${day} – ${timeSlot}`,
+      `Date & Time: ${formatted}`,
+      `Day / Slot: ${day} – ${timeSlot}`,
+      ...(location ? [`Location: ${location}`] : []),
     ].join('\n');
 
     const { error: announcementErr } = await supabaseAdmin.from('announcements').insert({
-      title: `Presentation Assigned: ${projectName}`,
+      title: `Presentation Scheduled: ${projectName}`,
       content: announcementContent,
       author_id: req.user.id,
       target_roles: ['student', 'supervisor', 'coordinator'],
@@ -374,6 +382,34 @@ async function assignSchedule(req, res) {
       expires_at: null,
     });
     if (announcementErr) console.warn('[presentations] Failed to create announcement:', announcementErr);
+
+    // ── Per-student notifications (bell icon) ──────────────────────────────
+    // Each student in the group receives a personal notification with only
+    // their own presentation date, time, and location.
+    const locationText = location ? `\nLocation: ${location}` : '';
+
+    const { data: members, error: membersErr } = await supabaseAdmin
+      .from('group_members')
+      .select('student_id')
+      .eq('group_id', groupId);
+
+    if (membersErr) {
+      console.warn('[presentations] Failed to fetch group members for notifications:', membersErr);
+    } else if (members && members.length > 0) {
+      const notificationRows = members.map(m => ({
+        user_id: m.student_id,
+        type: 'presentation',
+        title: 'Your Presentation Has Been Scheduled',
+        message: `Your presentation is scheduled on:\n\nDate & Time: ${formatted}${locationText}`,
+        read: false,
+      }));
+
+      const { error: notifErr } = await supabaseAdmin
+        .from('notifications')
+        .insert(notificationRows);
+
+      if (notifErr) console.warn('[presentations] Failed to send student notifications:', notifErr);
+    }
 
     return res.json({ success: true });
   } catch (error) {

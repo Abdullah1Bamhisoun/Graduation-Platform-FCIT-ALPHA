@@ -60,7 +60,7 @@ export async function getRegistrations(): Promise<PendingRegistration[]> {
   }
 }
 
-// Get pending registrations only
+// Get pending registrations only (direct Supabase query — subject to RLS)
 export async function getPendingRegistrations(): Promise<PendingRegistration[]> {
   try {
     const { data, error } = await supabase
@@ -74,6 +74,34 @@ export async function getPendingRegistrations(): Promise<PendingRegistration[]> 
     return (data || []).map(mapDatabaseToRegistration);
   } catch (error) {
     console.error('Error fetching pending registrations:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch pending registrations via the backend API.
+ * Passes X-Active-Role so the server applies coordinator-scoped filtering
+ * (only the coordinator's course students + all supervisors).
+ * Admins receive all registrations.
+ */
+export async function getPendingRegistrationsViaAPI(activeRole?: string): Promise<PendingRegistration[]> {
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) return [];
+
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+    };
+    if (activeRole) headers['X-Active-Role'] = activeRole;
+
+    const response = await fetch('/api/auth/pending-registrations?status=pending', { headers });
+    if (!response.ok) return [];
+
+    const rows = await response.json();
+    return (rows || []).map(mapDatabaseToRegistration);
+  } catch (error) {
+    console.error('Error fetching pending registrations via API:', error);
     return [];
   }
 }
@@ -116,39 +144,28 @@ export async function addRegistration(
 }
 
 // Approve a registration (calls backend API to create auth user)
-export async function approveRegistration(id: string): Promise<PendingRegistration | null> {
+export async function approveRegistration(id: string, activeRole?: string): Promise<void> {
   try {
-    // Get the registration details first
-    const { data: registration, error: fetchError } = await supabase
-      .from('pending_registrations')
-      .select('*')
-      .eq('id', id)
-      .single();
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    };
+    if (activeRole) headers['X-Active-Role'] = activeRole;
 
-    if (fetchError) throw fetchError;
-    if (!registration) return null;
-
-    // Call backend API to create the user in Supabase Auth
-    // This requires the backend to use the service_role key
     const response = await fetch('/api/auth/approve-registration', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-      },
+      headers,
       body: JSON.stringify({ registrationId: id }),
     });
 
-    if (!response.ok) {
-      throw new Error('Failed to approve registration');
-    }
+    const json = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error((json as any).error || 'Failed to approve registration');
 
     notify();
-
-    return mapDatabaseToRegistration(registration);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error approving registration:', error);
-    throw new Error('Failed to approve registration. Please try again.');
+    throw new Error(error?.message || 'Failed to approve registration. Please try again.');
   }
 }
 

@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { User, UserRole } from '../../types';
 import { useUnreadAnnouncements } from '../../hooks/useUnreadAnnouncements';
+import { usePendingRegistrationsCount } from '../../hooks/usePendingRegistrationsCount';
 import gppLogo from '/gpp-logo.png';
 
 interface NavItem {
@@ -19,7 +20,7 @@ const navItems: Record<UserRole, NavItem[]> = {
     { icon: CheckSquare,   label: 'Chapter Submissions',   href: '/student/milestones' },
     { icon: FileText,      label: 'Weekly Reports',        href: '/student/weekly-reports' },
     { icon: BarChart3,     label: 'My Grades',             href: '/student/grades' },
-    { icon: Calendar,      label: 'Presentation Selection',href: '/student/presentation-selection' },
+    { icon: Calendar,      label: 'Presentation Time',href: '/student/presentation-selection' },
     { icon: Bell,          label: 'Announcements',         href: '/student/announcements' },
     { icon: Calendar,      label: 'Calendar',              href: '/student/calendar' },
     { icon: FolderOpen,    label: 'Important Files',       href: '/student/important-files' },
@@ -76,6 +77,7 @@ export function Sidebar({ user }: SidebarProps) {
   const role = user.activeRole;
   const items = navItems[role] ?? navItems['student'];
   const { unreadCount } = useUnreadAnnouncements(user);
+  const { pendingCount } = usePendingRegistrationsCount(user);
 
   return (
     <div className="w-[280px] h-screen bg-[var(--color-surface-white)] border-r border-[var(--color-border)] flex flex-col fixed left-0 top-0">
@@ -95,7 +97,9 @@ export function Sidebar({ user }: SidebarProps) {
                 : location.pathname.startsWith(item.href);
 
             // Show unread badge only on the plain "Announcements" item (consumers, not managers)
-            const showBadge = item.label === 'Announcements' && unreadCount > 0;
+            const showAnnouncementBadge = item.label === 'Announcements' && unreadCount > 0;
+            // Show pending registrations badge on "User Management" for coordinator/admin
+            const showPendingBadge = item.label === 'User Management' && pendingCount > 0;
 
             return (
               <li key={item.href}>
@@ -109,9 +113,14 @@ export function Sidebar({ user }: SidebarProps) {
                 >
                   <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-[var(--color-primary-600)]' : 'text-[var(--color-text-600)]'}`} />
                   <span className="flex-1">{item.label}</span>
-                  {showBadge && (
+                  {showAnnouncementBadge && (
                     <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-xs font-semibold leading-none">
                       {unreadCount > 99 ? '99+' : unreadCount}
+                    </span>
+                  )}
+                  {showPendingBadge && (
+                    <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-amber-500 text-white text-xs font-semibold leading-none">
+                      {pendingCount > 99 ? '99+' : pendingCount}
                     </span>
                   )}
                 </Link>

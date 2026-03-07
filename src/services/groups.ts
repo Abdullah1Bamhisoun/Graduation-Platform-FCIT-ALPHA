@@ -351,7 +351,7 @@ export async function getGroupsForEvaluation(): Promise<EvaluationGroupsResult> 
 /** Admin updates group project name, removes members, and/or adds members */
 export async function updateGroup(
   groupId: string,
-  changes: { projectName?: string; removeMemberIds?: string[]; addMemberIds?: string[]; removeSupervisor?: boolean }
+  changes: { projectName?: string; removeMemberIds?: string[]; addMemberIds?: string[]; removeSupervisor?: boolean; gender?: string }
 ): Promise<void> {
   const token = await getAdminToken();
   const response = await fetch(`/api/groups/${groupId}`, {

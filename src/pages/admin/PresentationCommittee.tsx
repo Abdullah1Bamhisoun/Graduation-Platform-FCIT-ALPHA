@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { getProfilesByRole } from '../../services/profiles';
 import { getAllGroups } from '../../services/groups';
@@ -7,6 +7,7 @@ import {
   assignPresentationSchedule,
   computeScheduledAt,
   dateToIsoWeek,
+  deletePresentationSchedule,
   getPresentationsByCourse,
   getServerTime,
 } from '../../services/presentations';
@@ -59,6 +60,8 @@ interface TimeSlot {
   projectId?: string;
   course?: '498' | '499';
   conflicts?: string[];
+  /** True once the admin has explicitly saved this slot's supervisor fields via the dialog. */
+  supervisorsModified?: boolean;
 }
 
 interface Project {
@@ -110,7 +113,8 @@ export function AdminPresentationCommittee() {
   // State
   // Coordinators are locked to their assigned course; admins choose explicitly.
   const [course, setCourse] = useState<'498' | '499' | null>(null);
-  const [weekStart, setWeekStart] = useState(() => new Date().toISOString().slice(0, 10));
+  const [weekStart, setWeekStart] = useState(() => dateToIsoWeek(new Date()));
+  const weekInputRef = useRef<HTMLInputElement>(null);
 
   // Planning inputs (will be populated from DB)
   const [numStudents498, setNumStudents498] = useState(0);
@@ -122,6 +126,10 @@ export function AdminPresentationCommittee() {
 
   // Schedule slots (start empty)
   const [slots, setSlots] = useState<TimeSlot[]>([]);
+  // Committee members loaded from DB on init — used as fallback when publishing
+  // a slot whose supervisor field is empty (e.g. after recreating a slot to
+  // change its time without re-selecting the supervisor).
+  const [savedCommitteeMembers, setSavedCommitteeMembers] = useState<Map<string, string[]>>(new Map());
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [supervisors, setSupervisors] = useState<SupervisorAvailability[]>([]);
@@ -178,6 +186,11 @@ export function AdminPresentationCommittee() {
         await Promise.all(courseIds.map(id => getPresentationsByCourse(id)))
       ).flat().filter(s => s.day && s.timeSlot);
 
+      // Store existing committee members keyed by groupId so handlePublish can
+      // fall back to them when a slot has no supervisor set (e.g. after the
+      // admin deletes and recreates a slot to change its time).
+      setSavedCommitteeMembers(new Map(allSaved.map(s => [s.groupId, s.committeeMembers])));
+
       if (allSaved.length > 0) {
         // Set week picker to the week the saved schedules belong to
         const firstWithDate = allSaved.find(s => s.scheduledAt);
@@ -194,7 +207,7 @@ export function AdminPresentationCommittee() {
             day: s.day as TimeSlot['day'],
             startTime: s.timeSlot!,
             endTime: timeInfo?.end ?? '',
-            room: '',
+            room: s.location ?? '',
             supervisor: s.committeeMembers[0] ?? '',
             supervisor2: s.committeeMembers[1],
             status: 'assigned' as const,
@@ -230,6 +243,11 @@ export function AdminPresentationCommittee() {
   const [activeTab, setActiveTab] = useState('schedule');
   const [searchSupervisor, setSearchSupervisor] = useState('');
   const [filterDay, setFilterDay] = useState<string>('all');
+
+  // Auto-assign options
+  const [autoPreferDay, setAutoPreferDay] = useState(true);
+  const [autoBalanceLoad, setAutoBalanceLoad] = useState(true);
+  const [autoAvoidBackToBack, setAutoAvoidBackToBack] = useState(true);
 
   // History for undo/redo
   const [history, setHistory] = useState<TimeSlot[][]>([[]]);
@@ -275,7 +293,8 @@ export function AdminPresentationCommittee() {
 
   // Create new slot
   const handleCreateSlot = (day: typeof DAYS[number], time: string) => {
-    const endTime = calculateEndTime(time, sessionDuration);
+    const timeInfo = TIME_SLOTS.find(t => t.start === time);
+    const endTime = timeInfo?.end ?? '';
     const newSlot: TimeSlot = {
       id: `slot-${Date.now()}`,
       day,
@@ -301,16 +320,39 @@ export function AdminPresentationCommittee() {
   // Save slot
   const handleSaveSlot = () => {
     if (selectedSlot) {
-      // Update existing
-      const newSlots = slots.map(s => s.id === selectedSlot.id ? { ...selectedSlot, ...editingSlot } as TimeSlot : s);
+      // Update existing — mark supervisorsModified so handlePublish knows the
+      // admin explicitly reviewed (and potentially changed) the supervisor fields.
+      const newSlots = slots.map(s => s.id === selectedSlot.id ? { ...selectedSlot, ...editingSlot, supervisorsModified: true } as TimeSlot : s);
       setSlots(newSlots);
       addToHistory(newSlots);
+
+      // Sync projects: unassign old project, assign new project
+      const oldProjectId = selectedSlot.projectId;
+      const newProjectId = (editingSlot as Partial<TimeSlot>).projectId;
+      if (oldProjectId !== newProjectId) {
+        setProjects(projects.map(p => {
+          if (p.id === oldProjectId) return { ...p, status: 'unassigned' as const };
+          if (p.id === newProjectId) return { ...p, status: 'assigned' as const };
+          return p;
+        }));
+      }
+
       toast.success('Slot updated');
     } else {
-      // Create new
-      const newSlots = [...slots, editingSlot as TimeSlot];
+      // Create new — mark supervisorsModified so handlePublish knows the admin
+      // explicitly reviewed the supervisor fields for this new slot.
+      const newSlots = [...slots, { ...editingSlot, supervisorsModified: true } as TimeSlot];
       setSlots(newSlots);
       addToHistory(newSlots);
+
+      // Mark the selected project as assigned
+      const newProjectId = (editingSlot as Partial<TimeSlot>).projectId;
+      if (newProjectId) {
+        setProjects(projects.map(p =>
+          p.id === newProjectId ? { ...p, status: 'assigned' as const } : p
+        ));
+      }
+
       toast.success('Slot created');
     }
     setShowSlotDialog(false);
@@ -319,6 +361,13 @@ export function AdminPresentationCommittee() {
 
   // Delete slot
   const handleDeleteSlot = (slotId: string) => {
+    // If the slot had an assigned project, return it to the unassigned pool
+    const slot = slots.find(s => s.id === slotId);
+    if (slot?.projectId) {
+      setProjects(projects.map(p =>
+        p.id === slot.projectId ? { ...p, status: 'unassigned' as const } : p
+      ));
+    }
     const newSlots = slots.filter(s => s.id !== slotId);
     setSlots(newSlots);
     addToHistory(newSlots);
@@ -346,25 +395,187 @@ export function AdminPresentationCommittee() {
   const handleUnassignProject = (slotId: string) => {
     const slot = slots.find(s => s.id === slotId);
     if (slot?.projectId) {
-      const newProjects = projects.map(p => 
+      const newProjects = projects.map(p =>
         p.id === slot.projectId ? { ...p, status: 'unassigned' as const } : p
       );
       setProjects(newProjects);
     }
-    const newSlots = slots.map(s => 
-      s.id === slotId 
+    const newSlots = slots.map(s =>
+      s.id === slotId
         ? { ...s, status: 'offered' as const, projectName: undefined, projectId: undefined, course: undefined }
         : s
     );
     setSlots(newSlots);
     addToHistory(newSlots);
+    // Clear selectedSlot so the dialog immediately reflects the unassigned state
+    setSelectedSlot(prev =>
+      prev?.id === slotId
+        ? { ...prev, status: 'offered', projectName: undefined, projectId: undefined, course: undefined }
+        : prev
+    );
+    setEditingSlot(prev => ({ ...prev, status: 'offered', projectName: undefined, projectId: undefined, course: undefined }));
     toast.success('Project unassigned');
   };
 
   // Auto-assign
+  // Rule: a committee member may have AT MOST 4 consecutive sessions in a single day.
   const handleAutoAssign = () => {
-    toast.success('Auto-assign completed');
+    const offeredSlots = slots.filter(s => s.status === 'offered' && !s.projectId);
+    const unassigned = projects.filter(
+      p => p.status === 'unassigned' && (course === null || p.course === course)
+    );
+
+    if (offeredSlots.length === 0) {
+      toast.error('No available (offered) slots to fill. Create slots first.');
+      setShowAutoAssignDialog(false);
+      return;
+    }
+    if (unassigned.length === 0) {
+      toast.error('No unassigned projects to place.');
+      setShowAutoAssignDialog(false);
+      return;
+    }
+
+    // committeeLoad[supervisorName][day] = sorted array of TIME_SLOTS indices already assigned
+    const committeeLoad: Record<string, Record<string, number[]>> = {};
+
+    // Seed load from already-assigned slots
+    slots
+      .filter(s => s.status === 'assigned')
+      .forEach(s => {
+        const idx = TIME_SLOTS.findIndex(t => t.start === s.startTime);
+        [s.supervisor, s.supervisor2].filter(Boolean).forEach(name => {
+          if (!name) return;
+          committeeLoad[name] ??= {};
+          committeeLoad[name][s.day] ??= [];
+          if (!committeeLoad[name][s.day].includes(idx)) committeeLoad[name][s.day].push(idx);
+        });
+      });
+
+    // groupSessionsInDay[groupId][day] = TIME_SLOTS indices → used for back-to-back avoidance
+    const groupSessionsInDay: Record<string, Record<string, number[]>> = {};
+    slots
+      .filter(s => s.status === 'assigned' && s.projectId)
+      .forEach(s => {
+        const idx = TIME_SLOTS.findIndex(t => t.start === s.startTime);
+        groupSessionsInDay[s.projectId!] ??= {};
+        groupSessionsInDay[s.projectId!][s.day] ??= [];
+        groupSessionsInDay[s.projectId!][s.day].push(idx);
+      });
+
+    /** Returns true only if adding timeIdx to this supervisor's day keeps max-consecutive ≤ 4 */
+    const canAssign = (name: string, day: string, timeIdx: number): boolean => {
+      const existing = [...(committeeLoad[name]?.[day] ?? []), timeIdx].sort((a, b) => a - b);
+      let run = 1;
+      for (let i = 1; i < existing.length; i++) {
+        run = existing[i] === existing[i - 1] + 1 ? run + 1 : 1;
+        if (run > 4) return false;
+      }
+      return true;
+    };
+
+    const recordAssignment = (name: string, day: string, timeIdx: number) => {
+      committeeLoad[name] ??= {};
+      committeeLoad[name][day] ??= [];
+      committeeLoad[name][day].push(timeIdx);
+    };
+
+    const totalLoad = (name: string) =>
+      Object.values(committeeLoad[name] ?? {}).flat().length;
+
+    // Sort offered slots: prefer slots on the group's preferred day first (if option on)
+    // We'll sort projects into slots greedily.
+    let remainingProjects = [...unassigned];
+    const newSlots = slots.map(s => ({ ...s }));
+    const newProjects = projects.map(p => ({ ...p }));
+    let assigned = 0;
+
+    // Work slot-by-slot
+    for (const slot of offeredSlots) {
+      if (remainingProjects.length === 0) break;
+
+      const timeIdx = TIME_SLOTS.findIndex(t => t.start === slot.startTime);
+
+      // Pick a project: prefer one that prefers this day, otherwise any
+      let projectIdx = -1;
+      if (autoPreferDay) {
+        projectIdx = remainingProjects.findIndex(
+          p => p.preferredDay?.toLowerCase() === slot.day.toLowerCase()
+        );
+      }
+      if (projectIdx === -1) projectIdx = 0; // fallback: first remaining
+
+      const project = remainingProjects[projectIdx];
+      const groupSupervisorName = project.supervisor?.trim().toLowerCase();
+
+      // Avoid placing same group back-to-back on the same day
+      if (autoAvoidBackToBack && project.id) {
+        const existingSessions = groupSessionsInDay[project.id]?.[slot.day] ?? [];
+        if (existingSessions.includes(timeIdx - 1) || existingSessions.includes(timeIdx + 1)) {
+          // Try another project instead
+          const altIdx = remainingProjects.findIndex(
+            (p, i) => i !== projectIdx && !(
+              (groupSessionsInDay[p.id]?.[slot.day] ?? []).includes(timeIdx - 1) ||
+              (groupSessionsInDay[p.id]?.[slot.day] ?? []).includes(timeIdx + 1)
+            )
+          );
+          if (altIdx !== -1) projectIdx = altIdx;
+          // If no alt found, continue with original (best effort)
+        }
+      }
+
+      const chosenProject = remainingProjects[projectIdx];
+      const chosenGroupSupervisor = chosenProject.supervisor?.trim().toLowerCase();
+
+      // Pick committee members: eligible = not the group's own supervisor + passes consecutive rule
+      const eligible = supervisors.filter(s => {
+        if (chosenGroupSupervisor && s.name.trim().toLowerCase() === chosenGroupSupervisor) return false;
+        return canAssign(s.name, slot.day, timeIdx);
+      });
+
+      if (autoBalanceLoad) {
+        eligible.sort((a, b) => totalLoad(a.name) - totalLoad(b.name));
+      }
+
+      const member1 = eligible[0];
+      // member2 must also differ from member1
+      const member2 = eligible.find(s => s.id !== member1?.id);
+
+      // Apply to slot
+      const slotIdx = newSlots.findIndex(s => s.id === slot.id);
+      if (slotIdx !== -1) {
+        newSlots[slotIdx] = {
+          ...newSlots[slotIdx],
+          status: 'assigned',
+          projectName: chosenProject.name,
+          projectId: chosenProject.id,
+          course: chosenProject.course,
+          supervisor: member1?.name ?? '',
+          supervisor2: member2?.name,
+          supervisorsModified: true,
+        };
+      }
+
+      if (member1) recordAssignment(member1.name, slot.day, timeIdx);
+      if (member2) recordAssignment(member2.name, slot.day, timeIdx);
+
+      // Track group sessions for back-to-back check
+      groupSessionsInDay[chosenProject.id] ??= {};
+      groupSessionsInDay[chosenProject.id][slot.day] ??= [];
+      groupSessionsInDay[chosenProject.id][slot.day].push(timeIdx);
+
+      const projIdx = newProjects.findIndex(p => p.id === chosenProject.id);
+      if (projIdx !== -1) newProjects[projIdx] = { ...newProjects[projIdx], status: 'assigned' };
+
+      remainingProjects.splice(projectIdx, 1);
+      assigned++;
+    }
+
+    setSlots(newSlots);
+    setProjects(newProjects);
+    addToHistory(newSlots);
     setShowAutoAssignDialog(false);
+    toast.success(`Auto-assigned ${assigned} project(s) — committee members capped at 4 consecutive sessions/day`);
   };
 
   // Publish — saves assigned slots to backend with server-side date validation
@@ -384,32 +595,70 @@ export function AdminPresentationCommittee() {
     // Fetch server time for frontend pre-validation (backend always re-validates)
     const serverNow = await getServerTime();
 
-    // Pre-check all slots: compute scheduledAt and ensure they are in the future
-    const invalids: string[] = [];
-    for (const slot of assignedSlots) {
-      const scheduledAt = computeScheduledAt(weekStart, slot.day, slot.startTime);
-      if (!scheduledAt || scheduledAt <= serverNow) {
-        invalids.push(`${slot.day} ${slot.startTime}${slot.projectName ? ` (${slot.projectName})` : ''}`);
+    // Admins can publish any date; coordinators are restricted to future slots only.
+    let publishable = assignedSlots;
+    if (isCoordinator) {
+      const skipped: string[] = [];
+      publishable = assignedSlots.filter(slot => {
+        const scheduledAt = computeScheduledAt(weekStart, slot.day, slot.startTime);
+        if (!scheduledAt || scheduledAt <= serverNow) {
+          skipped.push(`${slot.day} ${slot.startTime}${slot.projectName ? ` (${slot.projectName})` : ''}`);
+          return false;
+        }
+        return true;
+      });
+      if (publishable.length === 0) {
+        toast.error(`All slots are in the past and cannot be published:\n${skipped.join(', ')}`);
+        return;
+      }
+      if (skipped.length > 0) {
+        toast.warning(`Skipping ${skipped.length} past slot(s): ${skipped.join(', ')}`);
       }
     }
-    if (invalids.length > 0) {
-      toast.error(`These slots are in the past and cannot be published:\n${invalids.join(', ')}`);
-      return;
+
+    // Warn if any slots will publish without committee members.
+    // Slots that were never opened in the dialog (supervisorsModified = false)
+    // automatically fall back to saved DB committee members, so they only show
+    // this warning if there are no saved members for that group either.
+    const noCommitteeSlots = publishable.filter(slot => {
+      const fromSlot = [slot.supervisor, slot.supervisor2].filter(Boolean);
+      if (fromSlot.length > 0) return false;
+      if (!slot.supervisorsModified && slot.projectId && savedCommitteeMembers.get(slot.projectId)?.length) return false;
+      return true;
+    });
+    if (noCommitteeSlots.length > 0) {
+      toast.warning(
+        `${noCommitteeSlots.length} slot(s) have no committee members — supervisors won't see those groups for evaluation. Open each slot to assign committee members.`
+      );
     }
 
     setPublishing(true);
     let successCount = 0;
     const errors: string[] = [];
 
-    for (const slot of assignedSlots) {
-      const scheduledAt = computeScheduledAt(weekStart, slot.day, slot.startTime)!;
+    for (const slot of publishable) {
+      const scheduledAt = computeScheduledAt(weekStart, slot.day, slot.startTime) ?? serverNow;
+
+      // Determine committee members: use slot's supervisors if the admin
+      // explicitly reviewed them (supervisorsModified = true); otherwise fall
+      // back to the committee members saved in the DB for this group so that
+      // "change the time" workflows don't accidentally clear assignments.
+      const fromSlot = [slot.supervisor, slot.supervisor2].filter(Boolean) as string[];
+      const committeeMembers =
+        fromSlot.length > 0
+          ? fromSlot
+          : !slot.supervisorsModified && slot.projectId
+          ? (savedCommitteeMembers.get(slot.projectId) ?? [])
+          : [];
+
       try {
         await assignPresentationSchedule({
           groupId: slot.projectId!,
           scheduledAt: scheduledAt.toISOString(),
           day: slot.day,
           timeSlot: slot.startTime,
-          committeeMembers: [slot.supervisor, slot.supervisor2].filter(Boolean) as string[],
+          committeeMembers,
+          location: slot.room || undefined,
         });
         successCount++;
       } catch (err: any) {
@@ -432,15 +681,29 @@ export function AdminPresentationCommittee() {
     toast.success('Downloading schedule...');
   };
 
-  // Reset schedule
-  const handleReset = () => {
-    if (confirm('Reset all assignments? This cannot be undone.')) {
+  // Reset schedule — clears UI state and deletes published DB records so
+  // supervisors no longer see stale committee assignments.
+  const handleReset = async () => {
+    if (confirm('Reset all assignments? This will also remove published committee assignments visible to supervisors. This cannot be undone.')) {
+      // Delete all previously-published schedules from the DB
+      const publishedGroupIds = Array.from(savedCommitteeMembers.keys());
+      if (publishedGroupIds.length > 0) {
+        const results = await Promise.allSettled(
+          publishedGroupIds.map(id => deletePresentationSchedule(id))
+        );
+        const failed = results.filter(r => r.status === 'rejected').length;
+        if (failed > 0) {
+          toast.error(`Reset partially failed: ${failed} schedule(s) could not be removed from the database`);
+        }
+        setSavedCommitteeMembers(new Map());
+      }
+
       const newSlots = slots.map(s => ({ ...s, status: 'offered' as const, projectName: undefined, projectId: undefined, course: undefined }));
       const newProjects = projects.map(p => ({ ...p, status: 'unassigned' as const }));
       setSlots(newSlots);
       setProjects(newProjects);
       addToHistory(newSlots);
-      toast.success('Schedule reset');
+      toast.success('Schedule reset — supervisor assignments cleared');
     }
   };
 
@@ -499,16 +762,26 @@ export function AdminPresentationCommittee() {
             </button>
           </div>
 
-          <Input
+          {/* Hidden native week picker — triggered by the button below */}
+          <input
+            ref={weekInputRef}
             type="week"
             value={weekStart}
             onChange={(e) => setWeekStart(e.target.value)}
-            className="w-[180px]"
+            style={{ position: 'absolute', width: 0, height: 0, opacity: 0, pointerEvents: 'none' }}
           />
-
-          <Button variant="outline" size="sm">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              try { weekInputRef.current?.showPicker(); }
+              catch { weekInputRef.current?.click(); }
+            }}
+          >
             <Plus className="w-4 h-4 mr-2" />
-            Add Week
+            {/^\d{4}-W\d{2}$/.test(weekStart)
+              ? `Week ${parseInt(weekStart.split('-W')[1], 10)} · ${weekStart.split('-W')[0]}`
+              : 'Add Week'}
           </Button>
 
           <Button variant="outline" size="sm" onClick={handleDownload}>
@@ -734,7 +1007,9 @@ export function AdminPresentationCommittee() {
                                         </div>
                                         <div className="flex items-center gap-1 text-xs text-[var(--color-text-600)]">
                                           <Users className="w-3 h-3" />
-                                          <span className="truncate">{slot.supervisor.split(' ')[1]}</span>
+                                          <span className="truncate">
+                                            {[slot.supervisor, slot.supervisor2].filter(Boolean).join(', ')}
+                                          </span>
                                         </div>
                                         <div className="flex items-center gap-1 text-xs text-[var(--color-text-600)] mt-1">
                                           <MapPin className="w-3 h-3" />
@@ -936,6 +1211,64 @@ export function AdminPresentationCommittee() {
           </DialogHeader>
 
           <div className="space-y-4 py-4">
+            {/* Supervisors eligible as committee members: exclude the group's own supervisor */}
+            {(() => {
+              const assignedProject = projects.find(p => p.id === (editingSlot.projectId ?? selectedSlot?.projectId));
+              const groupSupervisorName = assignedProject?.supervisor?.trim().toLowerCase();
+              const eligibleSupervisors = supervisors.filter(s =>
+                !groupSupervisorName || s.name.trim().toLowerCase() !== groupSupervisorName
+              );
+              const lockHint = groupSupervisorName
+                ? `${assignedProject!.supervisor} (group supervisor — cannot be committee member)`
+                : null;
+
+              return (
+                <>
+                  {lockHint && (
+                    <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+                      <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                      {lockHint}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label>Committee Member 1</Label>
+                      <Select
+                        value={editingSlot.supervisor}
+                        onValueChange={(value) => setEditingSlot({ ...editingSlot, supervisor: value, status: 'offered' })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select supervisor" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {eligibleSupervisors.map((sup) => (
+                            <SelectItem key={sup.id} value={sup.name}>{sup.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Committee Member 2</Label>
+                      <Select
+                        value={editingSlot.supervisor2 || 'none'}
+                        onValueChange={(value) => setEditingSlot({ ...editingSlot, supervisor2: value === 'none' ? undefined : value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select supervisor" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">None</SelectItem>
+                          {eligibleSupervisors.map((sup) => (
+                            <SelectItem key={sup.id} value={sup.name}>{sup.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Day</Label>
@@ -960,42 +1293,6 @@ export function AdminPresentationCommittee() {
                   onChange={(e) => setEditingSlot({ ...editingSlot, room: e.target.value })}
                   placeholder="Room A-101"
                 />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Supervisor 1</Label>
-                <Select
-                  value={editingSlot.supervisor}
-                  onValueChange={(value) => setEditingSlot({ ...editingSlot, supervisor: value, status: 'offered' })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select supervisor" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {supervisors.map((sup) => (
-                      <SelectItem key={sup.id} value={sup.name}>{sup.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Supervisor 2</Label>
-                <Select
-                  value={editingSlot.supervisor2 || 'none'}
-                  onValueChange={(value) => setEditingSlot({ ...editingSlot, supervisor2: value === 'none' ? undefined : value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select supervisor" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    {supervisors.map((sup) => (
-                      <SelectItem key={sup.id} value={sup.name}>{sup.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
               </div>
             </div>
 
@@ -1109,20 +1406,24 @@ export function AdminPresentationCommittee() {
           <div className="space-y-4 py-4">
             <div className="flex items-center justify-between">
               <Label>Prefer preferred day</Label>
-              <Switch defaultChecked />
+              <Switch checked={autoPreferDay} onCheckedChange={setAutoPreferDay} />
             </div>
             <div className="flex items-center justify-between">
               <Label>Balance supervisor load</Label>
-              <Switch defaultChecked />
+              <Switch checked={autoBalanceLoad} onCheckedChange={setAutoBalanceLoad} />
             </div>
             <div className="flex items-center justify-between">
               <Label>Avoid back-to-back for same group</Label>
-              <Switch defaultChecked />
+              <Switch checked={autoAvoidBackToBack} onCheckedChange={setAutoAvoidBackToBack} />
             </div>
 
-            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-1">
               <p className="text-sm text-blue-900">
-                This will assign {getUnassignedProjects().length} unassigned projects to available slots.
+                This will assign <strong>{getUnassignedProjects().length}</strong> project(s) to{' '}
+                <strong>{slots.filter(s => s.status === 'offered').length}</strong> available slot(s).
+              </p>
+              <p className="text-xs text-blue-700">
+                Committee members are capped at <strong>4 consecutive sessions</strong> per day and the group's own supervisor is excluded.
               </p>
             </div>
           </div>

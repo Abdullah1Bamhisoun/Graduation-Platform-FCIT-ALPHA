@@ -12,6 +12,7 @@ export function CoordinatorCourseGrades() {
   const [courseLoading, setCourseLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [groupsRefreshKey, setGroupsRefreshKey] = useState(0);
+  const [chapterRefreshKey, setChapterRefreshKey] = useState(0);
 
   useEffect(() => {
     if (!user?.coordinatorCourseId) {
@@ -87,6 +88,7 @@ export function CoordinatorCourseGrades() {
               courseType={assignedCourseType}
               courseId={user?.coordinatorCourseId ?? ''}
               onGradeSaved={() => setGroupsRefreshKey((k) => k + 1)}
+              refreshKey={chapterRefreshKey}
             />
           </TabsContent>
 
@@ -94,6 +96,7 @@ export function CoordinatorCourseGrades() {
             <CoordinatorGroupsEvaluationTab
               courseType={assignedCourseType}
               refreshKey={groupsRefreshKey}
+              onEvaluationSaved={() => setChapterRefreshKey((k) => k + 1)}
             />
           </TabsContent>
         </Tabs>

@@ -7,21 +7,23 @@ import { Textarea } from '../../components/ui/textarea';
 import { useAuth } from '../../lib/AuthContext';
 import { getMilestoneById } from '../../services/milestones';
 import {
-  getSubmissionByMilestoneAndStudent,
+  getSubmissionByMilestoneAndGroup,
   createSubmission,
   createSubmissionVersion,
 } from '../../services/submissions';
 import { getGroupForStudent, GroupData } from '../../services/groups';
 import { uploadSubmissionFile, getSignedUrl, deleteStorageFile } from '../../services/storage';
-import { Upload, FileText, Clock, MessageSquare, Download, X, AlertCircle, Lock, Send, Loader2, Eye } from 'lucide-react';
+import { Upload, FileText, Clock, MessageSquare, Download, X, AlertCircle, Lock, Send, Loader2, Eye, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Milestone, Submission } from '../../types';
 import { useLockStatus } from '../../hooks/useLockStatus';
 import { LockedBanner } from '../../components/ui/LockedBanner';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 
 interface SubmissionComment {
   id: string;
   content: string;
+  authorId: string;
   authorName: string;
   authorRole: 'student' | 'supervisor';
   createdAt: string;
@@ -45,14 +47,17 @@ export function StudentSubmissionDetail() {
 
   useEffect(() => {
     if (!user || !id) return;
+    // Load milestone and group in parallel, then look up submission by group
     Promise.all([
       getMilestoneById(id),
-      getSubmissionByMilestoneAndStudent(id, user.id),
       getGroupForStudent(user.id),
-    ]).then(([m, s, g]) => {
+    ]).then(async ([m, g]) => {
       setMilestone(m);
-      setSubmission(s ?? undefined);
       setGroup(g);
+      if (g) {
+        const s = await getSubmissionByMilestoneAndGroup(id, g.id);
+        setSubmission(s ?? undefined);
+      }
     }).finally(() => setLoading(false));
   }, [user, id]);
 
@@ -82,6 +87,8 @@ export function StudentSubmissionDetail() {
   const [comments, setComments] = useState<SubmissionComment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [commentPosting, setCommentPosting] = useState(false);
+  const [viewerUrl, setViewerUrl] = useState<string | null>(null);
+  const [viewerFileName, setViewerFileName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!user) return null;
@@ -195,10 +202,11 @@ export function StudentSubmissionDetail() {
     }
   };
 
-  const handleView = async (filePath: string) => {
+  const handleView = async (filePath: string, fileName?: string) => {
     try {
       const url = await getSignedUrl(filePath);
-      window.open(url, '_blank');
+      setViewerFileName(fileName ?? filePath.split('/').pop() ?? 'File');
+      setViewerUrl(url);
     } catch {
       toast.error('Failed to get file URL');
     }
@@ -223,7 +231,9 @@ export function StudentSubmissionDetail() {
   const dueDate = new Date(milestone.dueDate);
   const isBeforeOpen = now < openDate;
   const isPastDeadline = now > dueDate;
-  const uploadsBlocked = isLocked || (isPastDeadline && !milestone.allowLateSubmission);
+  // Block uploads if: platform locked, deadline passed, OR submission already exists from a teammate
+  const submittedByTeammate = !!submission && submission.studentId !== user.id;
+  const uploadsBlocked = isLocked || (isPastDeadline && !milestone.allowLateSubmission) || submittedByTeammate;
 
   return (
     <Layout user={user} pageTitle={milestone.name}>
@@ -252,7 +262,19 @@ export function StudentSubmissionDetail() {
         <div className="col-span-2 space-y-6">
           {/* Upload Area */}
           <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
-            <h2 className="text-[var(--color-text-900)] mb-4">Upload Submission</h2>
+            <h2 className="text-[var(--color-text-900)] mb-4">
+              {submittedByTeammate ? 'Chapter Submission' : submission ? 'Update Submission' : 'Upload Submission'}
+            </h2>
+
+            {/* Teammate submitted banner */}
+            {submittedByTeammate && (
+              <div className="flex items-center gap-3 p-4 rounded-lg bg-blue-50 border border-blue-200 mb-4">
+                <AlertCircle className="w-5 h-5 text-blue-500 shrink-0" />
+                <p className="text-blue-700 text-sm">
+                  This chapter was submitted by <span className="font-semibold">{submission.studentName}</span>. All group members share this submission.
+                </p>
+              </div>
+            )}
 
             {/* Submission Closed banner */}
             {isPastDeadline && !milestone.allowLateSubmission && (
@@ -391,7 +413,7 @@ export function StudentSubmissionDetail() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => handleView(version.filePath!)}
+                            onClick={() => handleView(version.filePath!, version.fileName)}
                           >
                             <Eye className="w-4 h-4 mr-2" />
                             View
@@ -442,8 +464,50 @@ export function StudentSubmissionDetail() {
           )}
         </div>
 
-        {/* Right Column - Timeline & Comments */}
+        {/* Right Column - Group Info, Timeline & Comments */}
         <div className="space-y-6">
+          {/* Group Info Card */}
+          <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
+            <h2 className="text-[var(--color-text-900)] mb-4 flex items-center gap-2">
+              <Users className="w-5 h-5" />
+              Group Submission
+            </h2>
+            {submission && (
+              <div className="mb-3 pb-3 border-b border-[var(--color-border)]">
+                <p className="text-xs text-[var(--color-text-600)] mb-1">Submitted by</p>
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs font-semibold">
+                    {submission.studentName.charAt(0).toUpperCase()}
+                  </div>
+                  <span className="text-sm font-medium text-[var(--color-text-900)]">
+                    {submission.studentName}
+                    {submission.studentId === user.id && (
+                      <span className="ml-1.5 text-xs text-[var(--color-text-600)]">(you)</span>
+                    )}
+                  </span>
+                </div>
+                <p className="text-xs text-[var(--color-text-600)] mt-1">
+                  {new Date(submission.submittedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                </p>
+              </div>
+            )}
+            <p className="text-xs text-[var(--color-text-600)] mb-2">Group Members</p>
+            <div className="flex flex-wrap gap-1.5">
+              {(submission?.groupMembers ?? group?.members ?? []).map((m) => (
+                <span
+                  key={m.id}
+                  className={`text-xs px-2 py-0.5 rounded-full border ${
+                    m.id === user.id
+                      ? 'bg-[var(--color-primary-100)] text-[var(--color-primary-700)] border-[var(--color-primary-200)] font-semibold'
+                      : 'bg-[var(--color-surface-alt)] text-[var(--color-text-600)] border-[var(--color-border)]'
+                  }`}
+                >
+                  {m.name}{m.id === user.id ? ' (you)' : ''}
+                </span>
+              ))}
+            </div>
+          </div>
+
           {/* Status Timeline */}
           <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
             <h2 className="text-[var(--color-text-900)] mb-4">Status Timeline</h2>
@@ -521,27 +585,40 @@ export function StudentSubmissionDetail() {
                 </p>
               ) : (
                 comments.map((c) => {
-                  const isMe = c.authorRole === 'student';
+                  const isMe = c.authorId === user.id;
+                  const isSupervisor = c.authorRole === 'supervisor';
+                  const alignRight = isMe;
+
+                  const avatarColor = isMe
+                    ? 'bg-emerald-500'
+                    : isSupervisor
+                    ? 'bg-[var(--color-primary-600)]'
+                    : 'bg-violet-500';
+
+                  const bubbleClass = isMe
+                    ? 'bg-emerald-500 text-white rounded-tr-sm'
+                    : isSupervisor
+                    ? 'bg-[var(--color-surface-alt)] text-[var(--color-text-900)] border border-[var(--color-border)] rounded-tl-sm'
+                    : 'bg-violet-100 text-violet-900 border border-violet-200 rounded-tl-sm';
+
+                  const label = isMe
+                    ? `${c.authorName} · You`
+                    : isSupervisor
+                    ? `${c.authorName} · Supervisor`
+                    : c.authorName;
+
                   return (
-                    <div key={c.id} className={`flex gap-2 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
+                    <div key={c.id} className={`flex gap-2 ${alignRight ? 'flex-row-reverse' : 'flex-row'}`}>
                       <div
-                        className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0 ${
-                          isMe ? 'bg-emerald-500' : 'bg-[var(--color-primary-600)]'
-                        }`}
+                        className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0 ${avatarColor}`}
                       >
                         {c.authorName.charAt(0).toUpperCase()}
                       </div>
-                      <div className={`max-w-[80%] flex flex-col gap-0.5 ${isMe ? 'items-end' : 'items-start'}`}>
+                      <div className={`max-w-[80%] flex flex-col gap-0.5 ${alignRight ? 'items-end' : 'items-start'}`}>
                         <span className="text-[10px] text-[var(--color-text-500)] px-1">
-                          {c.authorName} · {isMe ? 'You' : 'Supervisor'}
+                          {label}
                         </span>
-                        <div
-                          className={`rounded-2xl px-3 py-2 text-sm ${
-                            isMe
-                              ? 'bg-emerald-500 text-white rounded-tr-sm'
-                              : 'bg-[var(--color-surface-alt)] text-[var(--color-text-900)] border border-[var(--color-border)] rounded-tl-sm'
-                          }`}
-                        >
+                        <div className={`rounded-2xl px-3 py-2 text-sm ${bubbleClass}`}>
                           {c.content}
                         </div>
                         <span className="text-[10px] text-[var(--color-text-400)] px-1">
@@ -633,6 +710,34 @@ export function StudentSubmissionDetail() {
           </div>
         </div>
       </div>
+
+      {/* Full-screen File Viewer */}
+      <Dialog open={!!viewerUrl} onOpenChange={(open) => { if (!open) setViewerUrl(null); }}>
+        <DialogContent className="!inset-0 !translate-x-0 !translate-y-0 !top-0 !left-0 !max-w-full !w-screen !h-screen !rounded-none flex flex-col p-0 gap-0">
+          <DialogHeader className="px-6 py-3 border-b border-gray-200 flex-shrink-0 flex flex-row items-center justify-between">
+            <DialogTitle className="text-base font-medium truncate">{viewerFileName}</DialogTitle>
+            <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+              <a
+                href={viewerUrl ?? ''}
+                download={viewerFileName}
+                className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md border border-[var(--color-border)] hover:bg-[var(--color-surface-alt)] transition-colors"
+              >
+                <Download className="w-4 h-4" />
+                Download
+              </a>
+            </div>
+          </DialogHeader>
+          <div className="flex-1 overflow-hidden">
+            {viewerUrl && (
+              <iframe
+                src={viewerUrl}
+                className="w-full h-full border-0"
+                title={viewerFileName}
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 }

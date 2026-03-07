@@ -505,7 +505,7 @@ export function CoordinatorGradeSchemeEditor() {
                     />
                   </div>
 
-                  {compCriteria.length > 0 && (
+                  {!isAutoCalc && (
                     <button
                       onClick={() => toggleExpand(`${courseType}-${comp.componentKey}`)}
                       className="p-1.5 rounded-lg hover:bg-white/60 transition-colors"
@@ -520,7 +520,7 @@ export function CoordinatorGradeSchemeEditor() {
               </div>
 
               {/* Criteria table (expanded) */}
-              {isExpanded && compCriteria.length > 0 && (
+              {isExpanded && !isAutoCalc && (
                 <div className="border-t border-[var(--color-border)] bg-white/70">
                   <div className="px-4 py-3 flex items-center justify-between border-b border-[var(--color-border)]">
                     <div>
@@ -545,6 +545,11 @@ export function CoordinatorGradeSchemeEditor() {
                     </Button>
                   </div>
 
+                  {compCriteria.length === 0 ? (
+                    <div className="px-4 py-6 text-center text-sm text-[var(--color-text-600)]">
+                      No criteria defined yet.
+                    </div>
+                  ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead className="bg-[var(--color-surface-alt)] border-b border-[var(--color-border)]">
@@ -583,6 +588,7 @@ export function CoordinatorGradeSchemeEditor() {
                       </tfoot>
                     </table>
                   </div>
+                  )}
                 </div>
               )}
             </div>

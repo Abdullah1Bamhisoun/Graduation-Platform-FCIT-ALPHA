@@ -532,7 +532,9 @@ export function SupervisorEvaluateGroup() {
                       {isOpen && (
                         <div className="border-t border-[var(--color-border)] bg-gray-50 px-5 py-5">
                           <div className="space-y-3">
-                            {Array.from({ length: criterion.maxRawScore }, (_, i) => i + 1).map((s) => {
+                            {Array.from({ length: criterion.maxRawScore }, (_, i) => i + 1)
+                              .filter((s) => !!(criterion[`description${s}` as keyof RubricCriterion] as string | undefined))
+                              .map((s) => {
                               const desc = criterion[`description${s}` as keyof RubricCriterion] as string | undefined;
                               const isSelected = score === s;
 

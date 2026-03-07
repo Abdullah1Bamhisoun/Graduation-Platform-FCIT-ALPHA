@@ -91,6 +91,10 @@ export interface Submission {
   versions: SubmissionVersion[];
   currentVersion: number;
   feedback?: Feedback;
+  /** The group this submission belongs to */
+  groupId?: string;
+  /** All members of the group */
+  groupMembers?: { id: string; name: string }[];
 }
 
 export interface SubmissionVersion {

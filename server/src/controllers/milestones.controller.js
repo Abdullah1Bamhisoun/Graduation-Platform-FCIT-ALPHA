@@ -129,7 +129,6 @@ async function createMilestone(req, res) {
       '',
       `Submission opens: ${openDateFormatted}`,
       `Submission deadline: ${dueDateFormatted}`,
-      `[ref:milestone:${milestone.id}]`,
     ].join('\n');
 
     const { error: aErr } = await supabaseAdmin.from('announcements').insert({

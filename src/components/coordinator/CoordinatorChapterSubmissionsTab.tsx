@@ -65,6 +65,12 @@ export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGrade
   const [gradeInput, setGradeInput] = useState<string>('');
   const [isSavingGrade, setIsSavingGrade] = useState(false);
 
+  // View file modal state
+  const [viewModalOpen, setViewModalOpen] = useState(false);
+  const [viewModalUrl, setViewModalUrl] = useState<string>('');
+  const [viewModalName, setViewModalName] = useState<string>('');
+  const [viewModalLoading, setViewModalLoading] = useState(false);
+
   // Track current user id
   const userIdRef = useRef<string | null>(null);
 
@@ -218,24 +224,30 @@ export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGrade
     }
   };
 
-  const handleView = async (filePath: string) => {
-    // Open tab immediately (synchronous) to avoid popup blockers,
-    // then navigate it to a blob URL so Content-Disposition: attachment is bypassed.
-    const newTab = window.open('', '_blank');
+  const handleView = async (filePath: string, fileName: string) => {
+    setViewModalName(fileName);
+    setViewModalUrl('');
+    setViewModalOpen(true);
+    setViewModalLoading(true);
     try {
       const url = await getSignedUrl(filePath);
-      const response = await fetch(url);
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      if (newTab) {
-        newTab.location.href = blobUrl;
+      const ext = filePath.split('.').pop()?.toLowerCase();
+      if (ext === 'pdf') {
+        // Fetch as blob so Content-Disposition: attachment is bypassed in the iframe
+        const response = await fetch(url);
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        setViewModalUrl(blobUrl);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
       } else {
-        window.open(blobUrl, '_blank');
+        // Office / other formats — use Google Docs Viewer
+        setViewModalUrl(`https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`);
       }
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
     } catch {
-      newTab?.close();
+      setViewModalOpen(false);
       toast.error('Failed to open file');
+    } finally {
+      setViewModalLoading(false);
     }
   };
 
@@ -420,7 +432,7 @@ export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGrade
                                 size="sm"
                                 variant="outline"
                                 className="h-7 text-xs gap-1 border-blue-300 text-blue-700 hover:bg-blue-50"
-                                onClick={() => handleView(filePath)}
+                                onClick={() => handleView(filePath, fileName)}
                               >
                                 <Eye className="w-3 h-3" />
                                 View
@@ -446,6 +458,32 @@ export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGrade
           </table>
         </div>
       </Card>
+
+      {/* File Viewer Modal — full screen */}
+      <Dialog open={viewModalOpen} onOpenChange={(open) => { if (!open) { setViewModalOpen(false); setViewModalUrl(''); } }}>
+        <DialogContent className="!inset-0 !translate-x-0 !translate-y-0 !top-0 !left-0 !max-w-full !w-screen !h-screen !rounded-none flex flex-col p-0 gap-0">
+          <DialogHeader className="px-6 py-3 border-b border-gray-200 flex-shrink-0 flex flex-row items-center justify-between">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Eye className="w-4 h-4 text-blue-600" />
+              {viewModalName}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-hidden">
+            {viewModalLoading ? (
+              <div className="flex items-center justify-center h-full gap-2 text-gray-500">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Loading file...
+              </div>
+            ) : viewModalUrl ? (
+              <iframe
+                src={viewModalUrl}
+                className="w-full h-full border-0"
+                title={viewModalName}
+              />
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Grade Dialog */}
       <Dialog open={!!gradingSubmission} onOpenChange={(open) => { if (!open) setGradingSubmission(null); }}>

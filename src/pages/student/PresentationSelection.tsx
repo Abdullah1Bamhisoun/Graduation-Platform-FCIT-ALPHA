@@ -4,7 +4,7 @@ import { Label } from '../../components/ui/label';
 import { useAuth } from '../../lib/AuthContext';
 import { getStudentPresentationView } from '../../services/presentations';
 import type { StudentPresentationView } from '../../services/presentations';
-import { Calendar, Clock } from 'lucide-react';
+import { Calendar, Clock, MapPin } from 'lucide-react';
 import { useLockStatus } from '../../hooks/useLockStatus';
 import { LockedBanner } from '../../components/ui/LockedBanner';
 
@@ -23,7 +23,7 @@ export function StudentPresentationSelection() {
   if (!user) return null;
   if (loading)
     return (
-      <Layout user={user} pageTitle="Presentation Time Selection">
+      <Layout user={user} pageTitle="Presentation Time">
         <div className="p-6">Loading...</div>
       </Layout>
     );
@@ -31,7 +31,7 @@ export function StudentPresentationSelection() {
   const { group, schedule } = data;
 
   return (
-    <Layout user={user} pageTitle="Presentation Time Selection">
+    <Layout user={user} pageTitle="Presentation Time">
       {isLocked && <LockedBanner />}
       <div className="mb-6">
         <p className="text-[var(--color-text-600)] mb-4">
@@ -76,12 +76,21 @@ export function StudentPresentationSelection() {
 
             {schedule ? (
               <div className="space-y-4">
-                <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-start gap-6">
                   <div className="flex items-center gap-2">
                     <Calendar className="w-5 h-5 text-[var(--color-text-600)]" />
                     <div>
-                      <Label className="text-[var(--color-text-600)]">Day</Label>
-                      <div className="text-[var(--color-text-900)]">{schedule.day}</div>
+                      <Label className="text-[var(--color-text-600)]">Date</Label>
+                      <div className="text-[var(--color-text-900)]">
+                        {schedule.scheduledAt
+                          ? new Date(schedule.scheduledAt).toLocaleDateString('en-US', {
+                              weekday: 'long',
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric',
+                            })
+                          : schedule.day}
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -91,6 +100,15 @@ export function StudentPresentationSelection() {
                       <div className="text-[var(--color-text-900)]">{schedule.timeSlot}</div>
                     </div>
                   </div>
+                  {schedule.location && (
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-5 h-5 text-[var(--color-text-600)]" />
+                      <div>
+                        <Label className="text-[var(--color-text-600)]">Location</Label>
+                        <div className="text-[var(--color-text-900)]">{schedule.location}</div>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-green-800">
                   ✓ Your presentation time has been confirmed

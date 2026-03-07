@@ -2,7 +2,8 @@ import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { getWeekStatuses, getDisplayStatus } from '../../services/week-statuses';
-import { createPeerEvaluation } from '../../services/grades';
+import { getAllRubricCriteria } from '../../services/grading-rubric';
+import type { RubricCriterion } from '../../services/grading-rubric';
 import {
   CheckCircle,
   Info,
@@ -10,10 +11,9 @@ import {
   Lock,
   ChevronDown,
   ChevronUp,
-  Star,
   Users,
   FileText,
-  Award,
+  RefreshCw,
 } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import type { WeekStatus } from '../../types';
@@ -120,12 +120,16 @@ export function StudentGradesOverview() {
   const { user } = useAuth();
   const [gradesData, setGradesData]         = useState<StudentMyGradesData | null | 'loading'>('loading');
   const [weekStatuses, setWeekStatuses]     = useState<WeekStatus[]>([]);
-  const [weeklyExpanded, setWeeklyExpanded] = useState(false);
   const [delivExpanded, setDelivExpanded]   = useState(false);
   const [peerRatings, setPeerRatings]       = useState<Record<string, number>>({});
   const [peerSubmitting, setPeerSubmitting] = useState(false);
   const [peerSubmitError, setPeerSubmitError] = useState<string | null>(null);
   const [peerSubmitted, setPeerSubmitted]   = useState(false);
+  const [refreshing, setRefreshing]         = useState(false);
+  const [rubricCriteria, setRubricCriteria] = useState<RubricCriterion[]>([]);
+  const [expandedComponents, setExpandedComponents] = useState<Set<string>>(new Set());
+  const [criterionScores, setCriterionScores] = useState<Record<string, number>>({});
+  const [expandedCriteria, setExpandedCriteria] = useState<Set<string>>(new Set());
 
   const loadData = useCallback(async () => {
     if (!user) return;
@@ -138,8 +142,64 @@ export function StudentGradesOverview() {
       setGradesData(grades);
 
       if (grades) {
-        const ws = await getWeekStatuses(grades.courseType, 'DEFAULT');
+        const [ws, criteria] = await Promise.all([
+          getWeekStatuses(grades.courseType, 'DEFAULT'),
+          getAllRubricCriteria(grades.courseType),
+        ]);
         setWeekStatuses(ws);
+        setRubricCriteria(criteria);
+
+        // Fetch per-criterion scores for this student's group
+        const { data: courseRow } = await supabase
+          .from('courses')
+          .select('id')
+          .eq('code', grades.courseCode)
+          .limit(1)
+          .maybeSingle();
+
+        if (courseRow) {
+          const [{ data: supScores }, { data: commScores }, { data: coordDelivScores }] = await Promise.all([
+            supabase
+              .from('supervisor_rubric_scores')
+              .select('criterion_key, raw_score')
+              .eq('student_id', user.id)
+              .eq('group_id', grades.groupId)
+              .eq('course_id', courseRow.id),
+            supabase
+              .from('committee_rubric_scores')
+              .select('criterion_key, score')
+              .eq('group_id', grades.groupId)
+              .eq('course_id', courseRow.id)
+              .in('submission_status', ['submitted', 'locked']),
+            supabase
+              .from('coordinator_deliverable_scores')
+              .select('deliverable_key, score')
+              .eq('group_id', grades.groupId)
+              .eq('course_id', courseRow.id),
+          ]);
+
+          const scores: Record<string, number> = {};
+          for (const s of supScores ?? []) {
+            scores[s.criterion_key] = Number(s.raw_score);
+          }
+          // Average committee scores per criterion (don't overwrite supervisor scores)
+          const commSums: Record<string, number[]> = {};
+          for (const s of commScores ?? []) {
+            (commSums[s.criterion_key] ??= []).push(Number(s.score));
+          }
+          for (const [key, vals] of Object.entries(commSums)) {
+            if (!(key in scores)) {
+              scores[key] = vals.reduce((a, b) => a + b, 0) / vals.length;
+            }
+          }
+          // Coordinator deliverable scores (CommitteeScores page) for 499 criteria display
+          for (const s of coordDelivScores ?? []) {
+            if (!(s.deliverable_key in scores)) {
+              scores[s.deliverable_key] = Number(s.score);
+            }
+          }
+          setCriterionScores(scores);
+        }
       }
     } catch (err) {
       console.error('Failed to load grades:', err);
@@ -150,6 +210,28 @@ export function StudentGradesOverview() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  function toggleCriterion(key: string) {
+    setExpandedCriteria((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleComponent(key: string) {
+    setExpandedComponents((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    await loadData();
+    setRefreshing(false);
+  }
 
   async function handlePeerSubmit() {
     if (!user || gradesData === 'loading' || !gradesData) return;
@@ -162,17 +244,27 @@ export function StudentGradesOverview() {
     setPeerSubmitting(true);
     setPeerSubmitError(null);
     try {
-      await Promise.all(
-        peers.map((s) =>
-          createPeerEvaluation({
-            studentId:  s.id,
-            evaluatorId: user.id,
-            groupId:    g.groupId,
-            courseCode: g.courseCode,
-            score:      peerRatings[s.id],
-          })
-        )
-      );
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (!token) throw new Error('Not authenticated');
+
+      const ratings: Record<string, number> = {};
+      for (const s of peers) ratings[s.id] = peerRatings[s.id];
+
+      const res = await fetch('/api/students/peer-evaluations', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ ratings }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+
       setPeerSubmitted(true);
     } catch (err) {
       setPeerSubmitError('Failed to submit. Please try again.');
@@ -218,6 +310,19 @@ export function StudentGradesOverview() {
 
   return (
     <Layout user={user} pageTitle={`My Grades — ${g.courseCode}`}>
+
+      {/* ── Refresh button ──────────────────────────────────────────────────── */}
+      <div className="flex justify-end mb-4">
+        <button
+          type="button"
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="flex items-center gap-1.5 text-xs text-[var(--color-text-600)] border border-[var(--color-border)] bg-[var(--color-surface-white)] hover:bg-[var(--color-surface-alt)] disabled:opacity-50 rounded-lg px-3 py-1.5 transition-colors"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+          {refreshing ? 'Refreshing…' : 'Refresh grades'}
+        </button>
+      </div>
 
       {/* ── IP Banner ──────────────────────────────────────────────────────── */}
       {isIP && (
@@ -293,146 +398,293 @@ export function StudentGradesOverview() {
         </div>
       </div>
 
-      {/* ── Grade Components Table ──────────────────────────────────────────── */}
+      {/* ── Grade Components Accordion ──────────────────────────────────────── */}
       <div className="mb-5 bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)]">
+        {/* Header */}
         <div className="p-5 border-b border-[var(--color-border)]">
           <h3 className="text-[var(--color-text-900)] font-semibold">Grade Components</h3>
           <p className="text-xs text-[var(--color-text-600)] mt-0.5">
-            Grading scheme defined by the Coordinator · read-only
+            Grading scheme defined by the Coordinator · click a component to see its criteria
           </p>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-[var(--color-surface-alt)]">
-              <tr>
-                <th className="p-3 text-left text-[var(--color-text-700)] font-medium">Component</th>
-                <th className="p-3 text-left text-[var(--color-text-700)] font-medium">Evaluated by</th>
-                <th className="p-3 text-center text-[var(--color-text-700)] font-medium">Score</th>
-                <th className="p-3 text-center text-[var(--color-text-700)] font-medium">Max</th>
-                <th className="p-3 text-center text-[var(--color-text-700)] font-medium">Progress</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[var(--color-border)]">
-              {g.components.map((c) => {
-                const pct = c.maxScore > 0 && c.score != null
-                  ? Math.min((c.score / c.maxScore) * 100, 100)
-                  : 0;
-                const barColor =
-                  pct >= 90 ? 'bg-green-500' :
-                  pct >= 75 ? 'bg-blue-500'  :
-                  pct >= 60 ? 'bg-yellow-500' : 'bg-red-400';
-                return (
-                  <tr key={c.componentKey} className="hover:bg-[var(--color-surface-alt)]/50">
-                    <td className="p-3 text-[var(--color-text-900)] font-medium">{c.componentName}</td>
-                    <td className="p-3 text-[var(--color-text-600)] capitalize text-xs">{c.evaluatorRole}</td>
-                    <td className="p-3 text-center font-mono font-semibold text-[var(--color-text-900)]">
+
+        {/* Accordion rows */}
+        <div className="divide-y divide-[var(--color-border)]">
+          {g.components.map((c) => {
+            const isExpanded   = expandedComponents.has(c.componentKey);
+            const criteria     = rubricCriteria.filter((rc) => rc.componentKey === c.componentKey);
+            const hasCriteria  = criteria.length > 0;
+            const isWeekly     = c.componentKey === 'progress_reports';
+            const isExpandable = hasCriteria || isWeekly;
+            const pct = c.maxScore > 0 && c.score != null
+              ? Math.min((c.score / c.maxScore) * 100, 100)
+              : 0;
+            const barColor =
+              pct >= 90 ? 'bg-green-500' :
+              pct >= 75 ? 'bg-blue-500'  :
+              pct >= 60 ? 'bg-yellow-500' : 'bg-red-400';
+
+            return (
+              <div key={c.componentKey}>
+                {/* ── Collapsed header ── */}
+                <button
+                  type="button"
+                  onClick={() => isExpandable && toggleComponent(c.componentKey)}
+                  className={`w-full px-5 py-4 flex items-center gap-4 text-left transition-colors ${
+                    isExpandable
+                      ? 'hover:bg-[var(--color-surface-alt)]/60 cursor-pointer'
+                      : 'cursor-default'
+                  }`}
+                >
+                  {/* Component name */}
+                  <div className="flex-1 min-w-0 flex items-center gap-2">
+                    <span className="text-sm font-medium text-[var(--color-text-900)]">
+                      {c.componentKey === 'progress_reports' ? 'Weekly Reports' : c.componentName}
+                    </span>
+                    {isExpandable && (
+                      <span className="text-xs text-[var(--color-text-500)] border border-[var(--color-border)] bg-[var(--color-surface-alt)] rounded-full px-2 py-0.5 leading-none">
+                        {isWeekly ? 'breakdown' : 'criteria'}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Score + progress */}
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <span
+                      className={`text-sm font-mono font-semibold tabular-nums ${
+                        c.score != null ? getScoreColor(c.score, c.maxScore) : 'text-[var(--color-text-500)]'
+                      }`}
+                    >
                       {c.score != null ? c.score.toFixed(1) : '—'}
-                    </td>
-                    <td className="p-3 text-center font-mono text-[var(--color-text-600)]">{c.maxScore}</td>
-                    <td className="p-3 w-32">
-                      <div className="w-full bg-gray-200 rounded-full h-1.5">
-                        <div
-                          className={`${barColor} h-1.5 rounded-full transition-all`}
-                          style={{ width: `${pct}%` }}
-                        />
+                    </span>
+                    <span className="text-xs text-[var(--color-text-500)]">/ {c.maxScore}</span>
+                    <div className="w-20 bg-gray-200 rounded-full h-1.5 hidden sm:block">
+                      <div
+                        className={`${barColor} h-1.5 rounded-full transition-all`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Chevron — only when expandable */}
+                  {isExpandable && (
+                    isExpanded
+                      ? <ChevronUp className="w-4 h-4 text-[var(--color-text-500)] flex-shrink-0" />
+                      : <ChevronDown className="w-4 h-4 text-[var(--color-text-500)] flex-shrink-0" />
+                  )}
+                </button>
+
+                {/* ── Expanded panel ── */}
+                {isExpanded && isExpandable && (
+                  <div className="border-t border-[var(--color-border)] bg-[var(--color-surface-alt)]/40">
+
+                    {/* Weekly breakdown */}
+                    {isWeekly && (
+                      <>
+                        <div className="px-5 py-3 border-b border-[var(--color-border)] text-xs text-[var(--color-text-600)] flex items-center gap-2">
+                          <Info className="w-3.5 h-3.5 flex-shrink-0" />
+                          Each open week = 2 marks (1 submission + 1 supervisor response). Maximum:{' '}
+                          <strong className="ml-1">{g.weeklyMaxScore} marks</strong>.
+                          {g.weeklyIsAtCap && (
+                            <span className="ml-1 font-semibold text-green-700">Cap reached — no further marks added.</span>
+                          )}
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-[var(--color-surface-alt)]">
+                              <tr>
+                                <th className="p-3 text-left text-[var(--color-text-700)] font-medium">Week</th>
+                                <th className="p-3 text-center text-[var(--color-text-700)] font-medium">Status</th>
+                                <th className="p-3 text-center text-[var(--color-text-700)] font-medium">Submission</th>
+                                <th className="p-3 text-center text-[var(--color-text-700)] font-medium">Supervisor</th>
+                                <th className="p-3 text-center text-[var(--color-text-700)] font-medium">Week Total</th>
+                                <th className="p-3 text-center text-[var(--color-text-700)] font-medium">Running</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[var(--color-border)]">
+                              {(() => {
+                                let running = 0;
+                                return Array.from({ length: 16 }, (_, i) => i + 1).map((wn) => {
+                                  const ws            = weekStatuses.find((s) => s.weekNumber === wn);
+                                  const displayStatus = ws ? getDisplayStatus(ws) : 'Not Opened';
+                                  const wasOpened     = ws?.wasOpened ?? false;
+                                  const marks         = weekMarkMap[wn];
+                                  const studentMark   = wasOpened ? (marks?.studentMark    ?? 0) : null;
+                                  const supMark       = wasOpened ? (marks?.supervisorMark ?? 0) : null;
+                                  const weekTotal     = wasOpened ? ((studentMark ?? 0) + (supMark ?? 0)) : null;
+
+                                  if (wasOpened && weekTotal !== null) running += weekTotal;
+                                  const cappedRunning  = Math.min(running, g.weeklyMaxScore);
+                                  const capHitThisWeek =
+                                    wasOpened &&
+                                    running > g.weeklyMaxScore &&
+                                    running - (weekTotal ?? 0) < g.weeklyMaxScore;
+
+                                  const statusClass = WEEK_STATUS_STYLES[displayStatus] ?? WEEK_STATUS_STYLES['Not Opened'];
+
+                                  return (
+                                    <tr
+                                      key={wn}
+                                      className={!wasOpened ? 'opacity-50' : capHitThisWeek ? 'bg-green-50' : ''}
+                                    >
+                                      <td className="p-3 text-[var(--color-text-900)]">
+                                        Week {wn}
+                                        {capHitThisWeek && (
+                                          <span className="ml-2 text-xs text-green-600 font-medium">(cap reached)</span>
+                                        )}
+                                      </td>
+                                      <td className="p-3 text-center">
+                                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full border ${statusClass}`}>
+                                          {displayStatus === 'Locked' && <Lock className="w-3 h-3" />}
+                                          {displayStatus}
+                                        </span>
+                                      </td>
+                                      <td className="p-3 text-center font-mono">
+                                        {studentMark !== null ? (
+                                          <span className={studentMark === 1 ? 'text-green-600 font-semibold' : 'text-gray-400'}>
+                                            {studentMark}/1
+                                          </span>
+                                        ) : (
+                                          <span className="text-xs text-gray-400">—</span>
+                                        )}
+                                      </td>
+                                      <td className="p-3 text-center font-mono">
+                                        {supMark !== null ? (
+                                          <span className={supMark === 1 ? 'text-blue-600 font-semibold' : 'text-gray-400'}>
+                                            {supMark}/1
+                                          </span>
+                                        ) : (
+                                          <span className="text-xs text-gray-400">—</span>
+                                        )}
+                                      </td>
+                                      <td className="p-3 text-center font-mono text-[var(--color-text-600)]">
+                                        {weekTotal !== null ? (
+                                          <span className={weekTotal === 2 ? 'text-green-700 font-semibold' : ''}>
+                                            {weekTotal}/2
+                                          </span>
+                                        ) : (
+                                          <span className="text-xs text-gray-400">—</span>
+                                        )}
+                                      </td>
+                                      <td className="p-3 text-center font-mono">
+                                        {wasOpened ? (
+                                          <span className={cappedRunning >= g.weeklyMaxScore ? 'text-green-700 font-bold' : 'text-[var(--color-text-700)]'}>
+                                            {cappedRunning}/{g.weeklyMaxScore}
+                                            {cappedRunning >= g.weeklyMaxScore ? ' ✓' : ''}
+                                          </span>
+                                        ) : (
+                                          <span className="text-xs text-gray-400">—</span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                });
+                              })()}
+                            </tbody>
+                          </table>
+                          {g.weeksOpened === 0 && (
+                            <div className="p-5 text-center text-[var(--color-text-600)] text-sm">
+                              No weekly sessions have been activated yet.
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+
+                    {/* Rubric criteria */}
+                    {hasCriteria && !isWeekly && (
+                      <div className="px-5 py-4 space-y-2">
+                        {criteria.map((criterion) => {
+                          const isCriterionExpanded = expandedCriteria.has(criterion.criterionKey);
+                          const rawScore = criterionScores[criterion.criterionKey];
+                          const hasScore = rawScore != null;
+                          const levels = [
+                            { score: 1, label: 'Unsatisfactory', desc: criterion.description1 },
+                            { score: 2, label: 'Poor',           desc: criterion.description2 },
+                            { score: 3, label: 'Acceptable',     desc: criterion.description3 },
+                            { score: 4, label: 'Good',           desc: criterion.description4 },
+                            { score: 5, label: 'Excellent',      desc: criterion.description5 },
+                          ].filter((l) => l.desc);
+
+                          return (
+                            <div key={criterion.criterionKey} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-white)] overflow-hidden">
+                              {/* Criterion header — always visible */}
+                              {c.componentKey === 'coordinator_deliverables' ? (
+                                <div className="flex items-center px-3 py-2.5">
+                                  <span className="text-xs font-semibold text-[var(--color-text-800)] min-w-0">
+                                    {criterion.criterionName}
+                                    <span className="ml-1.5 font-mono text-[var(--color-text-500)]">
+                                      — {hasScore ? `${Math.round(rawScore)} / ${criterion.maxRawScore}` : `/ ${criterion.maxRawScore}`}
+                                    </span>
+                                  </span>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleCriterion(criterion.criterionKey)}
+                                  className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-[var(--color-surface-alt)]/60 transition-colors text-left"
+                                >
+                                  <span className="text-xs font-semibold text-[var(--color-text-800)] min-w-0">
+                                    {criterion.criterionName}
+                                    <span className="ml-1.5 font-mono text-[var(--color-text-500)]">
+                                      — {hasScore ? `${Math.round(rawScore)} / ${criterion.maxRawScore}` : `/ ${criterion.maxRawScore}`}
+                                    </span>
+                                  </span>
+                                  {isCriterionExpanded
+                                    ? <ChevronUp className="w-3.5 h-3.5 text-[var(--color-text-500)] flex-shrink-0" />
+                                    : <ChevronDown className="w-3.5 h-3.5 text-[var(--color-text-500)] flex-shrink-0" />}
+                                </button>
+                              )}
+
+                              {/* Criterion level descriptions */}
+                              {isCriterionExpanded && c.componentKey !== 'coordinator_deliverables' && (
+                                <div className="border-t border-[var(--color-border)] divide-y divide-[var(--color-border)]">
+                                  {levels.map((level) => {
+                                    const isCurrentLevel = hasScore && Math.round(rawScore) === level.score;
+                                    return (
+                                      <div
+                                        key={level.score}
+                                        className={`flex gap-3 px-3 py-2 ${
+                                          isCurrentLevel
+                                            ? 'bg-[var(--color-primary-50)] border-l-2 border-[var(--color-primary-500)]'
+                                            : ''
+                                        }`}
+                                      >
+                                        <span className={`text-xs font-bold w-32 flex-shrink-0 ${isCurrentLevel ? 'text-[var(--color-primary-700)]' : 'text-[var(--color-text-700)]'}`}>
+                                          {level.score}. {level.label}
+                                          {isCurrentLevel && (
+                                            <span className="ml-1 text-[10px] font-semibold text-[var(--color-primary-600)]">← your grade</span>
+                                          )}
+                                        </span>
+                                        <span className={`text-xs leading-relaxed ${isCurrentLevel ? 'text-[var(--color-primary-800)]' : 'text-[var(--color-text-600)]'}`}>
+                                          {level.desc}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
-                    </td>
-                  </tr>
-                );
-              })}
-              {/* Total row */}
-              <tr className="bg-[var(--color-surface-alt)] font-semibold">
-                <td className="p-3 text-[var(--color-text-900)]" colSpan={2}>Total</td>
-                <td className={`p-3 text-center font-mono text-lg ${getScoreColor(g.totalScore, 100)}`}>
-                  {g.totalScore.toFixed(1)}
-                </td>
-                <td className="p-3 text-center font-mono text-[var(--color-text-600)]">100</td>
-                <td className="p-3" />
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* ── Supervisor + Committee Evaluation row ───────────────────────────── */}
-      <div className="mb-5 grid grid-cols-1 md:grid-cols-2 gap-5">
-
-        {/* Supervisor Evaluation */}
-        <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <Award className="w-4 h-4 text-purple-500" />
-            <h3 className="text-[var(--color-text-900)] font-semibold text-sm">Supervisor Evaluation</h3>
-          </div>
-          {g.supervisorEvaluation ? (
-            <>
-              <div className="flex items-end gap-1 mb-2">
-                <span className="text-3xl font-bold tabular-nums text-[var(--color-text-900)]">
-                  {g.supervisorEvaluation.score != null ? g.supervisorEvaluation.score.toFixed(1) : '—'}
-                </span>
-                <span className="text-[var(--color-text-600)] mb-1 text-sm">
-                  / {g.supervisorEvaluation.maxScore}
-                </span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-1.5 mb-2">
-                <div
-                  className="bg-purple-500 h-1.5 rounded-full"
-                  style={{
-                    width: `${
-                      g.supervisorEvaluation.score != null
-                        ? Math.min((g.supervisorEvaluation.score / g.supervisorEvaluation.maxScore) * 100, 100)
-                        : 0
-                    }%`,
-                  }}
-                />
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className={`text-xs px-2 py-0.5 rounded-full border ${
-                  g.supervisorEvaluation.submissionStatus === 'submitted'
-                    ? 'bg-green-50 text-green-700 border-green-200'
-                    : 'bg-yellow-50 text-yellow-700 border-yellow-200'
-                }`}>
-                  {g.supervisorEvaluation.submissionStatus === 'submitted' ? 'Submitted' : 'Draft'}
-                </span>
-                {g.supervisorEvaluation.gradedAt && (
-                  <span className="text-xs text-[var(--color-text-600)]">
-                    {new Date(g.supervisorEvaluation.gradedAt).toLocaleDateString()}
-                  </span>
+                    )}
+                  </div>
                 )}
               </div>
-            </>
-          ) : (
-            <p className="text-sm text-[var(--color-text-600)]">Not graded yet</p>
-          )}
-        </div>
+            );
+          })}
 
-        {/* Committee Evaluation */}
-        <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <Users className="w-4 h-4 text-orange-500" />
-            <h3 className="text-[var(--color-text-900)] font-semibold text-sm">Committee Evaluation</h3>
+          {/* Total row */}
+          <div className="px-5 py-3 bg-[var(--color-surface-alt)] flex items-center justify-between rounded-b-xl">
+            <span className="text-sm font-semibold text-[var(--color-text-900)]">Total</span>
+            <div className="flex items-center gap-2">
+              <span className={`text-lg font-bold font-mono tabular-nums ${getScoreColor(g.totalScore, 100)}`}>
+                {g.totalScore.toFixed(1)}
+              </span>
+              <span className="text-sm text-[var(--color-text-600)]">/ 100</span>
+            </div>
           </div>
-          {g.committeeEvaluation ? (
-            <>
-              <div className="flex items-end gap-1 mb-2">
-                <span className="text-3xl font-bold tabular-nums text-[var(--color-text-900)]">
-                  {g.committeeEvaluation.score.toFixed(1)}
-                </span>
-                <span className="text-[var(--color-text-600)] mb-1 text-sm">
-                  / {g.committeeEvaluation.maxScore}
-                </span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-1.5">
-                <div
-                  className="bg-orange-500 h-1.5 rounded-full"
-                  style={{
-                    width: `${Math.min((g.committeeEvaluation.score / g.committeeEvaluation.maxScore) * 100, 100)}%`,
-                  }}
-                />
-              </div>
-            </>
-          ) : (
-            <p className="text-sm text-[var(--color-text-600)]">Not evaluated yet</p>
-          )}
         </div>
       </div>
 
@@ -469,7 +721,7 @@ export function StudentGradesOverview() {
         <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5">
           <div className="flex items-center justify-between mb-1">
             <div className="flex items-center gap-2">
-              <Star className="w-4 h-4 text-pink-500" />
+              <Users className="w-4 h-4 text-pink-500" />
               <h3 className="text-[var(--color-text-900)] font-semibold text-sm">Peer Evaluation</h3>
             </div>
             <span className="text-xs font-semibold text-pink-600 bg-pink-50 border border-pink-200 px-2 py-0.5 rounded-full">
@@ -477,28 +729,19 @@ export function StudentGradesOverview() {
             </span>
           </div>
           <p className="text-xs text-[var(--color-text-600)] mb-4">
-            Rate each teammate out of 5 — converted to {g.peerEvaluation.componentWeight} marks
+            Rate each teammate 1–5 — converted to {g.peerEvaluation.componentWeight} marks
           </p>
 
           {/* Received rating — read-only */}
           {g.peerEvaluation.averageRaw != null && (
             <div className="mb-4 pb-4 border-b border-[var(--color-border)]">
               <p className="text-xs text-[var(--color-text-600)] mb-1">Your received rating</p>
-              <div className="flex items-center gap-1 mb-1">
-                {Array.from({ length: 5 }, (_, i) => (
-                  <Star
-                    key={i}
-                    className={`w-4 h-4 ${
-                      i < Math.round(g.peerEvaluation.averageRaw ?? 0)
-                        ? 'text-yellow-400 fill-yellow-400'
-                        : 'text-gray-300'
-                    }`}
-                  />
-                ))}
-                <span className="ml-1 text-sm font-semibold text-[var(--color-text-900)]">
-                  {g.peerEvaluation.averageRaw.toFixed(1)} / 5
+              <div className="flex items-baseline gap-2 mb-1">
+                <span className="text-2xl font-bold tabular-nums text-[var(--color-text-900)]">
+                  {g.peerEvaluation.averageRaw.toFixed(1)}
                 </span>
-                <span className="ml-2 text-xs text-[var(--color-text-600)]">
+                <span className="text-[var(--color-text-600)] text-sm">/ 5</span>
+                <span className="text-xs text-[var(--color-text-600)]">
                   → {g.peerEvaluation.convertedScore != null ? g.peerEvaluation.convertedScore.toFixed(1) : '—'} / {g.peerEvaluation.componentWeight} marks
                 </span>
               </div>
@@ -519,27 +762,25 @@ export function StudentGradesOverview() {
               <p className="text-xs font-medium text-[var(--color-text-700)] mb-2">Rate your teammates</p>
               {g.students.filter((s) => s.id !== user.id).map((s) => (
                 <div key={s.id} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-alt)] px-3 py-2">
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center justify-between gap-2 mb-2">
                     <span className="text-sm font-medium text-[var(--color-text-900)] truncate">{s.name}</span>
                     <span className="text-xs font-mono text-[var(--color-text-600)] flex-shrink-0">
-                      {peerRatings[s.id] ?? 0} / 5
+                      {peerRatings[s.id] ?? '—'} / 5
                     </span>
                   </div>
-                  <div className="flex items-center gap-0.5 mt-1.5">
-                    {Array.from({ length: 5 }, (_, i) => (
+                  <div className="flex items-center gap-1.5">
+                    {[1, 2, 3, 4, 5].map((n) => (
                       <button
-                        key={i}
+                        key={n}
                         type="button"
-                        onClick={() => setPeerRatings((prev) => ({ ...prev, [s.id]: i + 1 }))}
-                        className="focus:outline-none"
+                        onClick={() => setPeerRatings((prev) => ({ ...prev, [s.id]: n }))}
+                        className={`w-9 h-9 rounded-lg border text-sm font-semibold transition-colors focus:outline-none ${
+                          peerRatings[s.id] === n
+                            ? 'bg-pink-500 text-white border-pink-500'
+                            : 'bg-white text-[var(--color-text-700)] border-[var(--color-border)] hover:border-pink-400 hover:text-pink-600'
+                        }`}
                       >
-                        <Star
-                          className={`w-5 h-5 transition-colors ${
-                            (peerRatings[s.id] ?? 0) > i
-                              ? 'text-yellow-400 fill-yellow-400'
-                              : 'text-gray-300 hover:text-yellow-300'
-                          }`}
-                        />
+                        {n}
                       </button>
                     ))}
                   </div>
@@ -554,7 +795,7 @@ export function StudentGradesOverview() {
                 onClick={handlePeerSubmit}
                 className="w-full mt-2 flex items-center justify-center gap-1.5 text-xs text-white bg-pink-500 hover:bg-pink-600 disabled:opacity-50 rounded-lg px-3 py-2 transition-colors font-medium"
               >
-                <Star className="w-3.5 h-3.5" />
+                <CheckCircle className="w-3.5 h-3.5" />
                 {peerSubmitting ? 'Submitting…' : 'Submit Peer Evaluations'}
               </button>
             </div>
@@ -613,144 +854,6 @@ export function StudentGradesOverview() {
         </div>
       )}
 
-      {/* ── Weekly Progress Breakdown (collapsible) ─────────────────────────── */}
-      <div className="mb-5 bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)]">
-        <button
-          className="w-full p-5 flex items-center justify-between hover:bg-[var(--color-surface-alt)] transition-colors rounded-t-xl"
-          onClick={() => setWeeklyExpanded((v) => !v)}
-        >
-          <div className="text-left">
-            <h3 className="text-[var(--color-text-900)] font-semibold">Weekly Progress Reports</h3>
-            <p className="text-xs text-[var(--color-text-600)] mt-0.5">
-              {g.weeksOpened} week{g.weeksOpened !== 1 ? 's' : ''} activated
-              {g.weeksOpened > 0
-                ? ` · ${g.weeklyTotalRaw} raw → ${g.weeklyScore} / ${g.weeklyMaxScore} marks${g.weeklyIsAtCap ? ' (cap reached ✓)' : ''}`
-                : ' · No sessions activated yet'}
-            </p>
-          </div>
-          {weeklyExpanded
-            ? <ChevronUp className="w-5 h-5 text-[var(--color-text-600)]" />
-            : <ChevronDown className="w-5 h-5 text-[var(--color-text-600)]" />}
-        </button>
-
-        {weeklyExpanded && (
-          <div className="border-t border-[var(--color-border)]">
-            <div className="px-5 py-3 bg-blue-50 border-b border-blue-100 text-xs text-blue-700 flex items-center gap-2">
-              <Info className="w-3.5 h-3.5 flex-shrink-0" />
-              Each open week = 2 marks (1 submission + 1 supervisor response). Maximum:{' '}
-              <strong className="ml-1">{g.weeklyMaxScore} marks</strong>.
-              {g.weeklyIsAtCap && (
-                <span className="ml-1 font-semibold text-green-700">Cap reached — no further marks added.</span>
-              )}
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-[var(--color-surface-alt)]">
-                  <tr>
-                    <th className="p-3 text-left text-[var(--color-text-700)] font-medium">Week</th>
-                    <th className="p-3 text-center text-[var(--color-text-700)] font-medium">Status</th>
-                    <th className="p-3 text-center text-[var(--color-text-700)] font-medium">Submission</th>
-                    <th className="p-3 text-center text-[var(--color-text-700)] font-medium">Supervisor</th>
-                    <th className="p-3 text-center text-[var(--color-text-700)] font-medium">Week Total</th>
-                    <th className="p-3 text-center text-[var(--color-text-700)] font-medium">Running</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[var(--color-border)]">
-                  {(() => {
-                    let running = 0;
-                    return Array.from({ length: 16 }, (_, i) => i + 1).map((wn) => {
-                      const ws            = weekStatuses.find((s) => s.weekNumber === wn);
-                      const displayStatus = ws ? getDisplayStatus(ws) : 'Not Opened';
-                      const wasOpened     = ws?.wasOpened ?? false;
-                      const marks         = weekMarkMap[wn];
-                      const studentMark   = wasOpened ? (marks?.studentMark    ?? 0) : null;
-                      const supMark       = wasOpened ? (marks?.supervisorMark ?? 0) : null;
-                      const weekTotal     = wasOpened ? ((studentMark ?? 0) + (supMark ?? 0)) : null;
-
-                      if (wasOpened && weekTotal !== null) running += weekTotal;
-                      const cappedRunning  = Math.min(running, g.weeklyMaxScore);
-                      const capHitThisWeek =
-                        wasOpened &&
-                        running > g.weeklyMaxScore &&
-                        running - (weekTotal ?? 0) < g.weeklyMaxScore;
-
-                      const statusClass = WEEK_STATUS_STYLES[displayStatus] ?? WEEK_STATUS_STYLES['Not Opened'];
-
-                      return (
-                        <tr
-                          key={wn}
-                          className={!wasOpened ? 'opacity-50' : capHitThisWeek ? 'bg-green-50' : ''}
-                        >
-                          <td className="p-3 text-[var(--color-text-900)]">
-                            Week {wn}
-                            {capHitThisWeek && (
-                              <span className="ml-2 text-xs text-green-600 font-medium">(cap reached)</span>
-                            )}
-                          </td>
-                          <td className="p-3 text-center">
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full border ${statusClass}`}>
-                              {displayStatus === 'Locked' && <Lock className="w-3 h-3" />}
-                              {displayStatus}
-                            </span>
-                          </td>
-                          <td className="p-3 text-center font-mono">
-                            {studentMark !== null ? (
-                              <span className={studentMark === 1 ? 'text-green-600 font-semibold' : 'text-gray-400'}>
-                                {studentMark}/1
-                              </span>
-                            ) : (
-                              <span className="text-xs text-gray-400">—</span>
-                            )}
-                          </td>
-                          <td className="p-3 text-center font-mono">
-                            {supMark !== null ? (
-                              <span className={supMark === 1 ? 'text-blue-600 font-semibold' : 'text-gray-400'}>
-                                {supMark}/1
-                              </span>
-                            ) : (
-                              <span className="text-xs text-gray-400">—</span>
-                            )}
-                          </td>
-                          <td className="p-3 text-center font-mono text-[var(--color-text-600)]">
-                            {weekTotal !== null ? (
-                              <span className={weekTotal === 2 ? 'text-green-700 font-semibold' : ''}>
-                                {weekTotal}/2
-                              </span>
-                            ) : (
-                              <span className="text-xs text-gray-400">—</span>
-                            )}
-                          </td>
-                          <td className="p-3 text-center font-mono">
-                            {wasOpened ? (
-                              <span
-                                className={
-                                  cappedRunning >= g.weeklyMaxScore
-                                    ? 'text-green-700 font-bold'
-                                    : 'text-[var(--color-text-700)]'
-                                }
-                              >
-                                {cappedRunning}/{g.weeklyMaxScore}
-                                {cappedRunning >= g.weeklyMaxScore ? ' ✓' : ''}
-                              </span>
-                            ) : (
-                              <span className="text-xs text-gray-400">—</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    });
-                  })()}
-                </tbody>
-              </table>
-              {g.weeksOpened === 0 && (
-                <div className="p-5 text-center text-[var(--color-text-600)] text-sm">
-                  No weekly sessions have been activated yet.
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
 
     </Layout>
   );

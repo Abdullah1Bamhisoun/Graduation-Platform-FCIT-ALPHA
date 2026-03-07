@@ -168,7 +168,21 @@ async function getMyGrades(req, res) {
       }
     }
 
-    // ── Step 8: Chapter submission approval counts ─────────────────────────────
+    // ── Step 8: Coordinator rubric-based assessment (coordinator_assessments) ───
+    // The coordinator "Evaluate Group" button stores normalized_score here.
+    // component_key is fetched from grading_components (evaluator_role='coordinator').
+    const { data: coordAssessRows } = await supabaseAdmin
+      .from('coordinator_assessments')
+      .select('normalized_score, max_score, submission_status')
+      .eq('group_id', groupId)
+      .eq('course_type', courseType)
+      .limit(1);
+
+    const coordinatorScore = coordAssessRows?.[0]?.normalized_score != null
+      ? Number(coordAssessRows[0].normalized_score)
+      : null;
+
+    // ── Step 8b: Chapter submission approval counts ────────────────────────────
     const { data: submissions } = await supabaseAdmin
       .from('submissions')
       .select('status')
@@ -241,9 +255,16 @@ async function getMyGrades(req, res) {
         case 'committee_eval':
           score = committeeScore;
           break;
+        case 'coordinator_eval':
+          // Rubric-based coordinator assessment (stored in coordinator_assessments)
+          score = coordinatorScore;
+          break;
         case 'coordinator_deliverables':
-          // 498: coordinator_deliverable_scores  |  499: admin_committee_scores
-          score = courseType === '499' ? adminCommitteeTotal : deliverablesTotal;
+          // Prefer rubric-based coordinator score if available; otherwise fall back
+          // to coordinator_deliverable_scores total (CommitteeScores page) or
+          // admin_committee_scores (legacy 499) or chapter deliverable totals (498)
+          score = coordinatorScore
+            ?? (courseType === '499' ? (deliverablesTotal || adminCommitteeTotal) : deliverablesTotal);
           break;
         case 'progress_reports':
           score = weeklyScore; // capped at weeklyMaxScore
@@ -319,4 +340,89 @@ async function getMyGrades(req, res) {
   }
 }
 
-module.exports = { getMyGrades };
+/**
+ * POST /api/students/peer-evaluations
+ *
+ * Student submits peer ratings for their teammates.
+ * Body: { ratings: { [studentId]: number (1–5) } }
+ *
+ * Security:
+ *   - evaluator_id is always req.user.id (never client-supplied)
+ *   - group_id is resolved server-side from the evaluator's membership
+ *   - Only teammates in the same group may be rated (cross-group is rejected)
+ */
+async function submitPeerEvaluations(req, res) {
+  try {
+    const evaluatorId = req.user.id;
+    const { ratings } = req.body;
+
+    if (!ratings || typeof ratings !== 'object' || Array.isArray(ratings)) {
+      return res.status(400).json({ error: 'ratings must be an object mapping studentId → score' });
+    }
+
+    // Resolve evaluator's group
+    const { data: membership } = await supabaseAdmin
+      .from('group_members')
+      .select('group_id')
+      .eq('student_id', evaluatorId)
+      .maybeSingle();
+
+    if (!membership) {
+      return res.status(400).json({ error: 'You are not assigned to a group' });
+    }
+
+    const groupId = membership.group_id;
+
+    // Fetch group to get course_id and member list
+    const { data: group } = await supabaseAdmin
+      .from('groups')
+      .select('course_id, members:group_members(student_id)')
+      .eq('id', groupId)
+      .single();
+
+    if (!group) {
+      return res.status(400).json({ error: 'Group not found' });
+    }
+
+    const courseId  = group.course_id;
+    const memberIds = (group.members || []).map((m) => m.student_id);
+
+    // Validate: all rated students must be actual teammates (not self)
+    for (const studentId of Object.keys(ratings)) {
+      if (studentId === evaluatorId) {
+        return res.status(400).json({ error: 'You cannot rate yourself' });
+      }
+      if (!memberIds.includes(studentId)) {
+        return res.status(400).json({ error: `Student ${studentId} is not in your group` });
+      }
+      const score = Number(ratings[studentId]);
+      if (!Number.isInteger(score) || score < 1 || score > 5) {
+        return res.status(400).json({ error: 'Scores must be integers between 1 and 5' });
+      }
+    }
+
+    // Upsert one row per rated teammate
+    const rows = Object.entries(ratings).map(([studentId, score]) => ({
+      student_id:   studentId,
+      evaluator_id: evaluatorId,
+      group_id:     groupId,
+      course_id:    courseId,
+      score:        Number(score),
+      max_score:    5,
+      comment:      null,
+    }));
+
+    const { error } = await supabaseAdmin
+      .from('peer_evaluations')
+      .upsert(rows, { onConflict: 'student_id,evaluator_id,group_id,course_id' });
+
+    if (error) throw error;
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error submitting peer evaluations:', error);
+    res.status(500).json({ error: 'Failed to submit peer evaluations' });
+  }
+}
+
+module.exports = { getMyGrades, submitPeerEvaluations };

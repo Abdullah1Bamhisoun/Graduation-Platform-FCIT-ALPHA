@@ -114,7 +114,7 @@ export function SupervisorDashboard() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => navigate('/supervisor/reviews')}
+              onClick={() => navigate('/supervisor/groups')}
             >
               View All
             </Button>
@@ -178,7 +178,7 @@ export function SupervisorDashboard() {
                         {status === 'on-track' ? 'On Track' : 'Needs Attention'}
                       </span>
                       <Button
-                        variant="ghost"
+                        variant="outline"
                         size="sm"
                         onClick={() => navigate('/supervisor/groups?tab=groups-grades')}
                       >
@@ -205,7 +205,7 @@ export function SupervisorDashboard() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => navigate('/supervisor/reviews?tab=weekly')}
+              onClick={() => navigate('/supervisor/weekly-reports')}
             >
               View All
             </Button>

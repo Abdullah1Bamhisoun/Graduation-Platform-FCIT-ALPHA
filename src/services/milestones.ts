@@ -88,18 +88,19 @@ export async function getMilestonesByStudentWithStatus(studentId: string): Promi
       .limit(1)
       .maybeSingle();
 
+    const groupId = membership?.group_id ?? null;
     let courseId: string | null = null;
-    if (membership?.group_id) {
+    if (groupId) {
       const { data: group } = await supabase
         .from('groups')
         .select('course_id')
-        .eq('id', membership.group_id)
+        .eq('id', groupId)
         .single();
       courseId = group?.course_id ?? null;
     }
 
     // No group → no milestones
-    if (!courseId) return [];
+    if (!courseId || !groupId) return [];
 
     // Fetch visible milestones for the student's course
     const { data: milestones, error: mError } = await supabase
@@ -111,18 +112,22 @@ export async function getMilestonesByStudentWithStatus(studentId: string): Promi
 
     if (mError) throw mError;
 
-    // Fetch submission statuses for this student
-    const { data: submissions, error: sError } = await supabase
-      .from('submissions')
-      .select('milestone_id, status')
-      .eq('student_id', studentId);
-
-    if (sError) throw sError;
+    // Fetch submission statuses via backend API (bypasses RLS so all group members
+    // see the correct status regardless of who submitted each chapter)
+    const session = await supabase.auth.getSession();
+    const token = session.data.session?.access_token ?? '';
+    const statusRes = await fetch(
+      `/api/submissions/group-milestone-statuses?groupId=${groupId}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
 
     const submissionMap = new Map<string, string>();
-    (submissions || []).forEach((s: any) => {
-      submissionMap.set(s.milestone_id, s.status);
-    });
+    if (statusRes.ok) {
+      const statuses: Record<string, string> = await statusRes.json();
+      Object.entries(statuses).forEach(([milestoneId, status]) => {
+        submissionMap.set(milestoneId, status);
+      });
+    }
 
     return (milestones || []).map((m: any) => {
       const mapped = mapDbMilestone(m);

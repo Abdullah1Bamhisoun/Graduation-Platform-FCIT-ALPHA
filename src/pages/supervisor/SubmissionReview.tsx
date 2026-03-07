@@ -12,7 +12,7 @@ import { getMilestoneById } from '../../services/milestones';
 import { useAuth } from '../../lib/AuthContext';
 import { useLockStatus } from '../../hooks/useLockStatus';
 import { LockedBanner } from '../../components/ui/LockedBanner';
-import { FileText, ChevronLeft, Check, AlertCircle, X } from 'lucide-react';
+import { FileText, ChevronLeft, Check, AlertCircle, X, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { useEffect } from 'react';
 import type { Submission, Milestone } from '../../types';
@@ -100,7 +100,26 @@ export function SupervisorSubmissionReview() {
           <div>
             <h1 className="text-[var(--color-text-900)] mb-2">{submission.projectName}</h1>
             <p className="text-[var(--color-text-600)] mb-1">{submission.milestoneName}</p>
-            <p className="text-[var(--color-text-600)]">Student: {submission.studentName}</p>
+            <p className="text-[var(--color-text-600)] mb-2">
+              Submitted by: <span className="font-medium text-[var(--color-text-900)]">{submission.studentName}</span>
+            </p>
+            {submission.groupMembers && submission.groupMembers.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <Users className="w-4 h-4 text-[var(--color-text-600)] shrink-0" />
+                {submission.groupMembers.map((m) => (
+                  <span
+                    key={m.id}
+                    className={`text-xs px-2 py-0.5 rounded-full border ${
+                      m.id === submission.studentId
+                        ? 'bg-blue-50 text-blue-700 border-blue-200 font-medium'
+                        : 'bg-[var(--color-surface-alt)] text-[var(--color-text-600)] border-[var(--color-border)]'
+                    }`}
+                  >
+                    {m.name}{m.id === submission.studentId ? ' (submitter)' : ''}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
           <StatusBadge status={submission.status} />
         </div>

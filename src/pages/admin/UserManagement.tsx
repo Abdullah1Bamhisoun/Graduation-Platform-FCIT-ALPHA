@@ -10,7 +10,7 @@ import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { toast } from 'sonner';
 import { Search, CheckCircle, XCircle, Eye, Clock, Users, UserCheck, Pencil, Trash2 } from 'lucide-react';
-import { getPendingRegistrations, approveRegistration, rejectRegistration, subscribe, type PendingRegistration } from '../../lib/pending-registrations';
+import { getPendingRegistrationsViaAPI, approveRegistration, rejectRegistration, subscribe, type PendingRegistration } from '../../lib/pending-registrations';
 import { assignSupervisor, updateGroupStatus, deleteGroup, updateGroup, type GroupData } from '../../services/groups';
 import type { User as ProfileUser } from '../../types';
 
@@ -19,7 +19,7 @@ interface User {
   id: string;
   name: string;
   email: string;
-  role: 'student' | 'supervisor' | 'admin';
+  role: 'student' | 'supervisor' | 'coordinator' | 'admin';
   employeeNumber?: string;
   studentId?: string;
   department?: string;
@@ -95,6 +95,11 @@ export function AdminUserManagement() {
   const [removeSupervisor, setRemoveSupervisor] = useState(false);
   const [isSavingGroup, setIsSavingGroup] = useState(false);
 
+  // ── Quick Assign Student to Group ─────────────────────────────────────────
+  const [quickAssignStudent, setQuickAssignStudent] = useState<User | null>(null);
+  const [quickAssignGroupId, setQuickAssignGroupId] = useState('');
+  const [isQuickAssigning, setIsQuickAssigning] = useState(false);
+
   // ── Assign Coordinator ────────────────────────────────────────────────────
   const [assigningCoordinatorUser, setAssigningCoordinatorUser] = useState<User | null>(null);
   const [selectedCoordinatorCourseId, setSelectedCoordinatorCourseId] = useState('');
@@ -146,9 +151,9 @@ export function AdminUserManagement() {
   const reloadGroups = async () => {
     try {
       const token = await getToken();
-      const res = await fetch('/api/groups', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+      if (user?.activeRole) headers['X-Active-Role'] = user.activeRole;
+      const res = await fetch('/api/groups', { headers });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { error?: string }).error ?? `Server error (${res.status})`);
@@ -201,16 +206,17 @@ export function AdminUserManagement() {
   }, []);
 
   useEffect(() => {
-    getPendingRegistrations().then(setPendingRegs);
-    return subscribe(() => getPendingRegistrations().then(setPendingRegs));
-  }, []);
+    const load = () => getPendingRegistrationsViaAPI(user?.activeRole).then(setPendingRegs);
+    load();
+    return subscribe(load);
+  }, [user?.activeRole]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!user) return null;
 
   // ── Handlers: registrations ───────────────────────────────────────────────
   const handleApprove = async (reg: PendingRegistration) => {
     try {
-      await approveRegistration(reg.id);
+      await approveRegistration(reg.id, user?.activeRole);
       toast.success(`${reg.name} approved — they can now log in`);
       setIsViewDialogOpen(false);
       setViewingReg(null);
@@ -346,8 +352,12 @@ export function AdminUserManagement() {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || 'Repair failed');
-      toast.success(`Repair complete — ${body.created} group(s) created, ${body.skipped} skipped`);
-      if (body.created > 0) reloadGroups();
+      const parts = [];
+      if (body.created > 0) parts.push(`${body.created} group(s) created`);
+      if (body.assigned > 0) parts.push(`${body.assigned} student(s) assigned to existing groups`);
+      if (parts.length === 0) parts.push('No missing assignments found');
+      toast.success(`Repair complete — ${parts.join(', ')}`);
+      if (body.created > 0 || body.assigned > 0) reloadGroups();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Repair failed');
     } finally {
@@ -359,6 +369,10 @@ export function AdminUserManagement() {
   const handleCreateGroup = async () => {
     if (!createGroupForm.projectName.trim()) {
       toast.error('Project name is required');
+      return;
+    }
+    if (!createGroupForm.gender) {
+      toast.error('Gender is required');
       return;
     }
     setIsCreatingGroup(true);
@@ -439,18 +453,42 @@ export function AdminUserManagement() {
     }
   };
 
+  // ── Handler: quick-assign student to group ────────────────────────────────
+  const handleQuickAssignStudent = async () => {
+    if (!quickAssignStudent || !quickAssignGroupId) return;
+    setIsQuickAssigning(true);
+    try {
+      await updateGroup(quickAssignGroupId, {
+        projectName: groups.find((g) => g.id === quickAssignGroupId)?.projectName ?? '',
+        removeMemberIds: [],
+        addMemberIds: [quickAssignStudent.id],
+        removeSupervisor: false,
+      });
+      toast.success(`${quickAssignStudent.name} assigned to group`);
+      setQuickAssignStudent(null);
+      setQuickAssignGroupId('');
+      reloadGroups();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to assign student to group');
+    } finally {
+      setIsQuickAssigning(false);
+    }
+  };
+
   // ── Helpers ── extracted from group code {dept}_{num}_{courseNum}_{year}_{termCode}_{genderCode}
   const getGroupSemester = (code: string) => code.split('_')[4] ?? '';
   const getGroupCourse = (code: string) => code.split('_')[2] ?? '';
   // Map studentId → semester / course via groups state
   const studentSemesterMap = new Map<string, string>();
   const studentCourseMap = new Map<string, string>();
+  const groupedStudentIds = new Set<string>();
   groups.forEach((g) => {
     const sem = getGroupSemester(g.groupCode);
     const course = getGroupCourse(g.groupCode);
     g.members.forEach((m) => {
       studentSemesterMap.set(m.id, sem);
       studentCourseMap.set(m.id, course);
+      groupedStudentIds.add(m.id);
     });
   });
 
@@ -736,9 +774,23 @@ export function AdminUserManagement() {
                       }`}>
                         {u.status}
                       </span>
+                      {u.role === 'student' && !groupedStudentIds.has(u.id) && (
+                        <span className="mt-1 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-700 border border-orange-200">
+                          No Group
+                        </span>
+                      )}
                     </div>
                     {/* Actions */}
                     <div className="col-span-2 flex items-center justify-end gap-2">
+                      {u.role === 'student' && !groupedStudentIds.has(u.id) && (
+                        <button
+                          className="text-xs px-2 py-1 border border-blue-300 text-blue-700 hover:bg-blue-50 transition-colors rounded whitespace-nowrap"
+                          onClick={() => { setQuickAssignStudent(u); setQuickAssignGroupId(''); }}
+                          disabled={isLocked}
+                        >
+                          Assign Group
+                        </button>
+                      )}
                       {u.role === 'supervisor' && (
                         coordinatorMap[u.id] ? (
                           <button
@@ -961,6 +1013,48 @@ export function AdminUserManagement() {
           </div>
         </>
       )}
+
+      {/* ── Quick Assign Student to Group Dialog ── */}
+      <Dialog open={!!quickAssignStudent} onOpenChange={(open) => { if (!open) { setQuickAssignStudent(null); setQuickAssignGroupId(''); } }}>
+        <DialogContent className="sm:max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle>Assign Student to Group</DialogTitle>
+            <DialogDescription>
+              {quickAssignStudent?.name} has no group. Select a group to assign them to.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Label>Select Group</Label>
+            <Select value={quickAssignGroupId} onValueChange={setQuickAssignGroupId}>
+              <SelectTrigger className="mt-2">
+                <SelectValue placeholder="Choose a group…" />
+              </SelectTrigger>
+              <SelectContent>
+                {groups
+                  .filter((g) => g.membersCount < 3)
+                  .map((g) => (
+                    <SelectItem key={g.id} value={g.id}>
+                      {g.groupCode} — {g.projectName || 'No project name'} ({g.membersCount}/3 members)
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+            {groups.filter((g) => g.membersCount < 3).length === 0 && (
+              <p className="text-sm text-[var(--color-text-600)] mt-2">All groups are full (3/3 members). Create a new group first.</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setQuickAssignStudent(null); setQuickAssignGroupId(''); }}>Cancel</Button>
+            <Button
+              variant="primary"
+              disabled={!quickAssignGroupId || isQuickAssigning || isLocked}
+              onClick={handleQuickAssignStudent}
+            >
+              {isQuickAssigning ? 'Assigning…' : 'Assign'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Registration Details Dialog ── */}
       <Dialog open={isViewDialogOpen} onOpenChange={(open) => { setIsViewDialogOpen(open); if (!open) setViewingReg(null); }}>

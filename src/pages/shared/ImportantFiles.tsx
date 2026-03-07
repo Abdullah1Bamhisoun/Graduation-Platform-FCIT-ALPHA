@@ -1,10 +1,11 @@
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
-import { FileText, Download, File, Eye } from 'lucide-react';
+import { FileText, Download, File, Eye, Loader2 } from 'lucide-react';
 import { getSignedUrl } from '../../services/storage';
 import { toast } from 'sonner';
 import { Card } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { useState, useEffect } from 'react';
 
 interface FileItem {
@@ -21,6 +22,12 @@ export function ImportantFiles() {
   const { user } = useAuth();
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // File viewer modal state
+  const [viewModalOpen, setViewModalOpen] = useState(false);
+  const [viewModalUrl, setViewModalUrl] = useState('');
+  const [viewModalName, setViewModalName] = useState('');
+  const [viewModalLoading, setViewModalLoading] = useState(false);
 
   useEffect(() => {
     fetch('/api/important-files')
@@ -50,11 +57,20 @@ export function ImportantFiles() {
 
   const handleView = async (file: FileItem) => {
     if (!file.fileUrl) return;
+    setViewModalName(file.name);
+    setViewModalUrl('');
+    setViewModalOpen(true);
+    setViewModalLoading(true);
     try {
       const url = await getUrl(file.fileUrl);
-      window.open(url, '_blank');
+      const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+      const isPdf = ext === 'pdf' || file.type === 'pdf';
+      setViewModalUrl(isPdf ? url : `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`);
     } catch {
       toast.error('Failed to open file');
+      setViewModalOpen(false);
+    } finally {
+      setViewModalLoading(false);
     }
   };
 
@@ -154,6 +170,32 @@ export function ImportantFiles() {
           If you need additional documents or templates, please contact your supervisor or the department administrator.
         </p>
       </div>
+
+      {/* File Viewer Modal — full screen */}
+      <Dialog open={viewModalOpen} onOpenChange={(open) => { if (!open) { setViewModalOpen(false); setViewModalUrl(''); } }}>
+        <DialogContent className="!inset-0 !translate-x-0 !translate-y-0 !top-0 !left-0 !max-w-full !w-screen !h-screen !rounded-none flex flex-col p-0 gap-0">
+          <DialogHeader className="px-6 py-3 border-b border-gray-200 flex-shrink-0 flex flex-row items-center justify-between">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Eye className="w-4 h-4 text-blue-600" />
+              {viewModalName}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-hidden">
+            {viewModalLoading ? (
+              <div className="flex items-center justify-center h-full gap-2 text-gray-500">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Loading file...
+              </div>
+            ) : viewModalUrl ? (
+              <iframe
+                src={viewModalUrl}
+                className="w-full h-full border-0"
+                title={viewModalName}
+              />
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 }

@@ -17,8 +17,9 @@ async function listUsers(req, res) {
 
     if (role) query = query.eq('role', role);
 
-    // Coordinators only see users in their course
-    if (!isAdmin && isCoordinator) {
+    // Coordinators only see students in their course.
+    // Supervisor/admin profiles are platform-wide and must not be scoped.
+    if (!isAdmin && isCoordinator && role === 'student') {
       const { data: groups } = await supabaseAdmin
         .from('groups')
         .select('id')

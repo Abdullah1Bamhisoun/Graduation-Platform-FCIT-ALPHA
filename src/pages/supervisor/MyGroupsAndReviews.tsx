@@ -334,6 +334,12 @@ export function SupervisorMyGroupsAndReviews() {
   const [ipReason, setIpReason] = useState('');
   const [ipProcessing, setIpProcessing] = useState(false);
 
+  // File viewer modal
+  const [viewModalOpen, setViewModalOpen]       = useState(false);
+  const [viewModalUrl, setViewModalUrl]         = useState('');
+  const [viewModalName, setViewModalName]       = useState('');
+  const [viewModalLoading, setViewModalLoading] = useState(false);
+
   // Discussion dialog
   const [discussionTarget, setDiscussionTarget]     = useState<ChapterSubmission | null>(null);
   const [discussionComments, setDiscussionComments] = useState<SubmissionComment[]>([]);
@@ -477,12 +483,24 @@ export function SupervisorMyGroupsAndReviews() {
 
   // ── File View / Download ──────────────────────────────────────────────────
 
-  const handleViewFile = async (filePath: string) => {
+  const handleViewFile = async (filePath: string, fileName: string) => {
+    setViewModalName(fileName);
+    setViewModalUrl('');
+    setViewModalOpen(true);
+    setViewModalLoading(true);
     try {
       const url = await getSignedUrl(filePath);
-      window.open(url, '_blank');
+      const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
+      setViewModalUrl(
+        ext === 'pdf'
+          ? url
+          : `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`
+      );
     } catch {
       toast.error('Failed to get file URL');
+      setViewModalOpen(false);
+    } finally {
+      setViewModalLoading(false);
     }
   };
 
@@ -917,7 +935,7 @@ export function SupervisorMyGroupsAndReviews() {
                                         size="sm"
                                         variant="outline"
                                         className="gap-1"
-                                        onClick={() => handleViewFile(filePath)}
+                                        onClick={() => handleViewFile(filePath, fileName)}
                                       >
                                         <Eye className="w-3 h-3" />
                                         View
@@ -1627,6 +1645,32 @@ export function SupervisorMyGroupsAndReviews() {
               }
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── File Viewer Modal — full screen ── */}
+      <Dialog open={viewModalOpen} onOpenChange={(open) => { if (!open) { setViewModalOpen(false); setViewModalUrl(''); } }}>
+        <DialogContent className="!inset-0 !translate-x-0 !translate-y-0 !top-0 !left-0 !max-w-full !w-screen !h-screen !rounded-none flex flex-col p-0 gap-0">
+          <DialogHeader className="px-6 py-3 border-b border-gray-200 flex-shrink-0 flex flex-row items-center justify-between">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Eye className="w-4 h-4 text-blue-600" />
+              {viewModalName}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-hidden">
+            {viewModalLoading ? (
+              <div className="flex items-center justify-center h-full gap-2 text-gray-500">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Loading file...
+              </div>
+            ) : viewModalUrl ? (
+              <iframe
+                src={viewModalUrl}
+                className="w-full h-full border-0"
+                title={viewModalName}
+              />
+            ) : null}
+          </div>
         </DialogContent>
       </Dialog>
 

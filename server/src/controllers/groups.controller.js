@@ -105,16 +105,17 @@ async function getAllGroups(req, res) {
  */
 async function getAvailableGroups(req, res) {
   try {
-    const { department, gender, course_number } = req.query;
+    const { department, gender, course_number, course_id } = req.query;
 
     // Attempt the richer query with new columns (gender, course_number added in latest migration)
     let richQuery = supabaseAdmin
       .from('groups')
-      .select(`id, group_code, group_number, department, project_name, is_locked, status, gender, course_number, members:group_members(student_id)`)
+      .select(`id, group_code, group_number, department, project_name, is_locked, status, gender, course_number, course_id, members:group_members(student_id)`)
       .order('group_number', { ascending: true, nullsFirst: false });
 
-    if (department) richQuery = richQuery.eq('department', department);
-    if (gender) richQuery = richQuery.eq('gender', gender);
+    if (course_id)    richQuery = richQuery.eq('course_id', course_id);
+    if (department)   richQuery = richQuery.eq('department', department);
+    if (gender)       richQuery = richQuery.eq('gender', gender);
     if (course_number) richQuery = richQuery.eq('course_number', course_number);
 
     const { data: richData, error: richError } = await richQuery;
@@ -348,7 +349,7 @@ async function deleteGroup(req, res) {
 async function updateGroup(req, res) {
   try {
     const { id: groupId } = req.params;
-    const { projectName, removeMemberIds, addMemberIds, removeSupervisor } = req.body;
+    const { projectName, removeMemberIds, addMemberIds, removeSupervisor, gender } = req.body;
 
     // Coordinator scope check
     if (!req.user.roles.includes('admin') && req.user.coordinatorCourseId) {
@@ -361,6 +362,17 @@ async function updateGroup(req, res) {
     const groupUpdates = {};
     if (projectName !== undefined) groupUpdates.project_name = projectName;
     if (removeSupervisor === true) groupUpdates.supervisor_id = null;
+    if (gender !== undefined) {
+      const genderCode = gender === 'male' ? 'M' : gender === 'female' ? 'F' : 'U';
+      groupUpdates.gender = gender || null;
+      // Regenerate group_code: replace last segment (gender code)
+      const { data: existing } = await supabaseAdmin.from('groups').select('group_code').eq('id', groupId).maybeSingle();
+      if (existing?.group_code) {
+        const parts = existing.group_code.split('_');
+        parts[parts.length - 1] = genderCode;
+        groupUpdates.group_code = parts.join('_');
+      }
+    }
 
     if (Object.keys(groupUpdates).length > 0) {
       const { error } = await supabaseAdmin

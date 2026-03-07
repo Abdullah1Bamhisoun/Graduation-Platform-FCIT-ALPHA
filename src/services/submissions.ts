@@ -38,6 +38,11 @@ function mapDbSubmission(data: any): Submission {
   const group = data.group;
   const feedbackData = Array.isArray(data.feedback) ? data.feedback[0] : data.feedback;
 
+  const groupMembers: { id: string; name: string }[] = (group?.members ?? []).map((m: any) => ({
+    id: m.student?.id ?? m.student_id,
+    name: m.student?.name ?? '',
+  })).filter((m: any) => m.id);
+
   return {
     id: data.id,
     milestoneId: data.milestone_id,
@@ -52,6 +57,8 @@ function mapDbSubmission(data: any): Submission {
       .sort((a: any, b: any) => a.version - b.version)
       .map(mapDbVersion),
     feedback: feedbackData ? mapDbFeedback(feedbackData) : undefined,
+    groupId: data.group_id ?? undefined,
+    groupMembers,
   };
 }
 
@@ -59,7 +66,7 @@ const SUBMISSION_SELECT = `
   *,
   milestone:milestones!milestone_id(name, course:courses!course_id(code)),
   student:profiles!student_id(name),
-  group:groups!group_id(project_name),
+  group:groups!group_id(project_name, members:group_members(student_id, student:profiles!student_id(id, name))),
   versions:submission_versions(*),
   feedback:submission_feedback(
     *,
@@ -143,6 +150,38 @@ export async function getSubmissionByMilestoneAndStudent(
     return data ? mapDbSubmission(data) : null;
   } catch (error) {
     console.error('Error fetching submission:', error);
+    return null;
+  }
+}
+
+/**
+ * Fetch the submission for a given milestone and group (group-shared lookup).
+ * Routes through the backend API (supabaseAdmin) to bypass Supabase RLS,
+ * so all group members can read the submission regardless of who uploaded it.
+ */
+export async function getSubmissionByMilestoneAndGroup(
+  milestoneId: string,
+  groupId: string
+): Promise<Submission | null> {
+  try {
+    const session = await supabase.auth.getSession();
+    const token = session.data.session?.access_token;
+
+    const params = new URLSearchParams({ milestoneId, groupId });
+    const res = await fetch(`/api/submissions/group-submission?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token ?? ''}` },
+    });
+
+    if (!res.ok) {
+      if (res.status === 404) return null;
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to fetch group submission');
+    }
+
+    const data = await res.json();
+    return data ?? null;
+  } catch (error) {
+    console.error('Error fetching group submission:', error);
     return null;
   }
 }

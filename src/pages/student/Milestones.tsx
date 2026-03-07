@@ -4,10 +4,12 @@ import { StatusBadge } from '../../features/submissions/components/StatusBadge';
 import { Button } from '../../components/ui/button';
 import { useAuth } from '../../lib/AuthContext';
 import { getMilestonesByStudentWithStatus } from '../../services/milestones';
-import { getSubmissionByMilestoneAndStudent } from '../../services/submissions';
+import { getSubmissionByMilestoneAndGroup } from '../../services/submissions';
+import { getGroupForStudent, GroupData } from '../../services/groups';
 import { getSignedUrl } from '../../services/storage';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, FileText, X, Download } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog';
+import { Calendar, FileText, X, Download, Eye, Loader2 } from 'lucide-react';
 import { useLockStatus } from '../../hooks/useLockStatus';
 import { LockedBanner } from '../../components/ui/LockedBanner';
 import { Milestone, Submission } from '../../types';
@@ -20,23 +22,34 @@ export function StudentMilestones() {
   const [selectedMilestone, setSelectedMilestone] = useState<Milestone | null>(null);
   const [drawerSubmission, setDrawerSubmission] = useState<Submission | null>(null);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
+  const [group, setGroup] = useState<GroupData | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // File viewer modal state
+  const [viewModalOpen, setViewModalOpen] = useState(false);
+  const [viewModalUrl, setViewModalUrl] = useState('');
+  const [viewModalName, setViewModalName] = useState('');
+  const [viewModalLoading, setViewModalLoading] = useState(false);
 
   useEffect(() => {
     if (!user) return;
-    getMilestonesByStudentWithStatus(user.id)
-      .then(setMilestones)
-      .finally(() => setLoading(false));
+    Promise.all([
+      getMilestonesByStudentWithStatus(user.id),
+      getGroupForStudent(user.id),
+    ]).then(([ms, g]) => {
+      setMilestones(ms);
+      setGroup(g);
+    }).finally(() => setLoading(false));
   }, [user]);
 
   useEffect(() => {
-    if (!selectedMilestone || !user) {
+    if (!selectedMilestone || !group) {
       setDrawerSubmission(null);
       return;
     }
-    getSubmissionByMilestoneAndStudent(selectedMilestone.id, user.id)
-      .then(s => setDrawerSubmission(s));
-  }, [selectedMilestone, user]);
+    getSubmissionByMilestoneAndGroup(selectedMilestone.id, group.id)
+      .then(s => setDrawerSubmission(s ?? null));
+  }, [selectedMilestone, group]);
 
   const handleDownload = async (filePath: string, fileName: string) => {
     try {
@@ -47,6 +60,27 @@ export function StudentMilestones() {
       a.click();
     } catch {
       toast.error('Failed to get download link');
+    }
+  };
+
+  const handleViewFile = async (filePath: string, fileName: string) => {
+    setViewModalName(fileName);
+    setViewModalUrl('');
+    setViewModalOpen(true);
+    setViewModalLoading(true);
+    try {
+      const url = await getSignedUrl(filePath);
+      const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
+      setViewModalUrl(
+        ext === 'pdf'
+          ? url
+          : `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`
+      );
+    } catch {
+      toast.error('Failed to open file');
+      setViewModalOpen(false);
+    } finally {
+      setViewModalLoading(false);
     }
   };
 
@@ -130,6 +164,32 @@ export function StudentMilestones() {
       </div>
 
       {/* Drawer for Milestone Details */}
+      {/* File Viewer Modal — full screen */}
+      <Dialog open={viewModalOpen} onOpenChange={(open) => { if (!open) { setViewModalOpen(false); setViewModalUrl(''); } }}>
+        <DialogContent className="!inset-0 !translate-x-0 !translate-y-0 !top-0 !left-0 !max-w-full !w-screen !h-screen !rounded-none flex flex-col p-0 gap-0">
+          <DialogHeader className="px-6 py-3 border-b border-gray-200 flex-shrink-0 flex flex-row items-center justify-between">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Eye className="w-4 h-4 text-blue-600" />
+              {viewModalName}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-hidden">
+            {viewModalLoading ? (
+              <div className="flex items-center justify-center h-full gap-2 text-gray-500">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Loading file...
+              </div>
+            ) : viewModalUrl ? (
+              <iframe
+                src={viewModalUrl}
+                className="w-full h-full border-0"
+                title={viewModalName}
+              />
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {selectedMilestone && (
         <>
           <div
@@ -220,13 +280,22 @@ export function StudentMilestones() {
                           </p>
                         </div>
                         {v.filePath && (
-                          <button
-                            onClick={() => handleDownload(v.filePath!, v.fileName)}
-                            className="p-1.5 hover:bg-[var(--color-border)] rounded transition-colors"
-                            title="Download"
-                          >
-                            <Download className="w-4 h-4 text-[var(--color-text-600)]" />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleViewFile(v.filePath!, v.fileName)}
+                              className="p-1.5 hover:bg-[var(--color-border)] rounded transition-colors"
+                              title="View"
+                            >
+                              <Eye className="w-4 h-4 text-[var(--color-text-600)]" />
+                            </button>
+                            <button
+                              onClick={() => handleDownload(v.filePath!, v.fileName)}
+                              className="p-1.5 hover:bg-[var(--color-border)] rounded transition-colors"
+                              title="Download"
+                            >
+                              <Download className="w-4 h-4 text-[var(--color-text-600)]" />
+                            </button>
+                          </div>
                         )}
                       </div>
                     ))}

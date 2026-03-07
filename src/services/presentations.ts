@@ -54,6 +54,9 @@ export function isoWeekToMonday(weekValue: string): Date | null {
 export function dateToIsoWeek(date: Date): string {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
+  // In our display system the week starts on Sunday: treat Sunday as belonging
+  // to the following ISO week (whose Monday is the very next day).
+  if (d.getDay() === 0) d.setDate(d.getDate() + 1);
   // Move to Thursday of the same ISO week to get the correct year and week number
   d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
   const week1 = new Date(d.getFullYear(), 0, 4);
@@ -77,6 +80,7 @@ export interface SavedScheduleEntry {
   timeSlot: string | null;
   committeeMembers: string[];
   scheduledAt: string | null;
+  location: string | null;
 }
 
 /**
@@ -136,6 +140,7 @@ export interface AssignSchedulePayload {
   day: string;
   timeSlot: string;
   committeeMembers?: string[];
+  location?: string;
 }
 
 /**
@@ -185,6 +190,8 @@ export interface StudentPresentationView {
   schedule: {
     day: string;
     timeSlot: string;
+    scheduledAt: string | null;
+    location: string | null;
   } | null;
 }
 

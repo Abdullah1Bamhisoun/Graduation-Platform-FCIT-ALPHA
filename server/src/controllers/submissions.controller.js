@@ -335,8 +335,171 @@ async function getChapterSubmissionsForCoordinator(req, res) {
   }
 }
 
+/**
+ * GET /api/submissions/group-submission?milestoneId=X&groupId=Y
+ *
+ * Student endpoint: returns the shared group submission for a milestone.
+ * Uses supabaseAdmin to bypass RLS — access is enforced by verifying the
+ * requesting user is a member of the specified group.
+ */
+async function getGroupSubmission(req, res) {
+  try {
+    const { milestoneId, groupId } = req.query;
+    if (!milestoneId || !groupId) {
+      return res.status(400).json({ error: 'milestoneId and groupId are required' });
+    }
+
+    const userId = req.user.id;
+    const userRoles = req.user.roles;
+
+    // Admins and supervisors can access without group membership check
+    if (!userRoles.includes('admin') && !userRoles.includes('supervisor')) {
+      const { data: membership } = await supabaseAdmin
+        .from('group_members')
+        .select('student_id')
+        .eq('group_id', groupId)
+        .eq('student_id', userId)
+        .maybeSingle();
+
+      if (!membership) {
+        return res.status(403).json({ error: 'Access denied: not a member of this group' });
+      }
+    }
+
+    const { data: submission, error } = await supabaseAdmin
+      .from('submissions')
+      .select(`
+        id, milestone_id, student_id, group_id, status, current_version, created_at, updated_at,
+        milestone:milestones!milestone_id(name, course:courses!course_id(code)),
+        student:profiles!student_id(name),
+        group:groups!group_id(project_name),
+        versions:submission_versions(version, file_name, file_size, file_path, uploaded_at, notes),
+        feedback:submission_feedback(
+          id, overall_comment, reviewed_by, reviewed_at, total_score, max_score,
+          reviewer:profiles!reviewed_by(name),
+          scores:feedback_scores(score, comment, criterion:rubric_criteria!rubric_criterion_id(id, name, max_score))
+        )
+      `)
+      .eq('milestone_id', milestoneId)
+      .eq('group_id', groupId)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!submission) return res.json(null);
+
+    // Fetch all group members separately (Supabase nested join depth limit)
+    const { data: memberRows } = await supabaseAdmin
+      .from('group_members')
+      .select('student_id, student:profiles!student_id(id, name)')
+      .eq('group_id', groupId);
+
+    const groupMembers = (memberRows || []).map((m) => ({
+      id: m.student?.id ?? m.student_id,
+      name: m.student?.name ?? '',
+    })).filter((m) => m.id);
+
+    const feedbackData = Array.isArray(submission.feedback)
+      ? submission.feedback[0]
+      : submission.feedback;
+
+    const mapped = {
+      id: submission.id,
+      milestoneId: submission.milestone_id,
+      milestoneName: submission.milestone?.name ?? '',
+      studentId: submission.student_id,
+      studentName: submission.student?.name ?? '',
+      projectName: submission.group?.project_name ?? '',
+      submittedAt: submission.updated_at ?? submission.created_at,
+      status: normalizeStatus(submission.status),
+      currentVersion: submission.current_version,
+      groupId: submission.group_id,
+      groupMembers,
+      versions: (submission.versions || [])
+        .sort((a, b) => a.version - b.version)
+        .map((v) => ({
+          version: v.version,
+          fileName: v.file_name,
+          fileSize: v.file_size,
+          filePath: v.file_path ?? undefined,
+          uploadedAt: v.uploaded_at,
+          notes: v.notes ?? undefined,
+        })),
+      feedback: feedbackData
+        ? {
+            rubric: (feedbackData.scores || []).map((s) => ({
+              id: s.criterion?.id ?? '',
+              name: s.criterion?.name ?? '',
+              maxScore: s.criterion?.max_score ?? 0,
+              score: Number(s.score),
+              comment: s.comment ?? undefined,
+            })),
+            overallComment: feedbackData.overall_comment ?? '',
+            reviewedBy: feedbackData.reviewer?.name ?? '',
+            reviewedAt: feedbackData.reviewed_at,
+            totalScore: Number(feedbackData.total_score ?? 0),
+            maxScore: Number(feedbackData.max_score ?? 0),
+          }
+        : undefined,
+    };
+
+    res.json(mapped);
+  } catch (error) {
+    console.error('Error fetching group submission:', error);
+    res.status(500).json({ error: 'Failed to fetch group submission' });
+  }
+}
+
+/**
+ * GET /api/submissions/group-milestone-statuses?groupId=X
+ *
+ * Student endpoint: returns milestone_id → status map for a group.
+ * Bypasses RLS so all group members see the same submission statuses.
+ */
+async function getGroupMilestoneStatuses(req, res) {
+  try {
+    const { groupId } = req.query;
+    if (!groupId) {
+      return res.status(400).json({ error: 'groupId is required' });
+    }
+
+    const userId = req.user.id;
+    const userRoles = req.user.roles;
+
+    if (!userRoles.includes('admin') && !userRoles.includes('supervisor')) {
+      const { data: membership } = await supabaseAdmin
+        .from('group_members')
+        .select('student_id')
+        .eq('group_id', groupId)
+        .eq('student_id', userId)
+        .maybeSingle();
+
+      if (!membership) {
+        return res.status(403).json({ error: 'Access denied: not a member of this group' });
+      }
+    }
+
+    const { data: submissions, error } = await supabaseAdmin
+      .from('submissions')
+      .select('milestone_id, status')
+      .eq('group_id', groupId);
+
+    if (error) throw error;
+
+    const statuses = Object.fromEntries(
+      (submissions || []).map((s) => [s.milestone_id, normalizeStatus(s.status)])
+    );
+
+    res.json(statuses);
+  } catch (error) {
+    console.error('Error fetching group milestone statuses:', error);
+    res.status(500).json({ error: 'Failed to fetch milestone statuses' });
+  }
+}
+
 module.exports = {
   getChapterSubmissionsForSupervisor,
   updateSubmissionApproval,
   getChapterSubmissionsForCoordinator,
+  getGroupSubmission,
+  getGroupMilestoneStatuses,
 };
