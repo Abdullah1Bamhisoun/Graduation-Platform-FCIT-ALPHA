@@ -174,8 +174,19 @@ export async function getAllGroups(activeRole?: string): Promise<GroupData[]> {
   try {
     return await fetchAllGroupsFromApi(activeRole);
   } catch (error) {
-    console.error('Error fetching groups:', error);
-    return [];
+    // Backend not available — fall back to direct Supabase query
+    console.warn('Backend API unavailable, falling back to Supabase:', error);
+    try {
+      const { data, error: sbError } = await supabase
+        .from('groups')
+        .select(GROUP_SELECT)
+        .order('group_number', { ascending: true });
+      if (sbError) throw sbError;
+      return (data || []).map(mapDbGroup);
+    } catch (sbFallbackError) {
+      console.error('Supabase fallback also failed:', sbFallbackError);
+      return [];
+    }
   }
 }
 
