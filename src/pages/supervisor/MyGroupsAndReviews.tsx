@@ -242,45 +242,82 @@ async function fetchSupervisorGrades(token: string): Promise<GroupGradeData[]> {
       .eq('supervisor_id', user.id);
     if (!groups || groups.length === 0) return [];
 
-    // Fetch grading components per unique courseType
-    const courseTypes = [...new Set((groups as any[]).map((g: any) => {
-      const code: string = g.course?.code ?? '';
-      return code.includes('499') ? '499' : '498';
-    }))] as ('498' | '499')[];
+    const groupIds = (groups as any[]).map((g: any) => g.id);
 
-    const componentsMap: Record<string, GradeComponent[]> = {};
-    for (const ct of courseTypes) {
-      const { data: comps } = await supabase
-        .from('grading_components')
-        .select('*')
-        .eq('course_type', ct)
-        .eq('is_active', true)
-        .order('display_order');
-      componentsMap[ct] = (comps || []).map((c: any) => ({
-        componentKey: c.component_key,
-        componentName: c.component_name,
-        totalMarks: c.total_marks,
-        evaluatorRole: c.evaluator_role,
-        score: null,
-        maxScore: c.total_marks,
-      }));
-    }
+    // Fetch all grade data in parallel
+    const [
+      { data: allComps },
+      { data: delivScores },
+      { data: supAssessments },
+      { data: rubricScores },
+      { data: submissions },
+      { data: weeklyReports },
+    ] = await Promise.all([
+      supabase.from('grading_components').select('*').eq('is_active', true).order('display_order'),
+      supabase.from('coordinator_deliverable_scores').select('group_id, course_id, deliverable_key, score, max_score, graded_at').in('group_id', groupIds),
+      supabase.from('supervisor_assessments').select('student_id, group_id, course_id, score, max_score, graded_at, submission_status').in('group_id', groupIds),
+      supabase.from('supervisor_rubric_scores').select('student_id, group_id, course_id, criterion_key, raw_score, submission_status, graded_at').eq('graded_by', user.id).in('group_id', groupIds),
+      supabase.from('submissions').select('group_id, status').in('group_id', groupIds),
+      supabase.from('weekly_reports').select('group_id, student_mark, supervisor_mark').in('group_id', groupIds),
+    ]);
 
     return (groups as any[]).map((g: any) => {
       const code: string = g.course?.code ?? '';
       const courseType: '498' | '499' = code.includes('499') ? '499' : '498';
-      const components = componentsMap[courseType] ?? [];
-      const supervisorComp = components.find((c) => c.componentKey === 'supervisor_eval');
+      const courseId: string = g.course_id ?? '';
+
+      const groupDelivs = ((delivScores || []) as any[]).filter((d: any) => d.group_id === g.id && d.course_id === courseId);
+      const deliverablesTotal = groupDelivs.reduce((s: number, d: any) => s + Number(d.score ?? 0), 0);
+
+      const groupAssessments = ((supAssessments || []) as any[]).filter((a: any) => a.group_id === g.id && a.course_id === courseId);
+      const supervisorEval = groupAssessments.map((a: any) => ({
+        studentId: a.student_id, score: a.score != null ? Number(a.score) : null,
+        maxScore: Number(a.max_score), gradedAt: a.graded_at, submissionStatus: a.submission_status ?? 'draft',
+      }));
+      const supScoreValues = supervisorEval.map((e) => e.score).filter((s): s is number => s != null);
+      const supervisorTotalScore = supScoreValues.length ? supScoreValues.reduce((s, v) => s + v, 0) / supScoreValues.length : null;
+      const supervisorMaxScore = supervisorEval[0]?.maxScore ?? (courseType === '499' ? 23 : 20);
+
+      const groupRubric = ((rubricScores || []) as any[]).filter((r: any) => r.group_id === g.id);
+      const groupSubs = ((submissions || []) as any[]).filter((s: any) => s.group_id === g.id);
+      const approvalCounts = {
+        total: groupSubs.length,
+        pending: groupSubs.filter((s: any) => ['submitted', 'under-review'].includes(s.status)).length,
+        approved: groupSubs.filter((s: any) => s.status === 'approved').length,
+        rejected: groupSubs.filter((s: any) => s.status === 'changes-requested').length,
+      };
+      const weeklyScore = ((weeklyReports || []) as any[]).filter((r: any) => r.group_id === g.id)
+        .reduce((s: number, r: any) => s + (r.student_mark ?? 0) + (r.supervisor_mark ?? 0), 0);
+
+      const courseComponents: GradeComponent[] = ((allComps || []) as any[])
+        .filter((c: any) => c.course_type === courseType)
+        .sort((a: any, b: any) => a.display_order - b.display_order)
+        .map((c: any) => ({
+          componentKey: c.component_key,
+          componentName: c.component_name,
+          totalMarks: Number(c.total_marks),
+          evaluatorRole: c.evaluator_role,
+          score: c.component_key === 'supervisor_eval' ? supervisorTotalScore
+            : c.component_key === 'coordinator_deliverables' ? deliverablesTotal
+            : c.component_key === 'progress_reports' ? weeklyScore
+            : null,
+          maxScore: c.component_key === 'supervisor_eval' ? supervisorMaxScore : Number(c.total_marks),
+        }));
+
       return {
         id: g.id, groupNumber: g.group_number, groupCode: g.group_code,
-        projectName: g.project_name, status: g.status, projectStatus: 'normal' as const,
-        ipMarkedAt: null, ipReason: null, courseCode: code,
-        courseType, courseId: g.course_id,
+        projectName: g.project_name, status: g.status,
+        projectStatus: (g.project_status ?? 'normal') as 'normal' | 'ip',
+        ipMarkedAt: g.ip_marked_at ?? null, ipReason: g.ip_reason ?? null,
+        courseCode: code, courseType, courseId,
         students: (g.members || []).map((m: any) => ({ id: m.student?.id ?? '', name: m.student?.name ?? '' })),
-        components, deliverablesTotal: 0, supervisorEvaluation: [],
-        supervisorTotalScore: null, supervisorMaxScore: supervisorComp?.totalMarks ?? 0,
-        rubricScores: [], weeklyScore: 0,
-        approvalCounts: { total: 0, pending: 0, approved: 0, rejected: 0 },
+        components: courseComponents, deliverablesTotal, supervisorEvaluation: supervisorEval,
+        supervisorTotalScore, supervisorMaxScore,
+        rubricScores: groupRubric.map((r: any) => ({
+          studentId: r.student_id, criterionKey: r.criterion_key, rawScore: r.raw_score,
+          submissionStatus: r.submission_status, gradedAt: r.graded_at,
+        })),
+        weeklyScore, approvalCounts,
       };
     });
   }

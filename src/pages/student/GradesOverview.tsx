@@ -99,28 +99,103 @@ async function fetchMyGrades(token: string): Promise<StudentMyGradesData | null>
       if (!group) return null;
 
       const g = group as any;
+      const groupId = g.id as string;
       const courseCode = g.course?.code ?? '';
       const courseNum = String(g.course_number ?? '');
       const courseType: '498' | '499' = (courseNum.includes('499') || courseCode.includes('499')) ? '499' : '498';
+      const courseId: string = g.course_id ?? '';
 
-      // Fetch grade components from Supabase so grade scheme is visible
-      const { data: comps } = await supabase
-        .from('grading_components')
-        .select('*')
-        .eq('course_type', courseType)
-        .eq('is_active', true)
-        .order('display_order');
-      const components: GradeComponentItem[] = (comps || []).map((c: any) => ({
-        componentKey: c.component_key,
-        componentName: c.component_name,
-        totalMarks: c.total_marks,
-        evaluatorRole: c.evaluator_role,
-        score: null,
-        maxScore: c.total_marks,
-      }));
+      // Fetch all grade data in parallel
+      const [
+        { data: comps },
+        { data: supRow },
+        { data: commRows },
+        { data: delivScores },
+        { data: coordAssess },
+        { data: subs },
+        { data: weeklyReports },
+        { data: peerReceived },
+        { data: peerSubmitted },
+      ] = await Promise.all([
+        supabase.from('grading_components').select('*').eq('course_type', courseType).eq('is_active', true).order('display_order'),
+        supabase.from('supervisor_assessments').select('score, max_score, graded_at, submission_status').eq('student_id', user.id).eq('group_id', groupId).maybeSingle(),
+        supabase.from('committee_evaluations').select('score, max_score').eq('student_id', user.id).eq('group_id', groupId),
+        supabase.from('coordinator_deliverable_scores').select('deliverable_key, score, max_score, graded_at').eq('group_id', groupId).eq('course_id', courseId),
+        supabase.from('coordinator_assessments').select('normalized_score, max_score').eq('group_id', groupId).eq('course_type', courseType).limit(1),
+        supabase.from('submissions').select('status').eq('group_id', groupId),
+        supabase.from('weekly_reports').select('week_number, student_mark, supervisor_mark').eq('group_id', groupId).order('week_number'),
+        supabase.from('peer_evaluations').select('score').eq('student_id', user.id).eq('group_id', groupId),
+        supabase.from('peer_evaluations').select('id').eq('evaluator_id', user.id).eq('group_id', groupId).limit(1),
+      ]);
+
+      // Supervisor evaluation
+      const supervisorEval = supRow ? {
+        score: supRow.score != null ? Number(supRow.score) : null,
+        maxScore: Number(supRow.max_score ?? (courseType === '499' ? 23 : 20)),
+        gradedAt: supRow.graded_at ?? null,
+        submissionStatus: supRow.submission_status ?? 'draft',
+      } : null;
+
+      // Committee evaluation
+      const committeeScore = commRows && commRows.length > 0
+        ? (commRows as any[]).reduce((s: number, r: any) => s + Number(r.score ?? 0), 0) / commRows.length
+        : null;
+
+      // Coordinator deliverable scores
+      const deliverablesTotal = (delivScores || []).reduce((s: number, d: any) => s + Number(d.score ?? 0), 0);
+      const deliverableDetail: Record<string, { score: number | null; maxScore: number; gradedAt: string | null }> = {};
+      for (const d of (delivScores || []) as any[]) {
+        deliverableDetail[d.deliverable_key] = { score: d.score != null ? Number(d.score) : null, maxScore: Number(d.max_score ?? 0), gradedAt: d.graded_at ?? null };
+      }
+
+      // Coordinator rubric-based assessment
+      const coordinatorScore = (coordAssess as any[])?.[0]?.normalized_score != null
+        ? Number((coordAssess as any[])[0].normalized_score) : null;
+
+      // Approval counts
+      const subsArr = (subs || []) as any[];
+      const approvalCounts = {
+        total: subsArr.length,
+        pending: subsArr.filter((s: any) => ['submitted', 'under-review'].includes(s.status)).length,
+        approved: subsArr.filter((s: any) => s.status === 'approved').length,
+        rejected: subsArr.filter((s: any) => s.status === 'changes-requested').length,
+      };
+
+      // Weekly reports
+      const weeklyArr = (weeklyReports || []) as any[];
+      const weeklyTotalRaw = weeklyArr.reduce((s: number, r: any) => s + (r.student_mark ?? 0) + (r.supervisor_mark ?? 0), 0);
+      const weeklyMaxScore = courseType === '499' ? 22 : 20;
+      const weeklyScore = Math.min(weeklyTotalRaw, weeklyMaxScore);
+      const weeklyIsAtCap = weeklyTotalRaw >= weeklyMaxScore;
+      const weeklyBreakdown = weeklyArr.map((r: any) => ({ weekNumber: r.week_number, studentMark: r.student_mark ?? 0, supervisorMark: r.supervisor_mark ?? 0 }));
+
+      // Peer evaluations
+      const peerScores = ((peerReceived || []) as any[]).map((p: any) => Number(p.score));
+      const peerAvgRaw = peerScores.length > 0 ? peerScores.reduce((s: number, v: number) => s + v, 0) / peerScores.length : null;
+      const peerComponent = (comps || []).find((c: any) => c.component_key === 'peer_review');
+      const peerWeight = peerComponent ? Number((peerComponent as any).total_marks) : 5;
+      const peerConverted = peerAvgRaw != null ? (peerAvgRaw / 5) * peerWeight : null;
+      const hasSubmittedPeer = ((peerSubmitted || []) as any[]).length > 0;
+
+      // Assemble components with scores
+      const components: GradeComponentItem[] = (comps || []).map((c: any) => {
+        let score: number | null = null;
+        switch (c.component_key) {
+          case 'supervisor_eval': score = supervisorEval?.score ?? null; break;
+          case 'committee_eval': score = committeeScore; break;
+          case 'coordinator_eval': score = coordinatorScore; break;
+          case 'coordinator_deliverables': score = coordinatorScore ?? (courseType === '499' ? deliverablesTotal : deliverablesTotal) || null; break;
+          case 'progress_reports': score = weeklyScore; break;
+          case 'peer_review': score = peerConverted; break;
+        }
+        return { componentKey: c.component_key, componentName: c.component_name, totalMarks: Number(c.total_marks), evaluatorRole: c.evaluator_role, score, maxScore: Number(c.total_marks) };
+      });
+
+      const totalScore = components.reduce((s, c) => s + (c.score ?? 0), 0);
+      const finalGrade = totalScore >= 95 ? 'A+' : totalScore >= 90 ? 'A' : totalScore >= 85 ? 'B+' : totalScore >= 80 ? 'B' : totalScore >= 75 ? 'C+' : totalScore >= 70 ? 'C' : totalScore >= 65 ? 'D+' : totalScore >= 60 ? 'D' : totalScore > 0 ? 'F' : '—';
 
       return {
-        groupId: g.id,
+        groupId,
         groupNumber: g.group_number ?? 0,
         projectName: g.project_name ?? '',
         status: g.status ?? 'active',
@@ -132,20 +207,20 @@ async function fetchMyGrades(token: string): Promise<StudentMyGradesData | null>
         supervisorName: g.supervisor?.name ?? null,
         students: ((g.members ?? []) as any[]).map((m: any) => ({ id: m.student?.id ?? '', name: m.student?.name ?? '' })),
         components,
-        supervisorEvaluation: null,
-        committeeEvaluation: null,
-        approvalCounts: { total: 0, pending: 0, approved: 0, rejected: 0 },
-        weeklyScore: 0,
-        weeklyMaxScore: 0,
-        weeklyTotalRaw: 0,
-        weeksOpened: 0,
-        weeklyIsAtCap: false,
-        weeklyBreakdown: [],
-        peerEvaluation: { receivedCount: 0, averageRaw: null, convertedScore: null, componentWeight: 0, hasSubmitted: false },
-        deliverables: null,
-        deliverablesTotal: 0,
-        totalScore: 0,
-        finalGrade: '—',
+        supervisorEvaluation: supervisorEval,
+        committeeEvaluation: committeeScore != null ? { score: committeeScore, maxScore: 40 } : null,
+        approvalCounts,
+        weeklyScore,
+        weeklyMaxScore,
+        weeklyTotalRaw,
+        weeksOpened: weeklyArr.length,
+        weeklyIsAtCap,
+        weeklyBreakdown,
+        peerEvaluation: { receivedCount: peerScores.length, averageRaw: peerAvgRaw, convertedScore: peerConverted, componentWeight: peerWeight, hasSubmitted: hasSubmittedPeer },
+        deliverables: courseType === '498' ? deliverableDetail : null,
+        deliverablesTotal,
+        totalScore,
+        finalGrade,
       };
     } catch {
       return null;

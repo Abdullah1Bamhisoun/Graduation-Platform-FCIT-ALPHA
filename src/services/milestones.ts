@@ -127,6 +127,29 @@ export async function getMilestonesByStudentWithStatus(studentId: string): Promi
       Object.entries(statuses).forEach(([milestoneId, status]) => {
         submissionMap.set(milestoneId, status);
       });
+    } else {
+      // Backend unavailable — query submissions directly for this student
+      // (RLS allows reading own submissions via student_id = auth.uid())
+      const milestoneIds = (milestones || []).map((m: any) => m.id);
+      if (milestoneIds.length > 0) {
+        // Try by group_id first (group-shared); fall back to student_id
+        const { data: subs } = await supabase
+          .from('submissions')
+          .select('milestone_id, status, group_id')
+          .eq('group_id', groupId)
+          .in('milestone_id', milestoneIds);
+        if (subs && subs.length > 0) {
+          subs.forEach((s: any) => submissionMap.set(s.milestone_id, s.status));
+        } else {
+          // RLS may only allow reading own submissions
+          const { data: ownSubs } = await supabase
+            .from('submissions')
+            .select('milestone_id, status')
+            .eq('student_id', studentId)
+            .in('milestone_id', milestoneIds);
+          (ownSubs || []).forEach((s: any) => submissionMap.set(s.milestone_id, s.status));
+        }
+      }
     }
 
     return (milestones || []).map((m: any) => {
