@@ -11,11 +11,12 @@ function mapDbAnnouncement(row: any): Announcement {
     id: row.id,
     title: row.title,
     content: row.content,
-    authorId: row.author_id,
-    targetRoles: row.target_roles ?? [],
+    author: row.author ?? row.author_id ?? '',
+    publishedAt: row.published_at ?? row.created_at ?? '',
     expiresAt: row.expires_at ?? undefined,
-    createdAt: row.created_at,
-  } as Announcement;
+    targetRoles: row.target_roles ?? [],
+    attachments: row.attachments ?? undefined,
+  };
 }
 
 export async function getAnnouncementsForRole(role: UserRole): Promise<Announcement[]> {
