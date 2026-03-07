@@ -184,7 +184,7 @@ async function fetchMyGrades(token: string): Promise<StudentMyGradesData | null>
           case 'supervisor_eval': score = supervisorEval?.score ?? null; break;
           case 'committee_eval': score = committeeScore; break;
           case 'coordinator_eval': score = coordinatorScore; break;
-          case 'coordinator_deliverables': score = coordinatorScore ?? (courseType === '499' ? deliverablesTotal : deliverablesTotal) || null; break;
+          case 'coordinator_deliverables': score = coordinatorScore ?? (deliverablesTotal > 0 ? deliverablesTotal : null); break;
           case 'progress_reports': score = weeklyScore; break;
           case 'peer_review': score = peerConverted; break;
         }
