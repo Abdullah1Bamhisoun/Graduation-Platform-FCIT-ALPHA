@@ -396,11 +396,78 @@ export async function getChapterSubmissionsForCoordinator(
       })),
       stats: data.stats || { total: 0, pending: 0, approved: 0, rejected: 0 },
     };
-  } catch (error) {
-    console.error('Error fetching coordinator chapter submissions:', error);
-    return {
-      submissions: [],
-      stats: { total: 0, pending: 0, approved: 0, rejected: 0 },
-    };
+  } catch {
+    console.warn('Backend unavailable, falling back to Supabase for chapter submissions');
+    try {
+      // Find coordinator's course via user_roles
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return { submissions: [], stats: { total: 0, pending: 0, approved: 0, rejected: 0 } };
+
+      const { data: userRoleData } = await supabase
+        .from('user_roles')
+        .select('coordinator_course_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      const coordinatorCourseId = userRoleData?.coordinator_course_id;
+      if (!coordinatorCourseId) return { submissions: [], stats: { total: 0, pending: 0, approved: 0, rejected: 0 } };
+
+      const { data: milestones } = await supabase
+        .from('milestones')
+        .select('id, name, type, due_date')
+        .eq('course_id', coordinatorCourseId);
+
+      const milestoneIds = (milestones || []).map((m: any) => m.id);
+      if (milestoneIds.length === 0) return { submissions: [], stats: { total: 0, pending: 0, approved: 0, rejected: 0 } };
+
+      const milestoneMap = new Map((milestones || []).map((m: any) => [m.id, m]));
+
+      let subQuery = supabase
+        .from('submissions')
+        .select(`*, student:profiles!student_id(name), group:groups!group_id(group_number, project_name), versions:submission_versions(*)`)
+        .in('milestone_id', milestoneIds)
+        .order('updated_at', { ascending: false });
+      if (filterGroup && filterGroup !== 'all') subQuery = subQuery.eq('group_id', filterGroup);
+
+      const { data: subs, error: subError } = await subQuery;
+      if (subError) throw subError;
+
+      const submissions: ChapterSubmission[] = (subs || []).map((s: any) => {
+        const ms = milestoneMap.get(s.milestone_id) as any;
+        return {
+          id: s.id,
+          groupId: s.group_id,
+          groupNumber: s.group?.group_number ?? null,
+          projectName: s.group?.project_name ?? '',
+          studentId: s.student_id,
+          studentName: s.student?.name ?? '',
+          milestoneId: s.milestone_id,
+          milestoneName: ms?.name ?? '',
+          milestoneType: ms?.type ?? '',
+          dueDate: ms?.due_date ?? null,
+          status: s.status,
+          currentVersion: s.current_version,
+          submittedAt: s.updated_at ?? s.created_at,
+          versions: (s.versions || []).map((v: any) => ({
+            version: v.version,
+            fileName: v.file_name ?? '',
+            fileSize: v.file_size ?? '',
+            uploadedAt: v.uploaded_at ?? '',
+            notes: v.notes ?? undefined,
+            filePath: v.file_path ?? undefined,
+          })),
+          hasFeedback: false,
+          latestFeedback: null,
+        };
+      });
+
+      const pending = submissions.filter(s => s.status === 'submitted').length;
+      const approved = submissions.filter(s => s.status === 'approved').length;
+      const rejected = submissions.filter(s => s.status === 'rejected').length;
+      return { submissions, stats: { total: submissions.length, pending, approved, rejected } };
+    } catch (sbError) {
+      console.error('Supabase fallback failed for chapter submissions:', sbError);
+      return { submissions: [], stats: { total: 0, pending: 0, approved: 0, rejected: 0 } };
+    }
   }
 }
