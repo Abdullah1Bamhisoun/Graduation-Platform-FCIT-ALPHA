@@ -72,15 +72,41 @@ export function ImportantFilesManager() {
   });
 
   useEffect(() => {
-    getToken().then((token) => {
-      fetch('/api/important-files', {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      })
-        .then((r) => r.json())
-        .then((data) => setFiles(Array.isArray(data) ? data : []))
-        .catch(() => setFiles([]))
-        .finally(() => setLoading(false));
-    });
+    const load = async () => {
+      try {
+        const token = await getToken();
+        const r = await fetch('/api/important-files', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        setFiles(Array.isArray(data) ? data : []);
+      } catch {
+        try {
+          const { data, error } = await supabase
+            .from('important_files')
+            .select('*, course:courses!course_id(code)')
+            .order('uploaded_at', { ascending: false });
+          if (error) throw error;
+          setFiles((data || []).map((f: any) => ({
+            id: f.id,
+            name: f.name,
+            description: f.description ?? '',
+            size: f.size ?? '',
+            type: f.type ?? 'pdf',
+            fileUrl: f.file_url ?? null,
+            courseId: f.course_id ?? null,
+            courseCode: f.course?.code ?? null,
+            uploadedAt: f.uploaded_at,
+          })));
+        } catch {
+          setFiles([]);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
   }, []);
 
   if (!user) return null;

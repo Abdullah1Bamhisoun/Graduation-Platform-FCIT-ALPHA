@@ -158,11 +158,46 @@ interface GroupGradeData {
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
 async function fetchChapterSubmissions(token: string): Promise<ChapterSubmission[]> {
-  const res = await fetch('/api/submissions/chapter-submissions', {
-    headers: { Authorization: `Bearer ${token}`, 'X-Active-Role': 'supervisor' },
-  });
-  if (!res.ok) throw new Error('Failed to fetch chapter submissions');
-  return res.json();
+  try {
+    const res = await fetch('/api/submissions/chapter-submissions', {
+      headers: { Authorization: `Bearer ${token}`, 'X-Active-Role': 'supervisor' },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  } catch {
+    const { supabase } = await import('../../lib/supabase');
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+    const { data: groups } = await supabase
+      .from('groups').select('id, group_number, project_name').eq('supervisor_id', user.id);
+    const groupIds = (groups || []).map((g: any) => g.id);
+    if (groupIds.length === 0) return [];
+    const groupMap = new Map((groups || []).map((g: any) => [g.id, g]));
+    const { data: milestones } = await supabase.from('milestones').select('id, name, type, due_date');
+    const milestoneMap = new Map((milestones || []).map((m: any) => [m.id, m]));
+    const { data: subs } = await supabase
+      .from('submissions')
+      .select('*, student:profiles!student_id(name), versions:submission_versions(*)')
+      .in('group_id', groupIds)
+      .order('updated_at', { ascending: false });
+    return (subs || []).map((s: any) => {
+      const ms = milestoneMap.get(s.milestone_id) as any;
+      const g = groupMap.get(s.group_id) as any;
+      return {
+        id: s.id, groupId: s.group_id, groupNumber: g?.group_number ?? null,
+        projectName: g?.project_name ?? '', studentId: s.student_id,
+        studentName: s.student?.name ?? '', milestoneId: s.milestone_id,
+        milestoneName: ms?.name ?? '', milestoneType: ms?.type ?? '',
+        dueDate: ms?.due_date ?? null, status: s.status,
+        currentVersion: s.current_version, submittedAt: s.updated_at ?? s.created_at,
+        versions: (s.versions || []).map((v: any) => ({
+          version: v.version, file_name: v.file_name ?? '', file_size: v.file_size ?? '',
+          file_path: v.file_path ?? null, uploaded_at: v.uploaded_at ?? '',
+        })),
+        hasFeedback: false, latestFeedback: null,
+      };
+    });
+  }
 }
 
 async function submitApproval(
@@ -191,11 +226,31 @@ async function submitApproval(
  * from grading_components; this function never hardcodes any weight.
  */
 async function fetchSupervisorGrades(token: string): Promise<GroupGradeData[]> {
-  const res = await fetch('/api/groups/supervisor-grades', {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error('Failed to fetch group grades');
-  return res.json();
+  try {
+    const res = await fetch('/api/groups/supervisor-grades', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  } catch {
+    const { supabase } = await import('../../lib/supabase');
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+    const { data: groups } = await supabase
+      .from('groups')
+      .select('*, course:courses!course_id(code, name), members:group_members(student:profiles!student_id(id, name))')
+      .eq('supervisor_id', user.id);
+    return (groups || []).map((g: any) => ({
+      id: g.id, groupNumber: g.group_number, groupCode: g.group_code,
+      projectName: g.project_name, status: g.status, projectStatus: 'normal' as const,
+      ipMarkedAt: null, ipReason: null, courseCode: g.course?.code ?? '',
+      courseType: '498' as const, courseId: g.course_id,
+      students: (g.members || []).map((m: any) => ({ id: m.student?.id ?? '', name: m.student?.name ?? '' })),
+      components: [], deliverablesTotal: 0, supervisorEvaluation: [],
+      supervisorTotalScore: null, supervisorMaxScore: 0, rubricScores: [],
+      weeklyScore: 0, approvalCounts: { total: 0, pending: 0, approved: 0, rejected: 0 },
+    }));
+  }
 }
 
 /**

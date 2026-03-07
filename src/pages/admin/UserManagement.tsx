@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { Search, CheckCircle, XCircle, Eye, Clock, Users, UserCheck, Pencil, Trash2 } from 'lucide-react';
 import { getPendingRegistrationsViaAPI, approveRegistration, rejectRegistration, subscribe, type PendingRegistration } from '../../lib/pending-registrations';
 import { assignSupervisor, updateGroupStatus, deleteGroup, updateGroup, type GroupData } from '../../services/groups';
+import { getProfilesByRole } from '../../services/profiles';
 import type { User as ProfileUser } from '../../types';
 
 // ── Local types ───────────────────────────────────────────────────────────────
@@ -126,21 +127,10 @@ export function AdminUserManagement() {
   // ── Load data ─────────────────────────────────────────────────────────────
   const reloadUsers = async () => {
     try {
-      const token = await getToken();
-      const fetchRole = async (role: string): Promise<ProfileUser[]> => {
-        const res = await fetch(`/api/users?role=${encodeURIComponent(role)}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error((body as { error?: string }).error ?? `Server error (${res.status})`);
-        }
-        return res.json();
-      };
       const [s, sup, a] = await Promise.all([
-        fetchRole('student'),
-        fetchRole('supervisor'),
-        fetchRole('admin'),
+        getProfilesByRole('student'),
+        getProfilesByRole('supervisor'),
+        getProfilesByRole('admin'),
       ]);
       setUsers([...s, ...sup, ...a].map(profileToUser));
     } catch (err) {

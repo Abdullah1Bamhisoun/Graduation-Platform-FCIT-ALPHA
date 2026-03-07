@@ -102,11 +102,31 @@ interface GroupGradeData {
 // ─── API Helpers ──────────────────────────────────────────────────────────────
 
 async function fetchSupervisorGrades(token: string): Promise<GroupGradeData[]> {
-  const res = await fetch('/api/groups/supervisor-grades', {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error('Failed to fetch group grades');
-  return res.json();
+  try {
+    const res = await fetch('/api/groups/supervisor-grades', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  } catch {
+    const { supabase } = await import('../../lib/supabase');
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+    const { data: groups } = await supabase
+      .from('groups')
+      .select('*, course:courses!course_id(code, name), members:group_members(student:profiles!student_id(id, name))')
+      .eq('supervisor_id', user.id);
+    return (groups || []).map((g: any) => ({
+      id: g.id, groupNumber: g.group_number, groupCode: g.group_code,
+      projectName: g.project_name, status: g.status, projectStatus: 'normal' as const,
+      ipMarkedAt: null, ipReason: null, courseCode: g.course?.code ?? '',
+      courseType: '498' as const, courseId: g.course_id,
+      students: (g.members || []).map((m: any) => ({ id: m.student?.id ?? '', name: m.student?.name ?? '' })),
+      components: [], deliverablesTotal: 0, supervisorEvaluation: [],
+      supervisorTotalScore: null, supervisorMaxScore: 0, rubricScores: [],
+      weeklyScore: 0, approvalCounts: { total: 0, pending: 0, approved: 0, rejected: 0 },
+    }));
+  }
 }
 
 async function submitEvaluations(

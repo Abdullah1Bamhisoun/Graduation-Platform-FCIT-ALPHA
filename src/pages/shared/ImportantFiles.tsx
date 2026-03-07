@@ -2,6 +2,7 @@ import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
 import { FileText, Download, File, Eye, Loader2 } from 'lucide-react';
 import { getSignedUrl } from '../../services/storage';
+import { supabase } from '../../lib/supabase';
 import { toast } from 'sonner';
 import { Card } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
@@ -30,11 +31,36 @@ export function ImportantFiles() {
   const [viewModalLoading, setViewModalLoading] = useState(false);
 
   useEffect(() => {
-    fetch('/api/important-files')
-      .then((r) => r.json())
-      .then((data) => setFiles(Array.isArray(data) ? data : []))
-      .catch(() => setFiles([]))
-      .finally(() => setLoading(false));
+    const load = async () => {
+      try {
+        const r = await fetch('/api/important-files');
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        setFiles(Array.isArray(data) ? data : []);
+      } catch {
+        try {
+          const { data, error } = await supabase
+            .from('important_files')
+            .select('*')
+            .order('uploaded_at', { ascending: false });
+          if (error) throw error;
+          setFiles((data || []).map((f: any) => ({
+            id: f.id,
+            name: f.name,
+            description: f.description ?? '',
+            size: f.size ?? '',
+            type: f.type ?? 'pdf',
+            fileUrl: f.file_url ?? null,
+            uploadedAt: f.uploaded_at,
+          })));
+        } catch {
+          setFiles([]);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
   }, []);
 
   const getFileIcon = (type: string) => {
