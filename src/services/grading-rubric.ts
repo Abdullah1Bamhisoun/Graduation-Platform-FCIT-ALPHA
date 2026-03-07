@@ -72,6 +72,18 @@ export interface CoordinatorRubricScore {
   submissionStatus: 'draft' | 'submitted';
 }
 
+export interface CoordinatorDeliverableScore {
+  id: string;
+  groupId: string;
+  courseId: string;
+  deliverableKey: string;
+  score: number;
+  maxScore: number;
+  gradedBy?: string;
+  gradedAt?: string;
+  isLocked?: boolean;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function mapComponent(row: any): GradingComponent {

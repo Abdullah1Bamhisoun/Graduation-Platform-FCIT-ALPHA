@@ -153,8 +153,6 @@ export function AdminExportsAudit() {
         // Grade component columns start at index 6 (column G)
         const gradeStartColIdx = 6;
         const totalScoreColIdx = gradeStartColIdx + componentNames.length;
-        const firstGradeCol   = colLetter(gradeStartColIdx);
-        const lastGradeCol    = colLetter(totalScoreColIdx - 1);
         const totalScoreCol   = colLetter(totalScoreColIdx);
 
         // Build data rows – grade scores formatted as "X/Y" (e.g. "18/20")
@@ -251,7 +249,7 @@ export function AdminExportsAudit() {
           'Milestone', 'Status', 'Version', 'Submitted At',
         ]];
 
-        for (const s of filtered) {
+        for (const s of filtered as any[]) {
           rows.push([
             (s.milestone?.course as any)?.code ?? '',
             (s.group as any)?.group_code ?? '',
@@ -294,7 +292,7 @@ export function AdminExportsAudit() {
           'Date & Time', 'Course', 'Group', 'Actor', 'Action', 'Details',
         ]];
 
-        for (const s of subs ?? []) {
+        for (const s of (subs ?? []) as any[]) {
           const courseMatch = !courseId || s.milestone?.course?.id === courseId;
           const t = s.updated_at ? new Date(s.updated_at) : null;
           const dateMatch = (!from || (t && t >= from)) && (!to || (t && t <= to));

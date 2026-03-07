@@ -163,7 +163,7 @@ export function StudentSubmissionDetail() {
         });
       }
 
-      const updated = await getSubmissionByMilestoneAndStudent(id, user.id);
+      const updated = await getSubmissionByMilestoneAndGroup(id, group!.id);
       setSubmission(updated ?? undefined);
       setSelectedFile(null);
       toast.success('File uploaded successfully!');

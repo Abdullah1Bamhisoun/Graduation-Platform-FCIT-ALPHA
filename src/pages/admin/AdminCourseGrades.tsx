@@ -67,7 +67,7 @@ export function AdminCourseGrades() {
           </TabsList>
 
           <TabsContent value="chapter-submissions">
-            <CoordinatorChapterSubmissionsTab courseType={selectedCourseType} />
+            <CoordinatorChapterSubmissionsTab courseType={selectedCourseType} courseId="" />
           </TabsContent>
 
           <TabsContent value="groups-evaluation">

@@ -506,7 +506,7 @@ export function AdminPresentationCommittee() {
       if (projectIdx === -1) projectIdx = 0; // fallback: first remaining
 
       const project = remainingProjects[projectIdx];
-      const groupSupervisorName = project.supervisor?.trim().toLowerCase();
+      const _groupSupervisorName = project.supervisor?.trim().toLowerCase();
 
       // Avoid placing same group back-to-back on the same day
       if (autoAvoidBackToBack && project.id) {
@@ -708,7 +708,7 @@ export function AdminPresentationCommittee() {
   };
 
   // Helper functions
-  const calculateEndTime = (startTime: string, duration: number) => {
+  const _calculateEndTime = (startTime: string, duration: number) => {
     const [hours, minutes] = startTime.split(':').map(Number);
     const totalMinutes = hours * 60 + minutes + duration;
     const endHours = Math.floor(totalMinutes / 60);
