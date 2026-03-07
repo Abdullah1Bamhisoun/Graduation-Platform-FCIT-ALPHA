@@ -159,6 +159,22 @@ export async function getMilestoneById(id: string): Promise<Milestone | null> {
   }
 }
 
+function mapDbToMilestoneConfig(row: any): MilestoneConfig {
+  return {
+    id: row.id,
+    name: row.name,
+    course: mapCourseCode(row.course?.code ?? ''),
+    courseId: row.course_id,
+    openDate: row.open_date,
+    closeDate: row.due_date,
+    visible: row.visible ?? true,
+    allowLateSubmission: row.allow_late_submission ?? false,
+    requireJustification: row.require_justification ?? false,
+    description: row.description ?? '',
+    gradingCriterionId: row.grading_criterion_id ?? undefined,
+  };
+}
+
 /** Fetch milestone configs via the backend API (enforces coordinator course scope). */
 export async function getMilestoneConfigs(courseId?: string): Promise<MilestoneConfig[]> {
   try {
@@ -185,9 +201,21 @@ export async function getMilestoneConfigs(courseId?: string): Promise<MilestoneC
 
     const data = await response.json();
     return (data || []).map(mapApiMilestoneConfig);
-  } catch (error) {
-    console.error('Error fetching milestone configs:', error);
-    return [];
+  } catch {
+    console.warn('Backend unavailable, falling back to Supabase for milestone configs');
+    try {
+      let query = supabase
+        .from('milestones')
+        .select('*, course:courses!course_id(code)')
+        .order('due_date');
+      if (courseId) query = query.eq('course_id', courseId);
+      const { data, error } = await query;
+      if (error) throw error;
+      return (data || []).map(mapDbToMilestoneConfig);
+    } catch (sbError) {
+      console.error('Supabase fallback failed for milestone configs:', sbError);
+      return [];
+    }
   }
 }
 

@@ -180,9 +180,21 @@ export async function getSubmissionByMilestoneAndGroup(
 
     const data = await res.json();
     return data ?? null;
-  } catch (error) {
-    console.error('Error fetching group submission:', error);
-    return null;
+  } catch {
+    console.warn('Backend unavailable, falling back to Supabase for group submission');
+    try {
+      const { data, error } = await supabase
+        .from('submissions')
+        .select(SUBMISSION_SELECT)
+        .eq('milestone_id', milestoneId)
+        .eq('group_id', groupId)
+        .maybeSingle();
+      if (error) throw error;
+      return data ? mapDbSubmission(data) : null;
+    } catch (sbError) {
+      console.error('Supabase fallback failed for group submission:', sbError);
+      return null;
+    }
   }
 }
 

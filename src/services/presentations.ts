@@ -200,21 +200,66 @@ export interface StudentPresentationView {
  * Calls the backend API which strips supervisor name server-side.
  */
 export async function getStudentPresentationView(): Promise<StudentPresentationView> {
-  const session = await supabase.auth.getSession();
-  const token = session.data.session?.access_token;
+  try {
+    const session = await supabase.auth.getSession();
+    const token = session.data.session?.access_token;
 
-  const response = await fetch('/api/presentations/student-view', {
-    headers: {
-      Authorization: `Bearer ${token ?? ''}`,
-    },
-  });
+    const response = await fetch('/api/presentations/student-view', {
+      headers: {
+        Authorization: `Bearer ${token ?? ''}`,
+      },
+    });
 
-  if (!response.ok) {
-    console.error('getStudentPresentationView error:', response.status);
-    return { group: null, schedule: null };
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    return response.json();
+  } catch {
+    console.warn('Backend unavailable, falling back to Supabase for student presentation view');
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return { group: null, schedule: null };
+
+      const { data: membership } = await supabase
+        .from('group_members')
+        .select('group_id')
+        .eq('student_id', user.id)
+        .limit(1)
+        .maybeSingle();
+      if (!membership) return { group: null, schedule: null };
+
+      const { data: group } = await supabase
+        .from('groups')
+        .select('id, group_code, group_number, project_name')
+        .eq('id', membership.group_id)
+        .single();
+
+      const { data: schedule } = await supabase
+        .from('presentation_schedules')
+        .select('day, time_slot, scheduled_at, location')
+        .eq('group_id', membership.group_id)
+        .maybeSingle();
+
+      return {
+        group: group ? {
+          id: group.id,
+          groupCode: group.group_code,
+          groupNumber: group.group_number,
+          projectName: group.project_name,
+        } : null,
+        schedule: schedule ? {
+          day: schedule.day,
+          timeSlot: schedule.time_slot,
+          scheduledAt: schedule.scheduled_at,
+          location: schedule.location,
+        } : null,
+      };
+    } catch (sbError) {
+      console.error('Supabase fallback failed for student presentation view:', sbError);
+      return { group: null, schedule: null };
+    }
   }
-
-  return response.json();
 }
 
 const SCHEDULE_SELECT = `

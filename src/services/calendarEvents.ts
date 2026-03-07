@@ -23,9 +23,27 @@ export async function getCalendarEvents(): Promise<CalendarEvent[]> {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
-  } catch (error) {
-    console.error('Error fetching calendar events:', error);
-    return [];
+  } catch {
+    console.warn('Backend unavailable, falling back to Supabase for calendar events');
+    try {
+      const { data, error } = await supabase
+        .from('calendar_events')
+        .select('*')
+        .order('date', { ascending: true });
+      if (error) throw error;
+      return (data || []).map((row: any) => ({
+        id: row.id,
+        title: row.title,
+        date: row.date,
+        type: row.type,
+        time: row.time ?? undefined,
+        location: row.location ?? undefined,
+        courseId: row.course_id ?? undefined,
+      }));
+    } catch (sbError) {
+      console.error('Supabase fallback failed for calendar events:', sbError);
+      return [];
+    }
   }
 }
 

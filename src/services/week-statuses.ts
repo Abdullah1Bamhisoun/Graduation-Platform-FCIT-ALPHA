@@ -46,16 +46,32 @@ export async function getWeekStatuses(
   _semester?: string,
   _department?: string
 ): Promise<WeekStatus[]> {
-  const token = await getToken();
-  const res = await fetch(`/api/week-statuses?courseType=${courseType}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || body.message || `Failed to fetch week statuses: HTTP ${res.status}`);
+  try {
+    const token = await getToken();
+    const res = await fetch(`/api/week-statuses?courseType=${courseType}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || body.message || `Failed to fetch week statuses: HTTP ${res.status}`);
+    }
+    const rows: any[] = await res.json();
+    return rows.map(mapRow);
+  } catch {
+    console.warn('Backend unavailable, falling back to Supabase for week statuses');
+    try {
+      const { data, error } = await supabase
+        .from('week_statuses')
+        .select('*')
+        .eq('course_type', courseType)
+        .order('week_number', { ascending: true });
+      if (error) throw error;
+      return (data || []).map(mapRow);
+    } catch (sbError) {
+      console.error('Supabase fallback failed for week statuses:', sbError);
+      return [];
+    }
   }
-  const rows: any[] = await res.json();
-  return rows.map(mapRow);
 }
 
 /** Open a week (sets is_open = true, was_opened = true). */

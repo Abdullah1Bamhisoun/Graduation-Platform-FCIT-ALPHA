@@ -227,9 +227,34 @@ export async function getPublicGroups(
     if (!response.ok) throw new Error('Failed to fetch groups');
     const data = await response.json();
     return data as PublicGroup[];
-  } catch (error) {
-    console.error('Error fetching public groups:', error);
-    return [];
+  } catch {
+    console.warn('Backend unavailable, falling back to Supabase for public groups');
+    try {
+      let q = supabase
+        .from('groups')
+        .select('id, group_number, department, project_name, is_locked, status, gender, course_number, members:group_members(student_id)')
+        .order('group_number', { ascending: true });
+      if (courseId)     q = q.eq('course_id', courseId);
+      if (department)   q = q.eq('department', department);
+      if (courseNumber) q = q.eq('course_number', courseNumber);
+      if (gender)       q = q.eq('gender', gender);
+      const { data, error } = await q;
+      if (error) throw error;
+      return (data || []).map((g: any) => ({
+        id: g.id,
+        groupNumber: g.group_number,
+        department: g.department,
+        projectName: g.project_name,
+        isLocked: g.is_locked,
+        status: g.status,
+        gender: g.gender,
+        courseNumber: g.course_number,
+        membersCount: (g.members || []).length,
+      }));
+    } catch (sbError) {
+      console.error('Supabase fallback failed for public groups:', sbError);
+      return [];
+    }
   }
 }
 

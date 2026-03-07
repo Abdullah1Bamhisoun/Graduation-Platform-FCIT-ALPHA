@@ -6,6 +6,18 @@ async function getToken(): Promise<string> {
   return data.session?.access_token ?? '';
 }
 
+function mapDbAnnouncement(row: any): Announcement {
+  return {
+    id: row.id,
+    title: row.title,
+    content: row.content,
+    authorId: row.author_id,
+    targetRoles: row.target_roles ?? [],
+    expiresAt: row.expires_at ?? undefined,
+    createdAt: row.created_at,
+  } as Announcement;
+}
+
 export async function getAnnouncementsForRole(role: UserRole): Promise<Announcement[]> {
   try {
     const token = await getToken();
@@ -14,9 +26,20 @@ export async function getAnnouncementsForRole(role: UserRole): Promise<Announcem
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
-  } catch (error) {
-    console.error('Error fetching announcements:', error);
-    return [];
+  } catch {
+    console.warn('Backend unavailable, falling back to Supabase for announcements');
+    try {
+      const { data, error } = await supabase
+        .from('announcements')
+        .select('*')
+        .contains('target_roles', [role])
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return (data || []).map(mapDbAnnouncement);
+    } catch (sbError) {
+      console.error('Supabase fallback failed for announcements:', sbError);
+      return [];
+    }
   }
 }
 
@@ -28,9 +51,19 @@ export async function getAllAnnouncements(): Promise<Announcement[]> {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
-  } catch (error) {
-    console.error('Error fetching announcements:', error);
-    return [];
+  } catch {
+    console.warn('Backend unavailable, falling back to Supabase for all announcements');
+    try {
+      const { data, error } = await supabase
+        .from('announcements')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return (data || []).map(mapDbAnnouncement);
+    } catch (sbError) {
+      console.error('Supabase fallback failed for announcements:', sbError);
+      return [];
+    }
   }
 }
 

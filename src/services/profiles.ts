@@ -30,9 +30,33 @@ export async function getProfilesByRole(role: UserRole): Promise<User[]> {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
-  } catch (error) {
-    console.error('Error fetching profiles:', error);
-    return [];
+  } catch {
+    console.warn('Backend unavailable, falling back to Supabase for profiles by role');
+    try {
+      // Look up the role id, then get user_ids from user_roles, then fetch profiles
+      const { data: roleRow } = await supabase
+        .from('roles')
+        .select('id')
+        .eq('name', role)
+        .maybeSingle();
+      if (!roleRow) return [];
+      const { data: userRoles, error: urError } = await supabase
+        .from('user_roles')
+        .select('user_id')
+        .eq('role_id', roleRow.id);
+      if (urError) throw urError;
+      const userIds = (userRoles || []).map((r: any) => r.user_id);
+      if (userIds.length === 0) return [];
+      const { data: profiles, error: pError } = await supabase
+        .from('profiles')
+        .select('*')
+        .in('id', userIds);
+      if (pError) throw pError;
+      return (profiles || []).map((p: any) => mapDbProfile({ ...p, role }));
+    } catch (sbError) {
+      console.error('Supabase fallback failed for profiles by role:', sbError);
+      return [];
+    }
   }
 }
 
