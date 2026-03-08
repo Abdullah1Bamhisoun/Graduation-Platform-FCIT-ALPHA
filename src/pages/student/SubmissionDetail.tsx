@@ -8,6 +8,7 @@ import { useAuth } from '../../lib/AuthContext';
 import { getMilestoneById } from '../../services/milestones';
 import {
   getSubmissionByMilestoneAndGroup,
+  getSubmissionByMilestoneAndStudent,
   createSubmission,
   createSubmissionVersion,
 } from '../../services/submissions';

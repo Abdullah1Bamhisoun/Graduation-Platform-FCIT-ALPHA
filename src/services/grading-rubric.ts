@@ -61,6 +61,18 @@ export interface CommitteeRubricScore {
   submittedAt?: string;
 }
 
+export interface CoordinatorDeliverableScore {
+  id: string;
+  groupId: string;
+  courseId: string;
+  deliverableKey: string;
+  score: number;
+  maxScore: number;
+  gradedBy?: string;
+  gradedAt?: string;
+  isLocked?: boolean;
+}
+
 export interface CoordinatorRubricScore {
   studentId: string;
   groupId: string;

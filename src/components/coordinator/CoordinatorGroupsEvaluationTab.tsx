@@ -40,6 +40,7 @@ import type { CoordinatorGroupWithGrades } from '../../services/groups';
 interface CoordinatorGroupsEvaluationTabProps {
   courseType: '498' | '499';
   refreshKey?: number;
+  onEvaluationSaved?: () => void;
 }
 
 interface ExpandedGroups {

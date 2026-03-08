@@ -506,8 +506,6 @@ export function AdminPresentationCommittee() {
       if (projectIdx === -1) projectIdx = 0; // fallback: first remaining
 
       const project = remainingProjects[projectIdx];
-      const groupSupervisorName = project.supervisor?.trim().toLowerCase();
-
       // Avoid placing same group back-to-back on the same day
       if (autoAvoidBackToBack && project.id) {
         const existingSessions = groupSessionsInDay[project.id]?.[slot.day] ?? [];
@@ -705,15 +703,6 @@ export function AdminPresentationCommittee() {
       addToHistory(newSlots);
       toast.success('Schedule reset — supervisor assignments cleared');
     }
-  };
-
-  // Helper functions
-  const calculateEndTime = (startTime: string, duration: number) => {
-    const [hours, minutes] = startTime.split(':').map(Number);
-    const totalMinutes = hours * 60 + minutes + duration;
-    const endHours = Math.floor(totalMinutes / 60);
-    const endMinutes = totalMinutes % 60;
-    return `${String(endHours).padStart(2, '0')}:${String(endMinutes).padStart(2, '0')}`;
   };
 
   const courseSlots = course ? slots.filter(s => !s.course || s.course === course) : slots;

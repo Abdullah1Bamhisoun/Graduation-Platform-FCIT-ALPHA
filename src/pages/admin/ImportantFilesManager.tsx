@@ -87,12 +87,6 @@ export function ImportantFilesManager() {
 
   const isCoordinator = user.activeRole === 'coordinator';
 
-  // Coordinator can only edit/delete files that belong to their course
-  const canManage = (file: FileItem) => {
-    if (!isCoordinator) return true;
-    return file.courseId === user.coordinatorCourseId;
-  };
-
   const getFileIcon = (type: string) => {
     switch (type) {
       case 'pdf':  return <FileText className="w-8 h-8 text-red-500" />;

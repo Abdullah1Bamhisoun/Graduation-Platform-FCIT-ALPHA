@@ -37,6 +37,7 @@ interface CoordinatorChapterSubmissionsTabProps {
   courseType: '498' | '499';
   courseId: string;
   onGradeSaved?: () => void;
+  refreshKey?: number;
 }
 
 /** criterionKey → score for a given groupId */

@@ -153,8 +153,6 @@ export function AdminExportsAudit() {
         // Grade component columns start at index 6 (column G)
         const gradeStartColIdx = 6;
         const totalScoreColIdx = gradeStartColIdx + componentNames.length;
-        const firstGradeCol   = colLetter(gradeStartColIdx);
-        const lastGradeCol    = colLetter(totalScoreColIdx - 1);
         const totalScoreCol   = colLetter(totalScoreColIdx);
 
         // Build data rows – grade scores formatted as "X/Y" (e.g. "18/20")
@@ -253,7 +251,7 @@ export function AdminExportsAudit() {
 
         for (const s of filtered) {
           rows.push([
-            (s.milestone?.course as any)?.code ?? '',
+            (s.milestone as any)?.course?.code ?? '',
             (s.group as any)?.group_code ?? '',
             (s.group as any)?.project_name ?? '',
             (s.student as any)?.name ?? '',
@@ -295,7 +293,7 @@ export function AdminExportsAudit() {
         ]];
 
         for (const s of subs ?? []) {
-          const courseMatch = !courseId || s.milestone?.course?.id === courseId;
+          const courseMatch = !courseId || (s.milestone as any)?.course?.id === courseId;
           const t = s.updated_at ? new Date(s.updated_at) : null;
           const dateMatch = (!from || (t && t >= from)) && (!to || (t && t <= to));
           if (!courseMatch || !dateMatch) continue;
@@ -309,7 +307,7 @@ export function AdminExportsAudit() {
 
           rows.push([
             t ? t.toLocaleString() : '',
-            (s.milestone?.course as any)?.code ?? '',
+            (s.milestone as any)?.course?.code ?? '',
             (s.group as any)?.group_code ?? '',
             (s.student as any)?.name ?? '',
             action,
