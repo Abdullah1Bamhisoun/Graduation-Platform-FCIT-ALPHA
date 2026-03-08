@@ -366,6 +366,7 @@ async function getGroupSubmission(req, res) {
       }
     }
 
+    // Step 1: Fetch submission + versions only (avoid deep nested join that can fail)
     const { data: submission, error } = await supabaseAdmin
       .from('submissions')
       .select(`
@@ -373,12 +374,7 @@ async function getGroupSubmission(req, res) {
         milestone:milestones!milestone_id(name, course:courses!course_id(code)),
         student:profiles!student_id(name),
         group:groups!group_id(project_name),
-        versions:submission_versions(version, file_name, file_size, file_path, uploaded_at, notes),
-        feedback:submission_feedback(
-          id, overall_comment, reviewed_by, reviewed_at, total_score, max_score,
-          reviewer:profiles!reviewed_by(name),
-          scores:feedback_scores(score, comment, criterion:rubric_criteria!rubric_criterion_id(id, name, max_score))
-        )
+        versions:submission_versions(version, file_name, file_size, file_path, uploaded_at, notes)
       `)
       .eq('milestone_id', milestoneId)
       .eq('group_id', groupId)
@@ -398,9 +394,27 @@ async function getGroupSubmission(req, res) {
       name: m.student?.name ?? '',
     })).filter((m) => m.id);
 
-    const feedbackData = Array.isArray(submission.feedback)
-      ? submission.feedback[0]
-      : submission.feedback;
+    // Step 2: Fetch feedback separately (separate query avoids PostgREST deep-join failure)
+    let feedbackData = null;
+    try {
+      const { data: fb } = await supabaseAdmin
+        .from('submission_feedback')
+        .select('id, overall_comment, reviewed_by, reviewed_at, total_score, max_score, reviewer:profiles!reviewed_by(name)')
+        .eq('submission_id', submission.id)
+        .maybeSingle();
+      if (fb) {
+        // Step 3: Fetch feedback scores separately
+        let scores = [];
+        try {
+          const { data: scoreRows } = await supabaseAdmin
+            .from('feedback_scores')
+            .select('score, comment, criterion:rubric_criteria!rubric_criterion_id(id, name, max_score)')
+            .eq('feedback_id', fb.id);
+          scores = scoreRows || [];
+        } catch { /* feedback_scores or rubric_criteria not configured */ }
+        feedbackData = { ...fb, scores };
+      }
+    } catch { /* submission_feedback not configured */ }
 
     const mapped = {
       id: submission.id,

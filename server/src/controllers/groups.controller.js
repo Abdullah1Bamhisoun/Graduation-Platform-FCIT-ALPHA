@@ -1106,8 +1106,7 @@ async function getGroupsWithCoordinatorGrades(req, res) {
       ? components
       : (DEFAULT_COMPONENTS[courseType] || []);
 
-    // 5. Batch fetch all assessment data to populate grade component scores
-    // Collect the course IDs from the fetched groups to scope coordinator_deliverable_scores
+    // 5. Batch fetch ALL assessment data (no per-group queries below)
     const courseIds = [...new Set((groups || []).map(g => g.course_id).filter(Boolean))];
 
     const [
@@ -1117,6 +1116,8 @@ async function getGroupsWithCoordinatorGrades(req, res) {
       { data: allWeeklyReports },
       { data: allCoordAssessments },
       { data: allPeerEvaluations },
+      { data: allSubmissions },
+      { data: allCoordEvals },
     ] = await Promise.all([
       supabaseAdmin.from('supervisor_assessments').select('group_id, score, max_score').in('group_id', groupIds),
       supabaseAdmin.from('committee_evaluations').select('group_id, student_id, score, max_score').in('group_id', groupIds),
@@ -1129,38 +1130,29 @@ async function getGroupsWithCoordinatorGrades(req, res) {
         ? supabaseAdmin.from('coordinator_assessments').select('group_id, component_key, normalized_score, max_score, submission_status').in('group_id', groupIds)
         : supabaseAdmin.from('coordinator_assessments').select('group_id, component_key, normalized_score, max_score, submission_status').eq('coordinator_id', coordinatorId).in('group_id', groupIds)),
       supabaseAdmin.from('peer_evaluations').select('group_id, student_id, score').in('group_id', groupIds),
+      // Use correct table name 'submissions' (same as supervisor-grades endpoint)
+      supabaseAdmin.from('submissions').select('group_id, status').in('group_id', groupIds),
+      (isAdmin
+        ? supabaseAdmin.from('coordinator_evaluations').select('group_id, submission_status').in('group_id', groupIds)
+        : supabaseAdmin.from('coordinator_evaluations').select('group_id, submission_status').eq('coordinator_id', coordinatorId).in('group_id', groupIds)),
     ]);
 
-    // 6. For each group, fetch coordinator evaluation and approval counts
-    const result = await Promise.all((groups || []).map(async (group) => {
-      // Get approval counts
-      const { data: approvals, error: approvalsError } = await supabaseAdmin
-        .from('chapter_submissions')
-        .select('status')
-        .eq('group_id', group.id);
-
+    // 6. Assemble results synchronously from batched data (no per-group DB queries)
+    const result = (groups || []).map((group) => {
+      // Approval counts from batched submissions
+      const groupSubs = (allSubmissions || []).filter(s => s.group_id === group.id);
       const approvalCounts = {
-        total: approvals?.length || 0,
-        approved: approvals?.filter(a => a.status === 'approved').length || 0,
-        pending: approvals?.filter(a => a.status === 'pending').length || 0,
-        rejected: approvals?.filter(a => a.status === 'rejected').length || 0,
+        total:    groupSubs.length,
+        approved: groupSubs.filter(s => s.status === 'approved').length,
+        pending:  groupSubs.filter(s => ['submitted', 'under-review', 'pending'].includes(s.status)).length,
+        rejected: groupSubs.filter(s => s.status === 'changes-requested').length,
       };
 
-      // Get coordinator evaluation status (admin sees any coordinator's evaluation)
-      let coordEvalQuery = supabaseAdmin
-        .from('coordinator_evaluations')
-        .select('id, submission_status')
-        .eq('group_id', group.id);
-      if (!isAdmin) coordEvalQuery = coordEvalQuery.eq('coordinator_id', coordinatorId);
-      const { data: coordEval } = await coordEvalQuery.limit(1).maybeSingle();
-
-      // Get normalized coordinator score (admin sees any coordinator's assessment)
-      let coordAssessQuery = supabaseAdmin
-        .from('coordinator_assessments')
-        .select('normalized_score, max_score, submission_status')
-        .eq('group_id', group.id);
-      if (!isAdmin) coordAssessQuery = coordAssessQuery.eq('coordinator_id', coordinatorId);
-      const { data: coordAssess } = await coordAssessQuery.limit(1).maybeSingle();
+      // Coordinator evaluation status from batched data
+      const coordEval = (allCoordEvals || []).find(e => e.group_id === group.id) ?? null;
+      // Use the already-batched coordinator assessment for the score summary
+      const coordAssessRows = (allCoordAssessments || []).filter(a => a.group_id === group.id);
+      const coordAssess = coordAssessRows.length > 0 ? coordAssessRows[0] : null;
 
       // Compute per-component scores from batched data
       const groupSupScores = (allSupAssessments || []).filter(a => a.group_id === group.id);
@@ -1252,13 +1244,13 @@ async function getGroupsWithCoordinatorGrades(req, res) {
         }),
         approvalCounts,
         coordinatorEvaluation: coordEval ? {
-          submissionStatus: coordAssess?.submission_status || 'draft',
-          normalizedScore: coordAssess?.normalized_score || null,
-          maxScore: coordAssess?.max_score || null,
-          submittedAt: coordEval ? new Date().toISOString() : null,
+          submissionStatus: coordAssess?.submission_status || coordEval.submission_status || 'draft',
+          normalizedScore: coordAssess?.normalized_score ?? null,
+          maxScore: coordAssess?.max_score ?? null,
+          submittedAt: new Date().toISOString(),
         } : null,
       };
-    }));
+    });
 
     res.json({ groups: result });
   } catch (error) {
