@@ -418,19 +418,27 @@ export function CoordinatorGroupsEvaluationTab({ courseType, refreshKey }: Coord
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200">
-                          {group.gradeComponents.map((component) => (
-                            <tr key={component.componentKey} className="hover:bg-gray-50">
-                              <td className="px-4 py-2 text-gray-900">{component.componentName}</td>
-                              <td className="px-4 py-2 text-right">
-                                <span className="font-mono text-gray-900">
-                                  {component.score !== null ? component.score.toFixed(1) : '—'} / {component.maxScore}
-                                </span>
-                              </td>
-                              <td className="px-4 py-2 text-right text-gray-600">
-                                {component.weight} marks
+                          {group.gradeComponents.length === 0 ? (
+                            <tr>
+                              <td colSpan={3} className="px-4 py-4 text-center text-sm text-gray-400 italic">
+                                No grade components configured for CPIS-{courseType}. An admin must set up the Grade Scheme first.
                               </td>
                             </tr>
-                          ))}
+                          ) : (
+                            group.gradeComponents.map((component) => (
+                              <tr key={component.componentKey} className="hover:bg-gray-50">
+                                <td className="px-4 py-2 text-gray-900">{component.componentName}</td>
+                                <td className="px-4 py-2 text-right">
+                                  <span className="font-mono text-gray-900">
+                                    {component.score !== null ? component.score.toFixed(1) : '—'} / {component.maxScore}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-2 text-right text-gray-600">
+                                  {component.weight} marks
+                                </td>
+                              </tr>
+                            ))
+                          )}
                         </tbody>
                       </table>
                     </div>
