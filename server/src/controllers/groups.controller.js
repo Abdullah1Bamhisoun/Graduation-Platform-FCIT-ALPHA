@@ -1227,7 +1227,8 @@ async function getGroupsWithCoordinatorGrades(req, res) {
               score = committeeScore;
               break;
             case 'coordinator_deliverables':
-              score = deliverablesTotal;
+              // Prefer rubric-based score from coordinator_assessments; fall back to legacy deliverable scores
+              score = groupCoordAssessMap[c.component_key] ?? deliverablesTotal;
               break;
             case 'progress_reports':
               score = weeklyScore;
