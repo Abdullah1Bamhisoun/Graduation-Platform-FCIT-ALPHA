@@ -120,7 +120,7 @@ async function fetchSupervisorGrades(token: string): Promise<GroupGradeData[]> {
       id: g.id, groupNumber: g.group_number, groupCode: g.group_code,
       projectName: g.project_name, status: g.status, projectStatus: 'normal' as const,
       ipMarkedAt: null, ipReason: null, courseCode: g.course?.code ?? '',
-      courseType: '498' as const, courseId: g.course_id,
+      courseType: ((g.course?.code ?? '').includes('499') ? '499' : '498') as '498' | '499', courseId: g.course_id,
       students: (g.members || []).map((m: any) => ({ id: m.student?.id ?? '', name: m.student?.name ?? '' })),
       components: [], deliverablesTotal: 0, supervisorEvaluation: [],
       supervisorTotalScore: null, supervisorMaxScore: 0, rubricScores: [],

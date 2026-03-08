@@ -404,42 +404,50 @@ export function CoordinatorGroupsEvaluationTab({ courseType, refreshKey }: Coord
 
                   {/* Grade Components Section */}
                   <div>
-                    <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                    <h4 className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2">
                       <BarChart3 className="w-4 h-4" />
                       Grade Components
                     </h4>
+                    <p className="text-xs text-gray-500 mb-3">Coordinator-defined — read-only</p>
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead className="bg-gray-50 border-b border-gray-200">
                           <tr>
                             <th className="px-4 py-2 text-left text-xs font-semibold text-gray-900">Component</th>
-                            <th className="px-4 py-2 text-right text-xs font-semibold text-gray-900">Score</th>
+                            <th className="px-4 py-2 text-left text-xs font-semibold text-gray-900">Evaluator</th>
                             <th className="px-4 py-2 text-right text-xs font-semibold text-gray-900">Weight</th>
+                            <th className="px-4 py-2 text-right text-xs font-semibold text-gray-900">Score</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200">
-                          {group.gradeComponents.length === 0 ? (
-                            <tr>
-                              <td colSpan={3} className="px-4 py-4 text-center text-sm text-gray-400 italic">
-                                No grade components configured for CPIS-{courseType}. An admin must set up the Grade Scheme first.
+                          {group.gradeComponents.map((component) => (
+                            <tr key={component.componentKey} className="hover:bg-gray-50">
+                              <td className="px-4 py-2 text-gray-900">{component.componentName}</td>
+                              <td className="px-4 py-2 text-gray-600 capitalize">{component.evaluatorRole}</td>
+                              <td className="px-4 py-2 text-right text-gray-600">{component.weight}</td>
+                              <td className="px-4 py-2 text-right font-mono text-gray-900">
+                                {component.score !== null ? component.score.toFixed(1) : '—'}
                               </td>
                             </tr>
-                          ) : (
-                            group.gradeComponents.map((component) => (
-                              <tr key={component.componentKey} className="hover:bg-gray-50">
-                                <td className="px-4 py-2 text-gray-900">{component.componentName}</td>
-                                <td className="px-4 py-2 text-right">
-                                  <span className="font-mono text-gray-900">
-                                    {component.score !== null ? component.score.toFixed(1) : '—'} / {component.maxScore}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-2 text-right text-gray-600">
-                                  {component.weight} marks
-                                </td>
-                              </tr>
-                            ))
-                          )}
+                          ))}
                         </tbody>
+                        {group.gradeComponents.length > 0 && (
+                          <tfoot>
+                            <tr className="bg-gray-50 border-t-2 border-gray-300">
+                              <td className="px-4 py-2 font-bold text-gray-900" colSpan={2}>Total</td>
+                              <td className="px-4 py-2 text-right font-bold text-gray-900">
+                                {group.gradeComponents.reduce((sum, c) => sum + c.weight, 0)}
+                              </td>
+                              <td className="px-4 py-2 text-right font-bold font-mono text-gray-900">
+                                {(() => {
+                                  const scored = group.gradeComponents.filter(c => c.score !== null);
+                                  if (scored.length === 0) return '—';
+                                  return scored.reduce((sum, c) => sum + (c.score ?? 0), 0).toFixed(1);
+                                })()}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        )}
                       </table>
                     </div>
                   </div>

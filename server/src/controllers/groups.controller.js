@@ -1085,6 +1085,27 @@ async function getGroupsWithCoordinatorGrades(req, res) {
 
     if (componentError) throw componentError;
 
+    // Fallback: if no components are configured in the DB, use standard defaults
+    const DEFAULT_COMPONENTS = {
+      '499': [
+        { component_key: 'supervisor_eval',   component_name: 'Supervisor Group Evaluation', evaluator_role: 'supervisor',   total_marks: 23, display_order: 1 },
+        { component_key: 'progress_reports',  component_name: 'Supervisor Weekly Reports',   evaluator_role: 'auto',         total_marks: 22, display_order: 2 },
+        { component_key: 'committee_eval',    component_name: 'Examination Committee',        evaluator_role: 'committee',    total_marks: 40, display_order: 3 },
+        { component_key: 'coordinator_eval',  component_name: 'Senior Project Coordinator',  evaluator_role: 'coordinator',  total_marks: 10, display_order: 4 },
+        { component_key: 'peer_review',       component_name: 'Peer Evaluation',             evaluator_role: 'student',      total_marks:  5, display_order: 5 },
+      ],
+      '498': [
+        { component_key: 'supervisor_eval',   component_name: 'Supervisor Evaluation',       evaluator_role: 'supervisor',   total_marks: 18, display_order: 1 },
+        { component_key: 'progress_reports',  component_name: 'Weekly Progress Reports',     evaluator_role: 'auto',         total_marks: 20, display_order: 2 },
+        { component_key: 'committee_eval',    component_name: 'Examination Committee',        evaluator_role: 'committee',    total_marks: 40, display_order: 3 },
+        { component_key: 'coordinator_eval',  component_name: 'Senior Project Coordinator',  evaluator_role: 'coordinator',  total_marks: 17, display_order: 4 },
+        { component_key: 'peer_review',       component_name: 'Peer Evaluation',             evaluator_role: 'student',      total_marks:  5, display_order: 5 },
+      ],
+    };
+    const resolvedComponents = (components && components.length > 0)
+      ? components
+      : (DEFAULT_COMPONENTS[courseType] || []);
+
     // 5. Batch fetch all assessment data to populate grade component scores
     // Collect the course IDs from the fetched groups to scope coordinator_deliverable_scores
     const courseIds = [...new Set((groups || []).map(g => g.course_id).filter(Boolean))];
@@ -1173,7 +1194,7 @@ async function getGroupsWithCoordinatorGrades(req, res) {
       const peerAvgRaw = peerScoreValues.length > 0
         ? peerScoreValues.reduce((s, v) => s + v, 0) / peerScoreValues.length
         : null;
-      const peerComponent = components?.find(c => c.component_key === 'peer_review');
+      const peerComponent = resolvedComponents.find(c => c.component_key === 'peer_review');
       const peerWeight = peerComponent ? Number(peerComponent.total_marks) : 5;
       const peerScore = peerAvgRaw != null ? (peerAvgRaw / 5) * peerWeight : null;
 
@@ -1196,7 +1217,7 @@ async function getGroupsWithCoordinatorGrades(req, res) {
         projectStatus: group.status || 'normal',
         ipMarkedAt: null,
         totalScore: null, // Calculated on frontend from components
-        gradeComponents: components?.map(c => {
+        gradeComponents: resolvedComponents.map(c => {
           let score = null;
           switch (c.component_key) {
             case 'supervisor_eval':
@@ -1227,7 +1248,7 @@ async function getGroupsWithCoordinatorGrades(req, res) {
             score,
             maxScore: c.total_marks,
           };
-        }) || [],
+        }),
         approvalCounts,
         coordinatorEvaluation: coordEval ? {
           submissionStatus: coordAssess?.submission_status || 'draft',
