@@ -47,7 +47,12 @@ async function authenticate(req, res, next) {
     // 4. Determine coordinatorCourseId
     //    Priority: user_roles.coordinator_course_id → profiles.coordinator_course_id → platform_locks
     //    (matches the same fallback chain used in the frontend AuthContext)
-    const coordinatorEntry = (userRoles || []).find((ur) => ur.roles?.name === 'coordinator');
+    //
+    //    Search two ways so we're resilient if the roles(name) FK join fails in PostgREST:
+    //    a) Entry where roles.name === 'coordinator'  (normal path)
+    //    b) Any entry that has coordinator_course_id set (fallback when FK join returned null)
+    const coordinatorEntry = (userRoles || []).find((ur) => ur.roles?.name === 'coordinator')
+      ?? (userRoles || []).find((ur) => ur.coordinator_course_id != null);
     let coordinatorCourseId = coordinatorEntry?.coordinator_course_id
       ?? profile.coordinator_course_id
       ?? null;
