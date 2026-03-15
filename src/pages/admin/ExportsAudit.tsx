@@ -62,6 +62,30 @@ function triggerDownload(content: string, filename: string, mime = 'text/csv;cha
   URL.revokeObjectURL(url);
 }
 
+interface RecentExport {
+  id: string;
+  date: string;
+  type: 'grades' | 'submissions' | 'activity';
+  courseName: string;
+  format: string;
+}
+
+const RECENT_EXPORTS_KEY = 'recentExports';
+
+function loadRecentExports(): RecentExport[] {
+  try {
+    return JSON.parse(localStorage.getItem(RECENT_EXPORTS_KEY) ?? '[]');
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentExport(entry: RecentExport) {
+  const existing = loadRecentExports();
+  const updated = [entry, ...existing].slice(0, 20);
+  localStorage.setItem(RECENT_EXPORTS_KEY, JSON.stringify(updated));
+}
+
 export function AdminExportsAudit() {
   const { user } = useAuth();
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
@@ -72,6 +96,7 @@ export function AdminExportsAudit() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourse, setSelectedCourse] = useState('');
   const [selectedFormat, setSelectedFormat] = useState('Excel (.xlsx)');
+  const [recentExports, setRecentExports] = useState<RecentExport[]>(loadRecentExports);
 
   const isCoordinator = user?.activeRole === 'coordinator';
 
@@ -115,6 +140,8 @@ export function AdminExportsAudit() {
     const from = dateRange.from ? new Date(dateRange.from) : null;
     const to = dateRange.to ? new Date(dateRange.to + 'T23:59:59') : null;
     const dateStr = new Date().toISOString().split('T')[0];
+    const selectedCourseObj = courses.find(c => c.id === courseId);
+    const courseSlug = selectedCourseObj ? selectedCourseObj.code : 'All-Courses';
 
     setShowExportModal(false);
     setExportType(null);
@@ -216,10 +243,10 @@ export function AdminExportsAudit() {
           });
 
           XLSX.utils.book_append_sheet(wb, ws, 'Grades');
-          downloadXlsx(wb, `grades-report-${dateStr}.xlsx`);
+          downloadXlsx(wb, `grades-report-${courseSlug}-${dateStr}.xlsx`);
         } else {
           // CSV fallback
-          triggerDownload(toCsv([headers, ...dataRows]), `grades-report-${dateStr}.csv`);
+          triggerDownload(toCsv([headers, ...dataRows]), `grades-report-${courseSlug}-${dateStr}.csv`);
         }
       }
 
@@ -263,7 +290,7 @@ export function AdminExportsAudit() {
           ]);
         }
 
-        triggerDownload(toCsv(rows), `submissions-report-${dateStr}.csv`);
+        triggerDownload(toCsv(rows), `submissions-report-${courseSlug}-${dateStr}.csv`);
       }
 
       // ── Activity ──────────────────────────────────────────────────────────
@@ -336,8 +363,22 @@ export function AdminExportsAudit() {
         rows.sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime());
         rows.unshift(header);
 
-        triggerDownload(toCsv(rows), `activity-log-${dateStr}.csv`);
+        triggerDownload(toCsv(rows), `activity-log-${courseSlug}-${dateStr}.csv`);
       }
+
+      // Record the export in Recent Exports
+      const courseName = courseId
+        ? (courses.find(c => c.id === courseId)?.code ?? 'Unknown Course')
+        : 'All Courses';
+      const newEntry: RecentExport = {
+        id: crypto.randomUUID(),
+        date: new Date().toISOString(),
+        type: type!,
+        courseName,
+        format: selectedFormat,
+      };
+      saveRecentExport(newEntry);
+      setRecentExports(loadRecentExports());
 
       toast.success('Export downloaded successfully.', { id: 'export' });
     } catch (err) {
@@ -354,16 +395,16 @@ export function AdminExportsAudit() {
   return (
     <Layout user={user} pageTitle="Exports & Audit">
       <Tabs defaultValue="exports" className="w-full">
-        <TabsList className="grid w-fit grid-cols-2 mb-6 h-11 border border-gray-300 rounded-lg bg-gray-100 p-1">
+        <TabsList className="grid w-fit grid-cols-2 mb-6 h-11 border border-[var(--color-border)] rounded-lg bg-[var(--color-surface-alt)] p-1">
           <TabsTrigger
             value="exports"
-            className="rounded-md font-semibold data-[state=active]:bg-white data-[state=active]:border data-[state=active]:border-gray-300 data-[state=active]:shadow-sm"
+            className="rounded-md font-semibold data-[state=active]:bg-[var(--color-surface-white)] data-[state=active]:border data-[state=active]:border-[var(--color-border)] data-[state=active]:shadow-sm"
           >
             Export Center
           </TabsTrigger>
           <TabsTrigger
             value="audit"
-            className="rounded-md font-semibold data-[state=active]:bg-white data-[state=active]:border data-[state=active]:border-gray-300 data-[state=active]:shadow-sm"
+            className="rounded-md font-semibold data-[state=active]:bg-[var(--color-surface-white)] data-[state=active]:border data-[state=active]:border-[var(--color-border)] data-[state=active]:shadow-sm"
           >
             Audit Log
           </TabsTrigger>
@@ -423,11 +464,52 @@ export function AdminExportsAudit() {
 
           {/* Recent Exports */}
           <DashboardCard title="Recent Exports" icon={ClipboardList}>
-            <div className="py-10 text-center text-[var(--color-text-600)]">
-              <FileText className="w-10 h-10 mx-auto mb-3 opacity-40" />
-              <p className="font-medium">No recent exports</p>
-              <p className="text-sm mt-1">Your exported files will appear here</p>
-            </div>
+            {recentExports.length === 0 ? (
+              <div className="py-10 text-center text-[var(--color-text-600)]">
+                <FileText className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                <p className="font-medium">No recent exports</p>
+                <p className="text-sm mt-1">Your exported files will appear here</p>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-[var(--color-border)] overflow-hidden">
+                <div className="grid grid-cols-12 gap-4 px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface-alt)] text-xs font-medium uppercase tracking-wide text-[var(--color-text-600)]">
+                  <div className="col-span-4">Date & Time</div>
+                  <div className="col-span-3">Export Type</div>
+                  <div className="col-span-3">Course</div>
+                  <div className="col-span-2">Format</div>
+                </div>
+                <div className="divide-y divide-[var(--color-border)]">
+                  {recentExports.map((entry) => {
+                    const typeLabel =
+                      entry.type === 'grades' ? 'Grades Report'
+                      : entry.type === 'submissions' ? 'Submissions Report'
+                      : 'Activity Log';
+                    const typeColor =
+                      entry.type === 'grades' ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-950/30 dark:text-green-400 dark:border-green-900/50'
+                      : entry.type === 'submissions' ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-900/50'
+                      : 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/30 dark:text-purple-400 dark:border-purple-900/50';
+                    return (
+                      <div key={entry.id} className="grid grid-cols-12 gap-4 px-4 py-3 hover:bg-(--color-surface-alt) transition-colors items-center">
+                        <div className="col-span-4 text-sm text-(--color-text-900)">
+                          {new Date(entry.date).toLocaleString()}
+                        </div>
+                        <div className="col-span-3">
+                          <span className={`px-2.5 py-1 text-xs rounded-full border ${typeColor}`}>
+                            {typeLabel}
+                          </span>
+                        </div>
+                        <div className="col-span-3 text-sm text-(--color-text-900)">
+                          {entry.courseName}
+                        </div>
+                        <div className="col-span-2 text-sm text-(--color-text-600)">
+                          {entry.format}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </DashboardCard>
         </TabsContent>
 

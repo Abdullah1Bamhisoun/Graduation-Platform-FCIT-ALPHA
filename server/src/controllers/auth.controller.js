@@ -101,7 +101,10 @@ async function approveRegistration(req, res) {
     }
 
     // Coordinator scope check — coordinator can approve their own course's students and any supervisor
-    if (req.user.activeRole === 'coordinator' && req.user.coordinatorCourseId) {
+    if (req.user.activeRole === 'coordinator') {
+      if (!req.user.coordinatorCourseId) {
+        return res.status(403).json({ error: 'No course assigned to your coordinator account' });
+      }
       if (registration.account_type !== 'supervisor' && registration.course_id !== req.user.coordinatorCourseId) {
         return res.status(403).json({ error: 'You can only approve registrations for your assigned course' });
       }
@@ -367,7 +370,10 @@ async function rejectRegistration(req, res) {
     }
 
     // Coordinator scope check — coordinator can reject their own course's students and any supervisor
-    if (req.user.activeRole === 'coordinator' && req.user.coordinatorCourseId) {
+    if (req.user.activeRole === 'coordinator') {
+      if (!req.user.coordinatorCourseId) {
+        return res.status(403).json({ error: 'No course assigned to your coordinator account' });
+      }
       if (registration.account_type !== 'supervisor' && registration.course_id !== req.user.coordinatorCourseId) {
         return res.status(403).json({ error: 'You can only reject registrations for your assigned course' });
       }

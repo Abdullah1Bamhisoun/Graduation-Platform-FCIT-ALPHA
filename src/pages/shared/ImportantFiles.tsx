@@ -7,6 +7,7 @@ import { Card } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { useState, useEffect } from 'react';
+import { supabase } from '../../lib/supabase';
 
 interface FileItem {
   id: string;
@@ -30,12 +31,20 @@ export function ImportantFiles() {
   const [viewModalLoading, setViewModalLoading] = useState(false);
 
   useEffect(() => {
-    fetch('/api/important-files')
-      .then((r) => r.json())
-      .then((data) => setFiles(Array.isArray(data) ? data : []))
-      .catch(() => setFiles([]))
-      .finally(() => setLoading(false));
-  }, []);
+    supabase.auth.getSession().then(({ data }) => {
+      const token = data.session?.access_token ?? '';
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+        if (user?.activeRole) headers['X-Active-Role'] = user.activeRole;
+      }
+      fetch('/api/important-files', { headers })
+        .then((r) => r.json())
+        .then((d) => setFiles(Array.isArray(d) ? d : []))
+        .catch(() => setFiles([]))
+        .finally(() => setLoading(false));
+    });
+  }, [user?.activeRole]);
 
   const getFileIcon = (type: string) => {
     switch (type) {

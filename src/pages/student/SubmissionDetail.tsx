@@ -234,7 +234,7 @@ export function StudentSubmissionDetail() {
   const isPastDeadline = now > dueDate;
   // Block uploads if: platform locked, deadline passed, OR submission already exists from a teammate
   const submittedByTeammate = !!submission && submission.studentId !== user.id;
-  const uploadsBlocked = isLocked || (isPastDeadline && !milestone.allowLateSubmission) || submittedByTeammate;
+  const uploadsBlocked = isLocked || (isPastDeadline && !milestone.allowLateSubmission);
 
   return (
     <Layout user={user} pageTitle={milestone.name}>

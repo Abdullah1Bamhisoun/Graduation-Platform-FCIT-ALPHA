@@ -285,16 +285,20 @@ export function AnnouncementsManager() {
                     size="sm"
                     onClick={() => handleOpenDialog(announcement.id)}
                     disabled={isLocked}
+                    className="text-yellow-500 border-yellow-500 hover:bg-yellow-50 rounded-full"
                   >
-                    <Edit className="w-4 h-4" />
+                    <Edit className="w-4 h-4 mr-1" />
+                    Edit
                   </Button>
                   <Button
                     variant="destructive"
                     size="sm"
                     onClick={() => handleDeleteAnnouncement(announcement.id)}
                     disabled={isLocked}
+                    className="text-white bg-red-600 hover:bg-red-700 rounded-full"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="w-4 h-4 mr-1" />
+                    Delete
                   </Button>
                 </div>
               </div>

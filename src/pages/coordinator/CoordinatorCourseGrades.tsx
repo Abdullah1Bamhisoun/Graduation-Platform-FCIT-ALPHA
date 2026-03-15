@@ -68,16 +68,16 @@ export function CoordinatorCourseGrades() {
         </div>
 
         <Tabs defaultValue="chapter-submissions" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-6 h-11 border border-gray-300 rounded-lg bg-gray-100 p-1">
+          <TabsList className="grid w-full grid-cols-2 mb-6 h-11 border border-[var(--color-border)] rounded-lg bg-[var(--color-surface-alt)] p-1">
             <TabsTrigger
               value="chapter-submissions"
-              className="rounded-md font-semibold data-[state=active]:bg-white data-[state=active]:border data-[state=active]:border-gray-300 data-[state=active]:shadow-sm"
+              className="rounded-md font-semibold data-[state=active]:bg-[var(--color-surface-white)] data-[state=active]:border data-[state=active]:border-[var(--color-border)] data-[state=active]:shadow-sm"
             >
               Chapter Submissions
             </TabsTrigger>
             <TabsTrigger
               value="groups-evaluation"
-              className="rounded-md font-semibold data-[state=active]:bg-white data-[state=active]:border data-[state=active]:border-gray-300 data-[state=active]:shadow-sm"
+              className="rounded-md font-semibold data-[state=active]:bg-[var(--color-surface-white)] data-[state=active]:border data-[state=active]:border-[var(--color-border)] data-[state=active]:shadow-sm"
             >
               Groups Grades & Evaluation
             </TabsTrigger>

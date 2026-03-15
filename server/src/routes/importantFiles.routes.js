@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/importantFiles.controller');
-const { authenticate, optionalAuth, requireCoordinatorOrAdmin } = require('../middleware/auth.middleware');
+const { authenticate, requireCoordinatorOrAdmin } = require('../middleware/auth.middleware');
 
-// optionalAuth: lets the controller scope the list by course when coordinator is logged in
-router.get('/', optionalAuth, controller.listFiles);
+// authenticate: required so the server can scope files by role/course
+router.get('/', authenticate, controller.listFiles);
 
 // Admin or coordinator — manage files
 router.post('/', authenticate, requireCoordinatorOrAdmin, controller.createFile);

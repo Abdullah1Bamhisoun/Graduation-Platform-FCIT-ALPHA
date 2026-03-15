@@ -8,7 +8,12 @@ async function listUsers(req, res) {
   try {
     const { role } = req.query;
     const isAdmin = req.user.roles.includes('admin');
-    const isCoordinator = req.user.activeRole === 'coordinator' && req.user.coordinatorCourseId;
+    const isCoordinator = req.user.activeRole === 'coordinator';
+
+    // Coordinators must have a course assigned
+    if (!isAdmin && isCoordinator && !req.user.coordinatorCourseId) {
+      return res.status(403).json({ error: 'No course assigned to your coordinator account' });
+    }
 
     let query = supabaseAdmin
       .from('profiles')
@@ -19,7 +24,8 @@ async function listUsers(req, res) {
 
     // Coordinators only see students in their course.
     // Supervisor/admin profiles are platform-wide and must not be scoped.
-    if (!isAdmin && isCoordinator && role === 'student') {
+    // Apply whenever the result could include students (role=student or no role filter).
+    if (!isAdmin && isCoordinator && (!role || role === 'student')) {
       const { data: groups } = await supabaseAdmin
         .from('groups')
         .select('id')
@@ -32,10 +38,19 @@ async function listUsers(req, res) {
         : { data: [] };
 
       const studentIds = (members || []).map((m) => m.student_id).filter(Boolean);
-      if (studentIds.length === 0) {
-        return res.json([]);
+
+      if (role === 'student') {
+        // Requested students only — return empty if none in course
+        if (studentIds.length === 0) return res.json([]);
+        query = query.in('id', studentIds);
+      } else {
+        // No role filter — exclude students not in this course
+        if (studentIds.length > 0) {
+          query = query.or(`role.neq.student,id.in.(${studentIds.join(',')})`);
+        } else {
+          query = query.neq('role', 'student');
+        }
       }
-      query = query.in('id', studentIds);
     }
 
     const { data, error } = await query;

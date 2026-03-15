@@ -38,12 +38,13 @@ interface CoordinatorChapterSubmissionsTabProps {
   courseId: string;
   onGradeSaved?: () => void;
   refreshKey?: number;
+  role?: string;
 }
 
 /** criterionKey → score for a given groupId */
 type GroupScores = Record<string, number>;
 
-export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGradeSaved }: CoordinatorChapterSubmissionsTabProps) {
+export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGradeSaved, role = 'coordinator' }: CoordinatorChapterSubmissionsTabProps) {
   const [submissions, setSubmissions] = useState<ChapterSubmission[]>([]);
   const [stats, setStats] = useState<CoordinatorChapterSubmissionsResult['stats']>({
     total: 0,
@@ -81,16 +82,18 @@ export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGrade
     });
   }, []);
 
+  // Reset filter and reload when course type changes
   useEffect(() => {
-    loadData();
+    setSelectedGroupFilter('all');
+    loadData('all');
   }, [courseType]);
 
-  async function loadData() {
+  async function loadData(groupFilter = selectedGroupFilter) {
     setIsLoading(true);
     try {
       const [submissionsData, groupsData, milestoneCfgs] = await Promise.all([
-        getChapterSubmissionsForCoordinator(courseType, selectedGroupFilter === 'all' ? undefined : selectedGroupFilter),
-        getCoordinatorGroupsWithGrades(courseType),
+        getChapterSubmissionsForCoordinator(courseType, groupFilter === 'all' ? undefined : groupFilter, role),
+        getCoordinatorGroupsWithGrades(courseType, role),
         getMilestoneConfigs(courseId),
       ]);
 
@@ -129,12 +132,12 @@ export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGrade
     }
   }
 
-  // Reload when filter changes
+  // Reload when group filter changes
   useEffect(() => {
     if (!isLoading) {
-      loadData();
+      loadData(selectedGroupFilter);
     }
-  }, [selectedGroupFilter, courseType]);
+  }, [selectedGroupFilter]);
 
   const getStatusIcon = (status: string) => {
     switch (status) {

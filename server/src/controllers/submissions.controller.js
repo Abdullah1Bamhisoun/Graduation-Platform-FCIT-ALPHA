@@ -224,34 +224,43 @@ async function getChapterSubmissionsForCoordinator(req, res) {
   try {
     const { filterGroup, courseType } = req.query;
     const coordinatorId = req.user.id;
-    const isAdmin = req.user.activeRole === 'admin';
+    const isAdmin = req.user.activeRole === 'admin' || (req.user.roles || []).includes('admin');
 
-    // Step 1 — resolve course ID
-    let coordinatorCourseId = req.user.coordinatorCourseId;
+    // Step 1 — resolve course ID(s)
+    // Admins ALWAYS use courseType lookup (never constrained to a single coordinatorCourseId)
+    let coordinatorCourseId = isAdmin ? null : req.user.coordinatorCourseId;
+    let adminCourseIds = null;
 
-    if (!coordinatorCourseId) {
-      if (isAdmin && courseType && ['498', '499'].includes(courseType)) {
-        // Admin: look up course by courseType
-        const { data: courseRow } = await supabaseAdmin
-          .from('courses')
-          .select('id')
-          .ilike('code', `%${courseType}%`)
-          .limit(1)
-          .maybeSingle();
-        if (!courseRow) {
-          return res.status(404).json({ error: `No course found for courseType ${courseType}` });
-        }
-        coordinatorCourseId = courseRow.id;
-      } else {
+    if (isAdmin) {
+      if (!courseType || !['498', '499'].includes(courseType)) {
+        return res.status(400).json({ error: 'courseType (498 or 499) is required for admin' });
+      }
+      const { data: courseRows } = await supabaseAdmin
+        .from('courses')
+        .select('id')
+        .ilike('code', `%${courseType}%`);
+      adminCourseIds = (courseRows || []).map((r) => r.id);
+    } else {
+      if (!coordinatorCourseId) {
         return res.status(403).json({ error: 'No course assigned to your coordinator account' });
       }
     }
 
     // Step 2 — get all groups in the assigned course
+    // Admins use OR(course_number, course_id) to cover both legacy and UUID-based groups
     let groupQuery = supabaseAdmin
       .from('groups')
-      .select('id, group_number, project_name')
-      .eq('course_id', coordinatorCourseId);
+      .select('id, group_number, project_name');
+
+    if (isAdmin) {
+      if (adminCourseIds && adminCourseIds.length > 0) {
+        groupQuery = groupQuery.or(`course_number.eq.${courseType},course_id.in.(${adminCourseIds.join(',')})`);
+      } else {
+        groupQuery = groupQuery.eq('course_number', courseType);
+      }
+    } else {
+      groupQuery = groupQuery.eq('course_id', coordinatorCourseId);
+    }
 
     // Optional: filter by specific group
     if (filterGroup && filterGroup !== 'all') {

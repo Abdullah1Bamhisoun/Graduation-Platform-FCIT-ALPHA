@@ -21,7 +21,7 @@ const iconStyles: Record<NonNullable<MetricCardProps['color']>, string> = {
 
 export function MetricCard({ label, value, icon: Icon, trend, color = 'primary' }: MetricCardProps) {
   return (
-    <div className="!bg-white rounded-xl border border-[var(--color-border)] p-6 flex flex-col gap-4 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-default">
+    <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6 flex flex-col gap-4 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-default">
       {/* Icon */}
       <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${iconStyles[color]}`}>
         <Icon className="w-5 h-5" />

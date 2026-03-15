@@ -347,6 +347,7 @@ export function SupervisorMyGroupsAndReviews() {
   const [newDiscussionComment, setNewDiscussionComment] = useState('');
   const [discussionPosting, setDiscussionPosting]   = useState(false);
 
+
   // ── Load groups ───────────────────────────────────────────────────────────
 
   const loadGroups = useCallback(async () => {
@@ -557,6 +558,7 @@ export function SupervisorMyGroupsAndReviews() {
       setDiscussionPosting(false);
     }
   };
+
 
   // ── Mark as IP / Remove IP ────────────────────────────────────────────────
 
@@ -972,7 +974,7 @@ export function SupervisorMyGroupsAndReviews() {
                                       <Button
                                         size="sm"
                                         variant="outline"
-                                        className="gap-1 text-amber-600 border-amber-300 hover:bg-amber-50"
+                                        className="gap-1 !text-red-600 border-red-300 hover:!bg-red-50"
                                         onClick={() => {
                                           setRejectTarget(sub);
                                           setRejectFeedback('');
@@ -986,11 +988,11 @@ export function SupervisorMyGroupsAndReviews() {
                                   <Button
                                     size="sm"
                                     variant="outline"
-                                    className="gap-1 text-blue-600 border-blue-300 hover:bg-blue-50"
-                                    onClick={() => handleOpenDiscussion(sub)}
+                                    className="gap-1 text-purple-600 border-purple-300 hover:bg-purple-50"
+                                    onClick={() => navigate(`/supervisor/review/${sub.id}`)}
                                   >
-                                    <MessageSquare className="w-3 h-3" />
-                                    Discussion
+                                    <ClipboardList className="w-3 h-3" />
+                                    Review
                                   </Button>
                                 </div>
                               </td>
@@ -1083,28 +1085,6 @@ export function SupervisorMyGroupsAndReviews() {
                   </div>
                 </div>
 
-                {/* Quick links */}
-                <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-4">
-                  <h4 className="text-[var(--color-text-900)] mb-2 text-sm font-semibold">
-                    Quick Links
-                  </h4>
-                  <div className="space-y-1">
-                    <button
-                      onClick={() => navigate('/supervisor/weekly-reports')}
-                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-[var(--color-surface-alt)] text-[var(--color-text-900)] text-sm transition-colors flex items-center justify-between"
-                    >
-                      Weekly Reports
-                      <ChevronRight className="w-3.5 h-3.5 text-[var(--color-text-400)]" />
-                    </button>
-                    <button
-                      onClick={() => navigate('/supervisor/grading')}
-                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-[var(--color-surface-alt)] text-[var(--color-text-900)] text-sm transition-colors flex items-center justify-between"
-                    >
-                      Supervisor Assessment
-                      <ChevronRight className="w-3.5 h-3.5 text-[var(--color-text-400)]" />
-                    </button>
-                  </div>
-                </div>
 
               </div>
             </div>
@@ -1338,8 +1318,7 @@ export function SupervisorMyGroupsAndReviews() {
                               </h4>
                               <Button
                                 size="sm"
-                                variant="outline"
-                                className="h-7 text-xs gap-1.5"
+                                className="h-7 text-xs gap-1.5 !bg-green-600 hover:!bg-green-700 text-white border-green-600"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   navigate(`/supervisor/evaluate-group/${group.id}`);
@@ -1559,7 +1538,7 @@ export function SupervisorMyGroupsAndReviews() {
               onClick={handleReject}
               disabled={processing || !rejectFeedback.trim()}
               variant="outline"
-              className="gap-2 text-amber-600 border-amber-300 hover:bg-amber-50"
+              className="gap-2 !text-red-600 border-red-300 hover:!bg-red-50"
             >
               <XCircle className="w-4 h-4" />
               {processing ? 'Submitting…' : 'Request Changes'}

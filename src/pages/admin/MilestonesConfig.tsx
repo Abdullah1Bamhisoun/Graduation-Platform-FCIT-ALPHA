@@ -205,12 +205,14 @@ export function AdminMilestonesConfig() {
             <Button
               variant={selectedCourse === 'CPIS-498' ? 'default' : 'outline'}
               onClick={() => setSelectedCourse('CPIS-498')}
+              className={selectedCourse === 'CPIS-498' ? '!bg-green-600 hover:!bg-green-700 text-white' : ''}
             >
               CPIS-498
             </Button>
             <Button
               variant={selectedCourse === 'CPIS-499' ? 'default' : 'outline'}
               onClick={() => setSelectedCourse('CPIS-499')}
+              className={selectedCourse === 'CPIS-499' ? '!bg-green-600 hover:!bg-green-700 text-white' : ''}
             >
               CPIS-499
             </Button>

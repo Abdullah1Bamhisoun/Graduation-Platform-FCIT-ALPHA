@@ -1,8 +1,9 @@
-import { ChevronDown, RefreshCw } from 'lucide-react';
+import { ChevronDown, Moon, RefreshCw, Sun } from 'lucide-react';
 import { User, UserRole } from '../../types';
 import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import { useAuth } from '../../lib/AuthContext';
+import { useTheme } from '../../lib/ThemeContext';
 
 interface TopbarProps {
   user: User;
@@ -31,6 +32,7 @@ const SWITCHABLE_ROLES: UserRole[] = ['supervisor', 'coordinator'];
 export function Topbar({ user, pageTitle }: TopbarProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const { logout, switchRole } = useAuth();
+  const { theme, toggleTheme } = useTheme();
 
   // Only show role switcher when user has multiple switchable roles
   const switchableRoles = user.roles.filter((r) => SWITCHABLE_ROLES.includes(r));
@@ -64,8 +66,7 @@ export function Topbar({ user, pageTitle }: TopbarProps) {
             {user.activeRole === 'supervisor' && user.roles.includes('coordinator') && (
               <button
                 onClick={() => handleSwitchRole('coordinator')}
-                style={{ borderRadius: 0 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-50 border border-purple-300 hover:bg-purple-100 transition-colors whitespace-nowrap"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-50 border border-purple-300 hover:bg-purple-100 transition-colors whitespace-nowrap rounded-lg"
                 title="Switch to Coordinator Mode"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
@@ -75,8 +76,7 @@ export function Topbar({ user, pageTitle }: TopbarProps) {
             {user.activeRole === 'coordinator' && user.roles.includes('supervisor') && (
               <button
                 onClick={() => handleSwitchRole('supervisor')}
-                style={{ borderRadius: 0 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-300 hover:bg-blue-100 transition-colors whitespace-nowrap"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-300 hover:bg-blue-100 transition-colors whitespace-nowrap rounded-lg"
                 title="Switch to Supervisor Mode"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
@@ -89,6 +89,15 @@ export function Topbar({ user, pageTitle }: TopbarProps) {
             </span>
           </>
         )}
+
+        {/* ── Dark Mode Toggle ── */}
+        <button
+          onClick={toggleTheme}
+          className="p-2 rounded-lg hover:bg-[var(--color-surface-alt)] transition-colors text-[var(--color-text-600)]"
+          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+        </button>
 
         {/* ── User Menu ── */}
         <div className="relative">

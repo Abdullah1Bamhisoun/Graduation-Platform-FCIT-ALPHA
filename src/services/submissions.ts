@@ -331,7 +331,8 @@ export interface CoordinatorChapterSubmissionsResult {
  */
 export async function getChapterSubmissionsForCoordinator(
   courseType: '498' | '499',
-  filterGroup?: string
+  filterGroup?: string,
+  activeRole: string = 'coordinator'
 ): Promise<CoordinatorChapterSubmissionsResult> {
   try {
     const session = await import('../lib/supabase').then((m) => m.supabase.auth.getSession());
@@ -346,7 +347,7 @@ export async function getChapterSubmissionsForCoordinator(
     const response = await fetch(`/api/submissions/coordinator/chapter-submissions?${params.toString()}`, {
       headers: {
         Authorization: `Bearer ${token ?? ''}`,
-        'X-Active-Role': 'coordinator',
+        'X-Active-Role': activeRole,
       },
     });
 

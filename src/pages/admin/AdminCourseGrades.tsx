@@ -1,13 +1,25 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { CoordinatorChapterSubmissionsTab } from '../../components/coordinator/CoordinatorChapterSubmissionsTab';
 import { CoordinatorGroupsEvaluationTab } from '../../components/coordinator/CoordinatorGroupsEvaluationTab';
 import { useAuth } from '../../lib/AuthContext';
+import { supabase } from '../../lib/supabase';
 
 export function AdminCourseGrades() {
   const { user } = useAuth();
   const [selectedCourseType, setSelectedCourseType] = useState<'498' | '499'>('498');
+  const [resolvedCourseId, setResolvedCourseId] = useState('');
+
+  useEffect(() => {
+    supabase
+      .from('courses')
+      .select('id')
+      .ilike('code', `%${selectedCourseType}%`)
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => setResolvedCourseId(data?.id ?? ''));
+  }, [selectedCourseType]);
 
   if (!user) return null;
 
@@ -51,23 +63,23 @@ export function AdminCourseGrades() {
         </div>
 
         <Tabs defaultValue="chapter-submissions" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-6 h-11 border border-gray-300 rounded-lg bg-gray-100 p-1">
+          <TabsList className="grid w-full grid-cols-2 mb-6 h-11 border border-[var(--color-border)] rounded-lg bg-[var(--color-surface-alt)] p-1">
             <TabsTrigger
               value="chapter-submissions"
-              className="rounded-md font-semibold data-[state=active]:bg-white data-[state=active]:border data-[state=active]:border-gray-300 data-[state=active]:shadow-sm"
+              className="rounded-md font-semibold data-[state=active]:bg-[var(--color-surface-white)] data-[state=active]:border data-[state=active]:border-[var(--color-border)] data-[state=active]:shadow-sm"
             >
               Chapter Submission
             </TabsTrigger>
             <TabsTrigger
               value="groups-evaluation"
-              className="rounded-md font-semibold data-[state=active]:bg-white data-[state=active]:border data-[state=active]:border-gray-300 data-[state=active]:shadow-sm"
+              className="rounded-md font-semibold data-[state=active]:bg-[var(--color-surface-white)] data-[state=active]:border data-[state=active]:border-[var(--color-border)] data-[state=active]:shadow-sm"
             >
               Groups Grades & Evaluation
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="chapter-submissions">
-            <CoordinatorChapterSubmissionsTab courseType={selectedCourseType} courseId="" />
+            <CoordinatorChapterSubmissionsTab courseType={selectedCourseType} courseId={resolvedCourseId} role="admin" />
           </TabsContent>
 
           <TabsContent value="groups-evaluation">

@@ -11,7 +11,7 @@ interface DashboardCardProps {
 
 export function DashboardCard({ title, icon: Icon, children, actions, className = '' }: DashboardCardProps) {
   return (
-    <div className={`!bg-white rounded-xl border border-[var(--color-border)] shadow-sm ${className}`}>
+    <div className={`bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] shadow-sm ${className}`}>
       {/* Card header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
         <div className="flex items-center gap-2.5">

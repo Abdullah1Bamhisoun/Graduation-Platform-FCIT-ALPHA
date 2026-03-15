@@ -2,8 +2,9 @@ const { supabaseAdmin } = require('../config/supabase');
 
 /**
  * GET /api/important-files
- * - Admin / unauthenticated: returns all files
- * - Coordinator: returns only files for their course + admin-managed files (course_id IS NULL)
+ * - Admin / Supervisor: returns all files
+ * - Coordinator: returns only files for their course
+ * - Student: returns only files for their course (resolved via group membership), no global files
  */
 async function listFiles(req, res) {
   try {
@@ -12,10 +13,41 @@ async function listFiles(req, res) {
       .select('id, name, description, size, type, file_url, course_id, uploaded_at, courses(code)')
       .order('uploaded_at', { ascending: false });
 
-    // Scope to coordinator's course + global (null) files
-    if (req.user?.activeRole === 'coordinator' && req.user.coordinatorCourseId) {
-      query = query.or(`course_id.eq.${req.user.coordinatorCourseId},course_id.is.null`);
+    const role = req.user?.role;
+    const activeRole = req.user?.activeRole;
+
+    if (activeRole === 'coordinator' && req.user.coordinatorCourseId) {
+      // Coordinator: only their course's files
+      query = query.eq('course_id', req.user.coordinatorCourseId);
+
+    } else if (role === 'student') {
+      // Step 1: get the student's group_id
+      const { data: membership } = await supabaseAdmin
+        .from('group_members')
+        .select('group_id')
+        .eq('student_id', req.user.id)
+        .limit(1)
+        .maybeSingle();
+
+      let studentCourseId = null;
+      if (membership?.group_id) {
+        // Step 2: get course_id from the group
+        const { data: grp } = await supabaseAdmin
+          .from('groups')
+          .select('course_id')
+          .eq('id', membership.group_id)
+          .maybeSingle();
+        studentCourseId = grp?.course_id ?? null;
+      }
+
+      if (studentCourseId) {
+        query = query.eq('course_id', studentCourseId);
+      } else {
+        // Student not yet in a group — show nothing
+        return res.json([]);
+      }
     }
+    // Admin, Supervisor, and all other roles: no filter — see everything
 
     const { data, error } = await query;
     if (error) throw error;

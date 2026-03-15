@@ -128,9 +128,9 @@ export function AdminUserManagement() {
     try {
       const token = await getToken();
       const fetchRole = async (role: string): Promise<ProfileUser[]> => {
-        const res = await fetch(`/api/users?role=${encodeURIComponent(role)}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+        if (user?.activeRole) headers['X-Active-Role'] = user.activeRole;
+        const res = await fetch(`/api/users?role=${encodeURIComponent(role)}`, { headers });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
           throw new Error((body as { error?: string }).error ?? `Server error (${res.status})`);
@@ -540,10 +540,10 @@ export function AdminUserManagement() {
     new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
   const tabClass = (t: ActiveTab) =>
-    `px-5 py-2.5 rounded-lg font-medium transition-colors ${
+    `px-5 py-2.5 rounded-lg font-medium transition-colors border ${
       activeTab === t
-        ? 'bg-[var(--color-primary-600)] text-white'
-        : 'text-[var(--color-text-600)] hover:bg-[var(--color-surface-alt)]'
+        ? 'bg-[var(--color-primary-600)] text-white border-[var(--color-primary-600)]'
+        : 'text-[var(--color-text-600)] hover:bg-[var(--color-surface-alt)] border-[var(--color-border)]'
     }`;
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -583,7 +583,7 @@ export function AdminUserManagement() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 mb-6 p-1 bg-[var(--color-surface-alt)] rounded-xl w-fit">
+      <div className="flex gap-2 mb-6">
         <button className={tabClass('pending')} onClick={() => setActiveTab('pending')}>
           Pending Approvals
           {pendingRegs.length > 0 && (

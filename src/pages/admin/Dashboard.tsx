@@ -38,10 +38,10 @@ const ACTIVITY_BAR: Record<string, string> = {
 };
 
 const EVENT_CARD: Record<string, string> = {
-  blue:   'border-blue-400   bg-blue-50/60',
-  purple: 'border-purple-400 bg-purple-50/60',
-  green:  'border-emerald-400 bg-emerald-50/60',
-  amber:  'border-amber-400  bg-amber-50/60',
+  blue:   'border-blue-400   bg-white/10',
+  purple: 'border-purple-400 bg-white/10',
+  green:  'border-emerald-400 bg-white/10',
+  amber:  'border-amber-400  bg-white/10',
 };
 
 const EVENT_LABEL: Record<string, string> = {
@@ -257,7 +257,7 @@ export function AdminDashboard() {
               {upcomingEvents.map((event, index) => (
                 <div
                   key={index}
-                  className={`p-4 rounded-lg border-l-4 ${EVENT_CARD[event.color] ?? 'border-gray-300 bg-gray-50'} hover:shadow-sm transition-shadow`}
+                  className={`p-4 rounded-lg border-l-4 ${EVENT_CARD[event.color] ?? 'border-gray-300 bg-white/10'} hover:shadow-sm transition-shadow`}
                 >
                   <h3 className="text-sm font-semibold text-[var(--color-text-900)] mb-1.5 leading-snug">{event.title}</h3>
                   <p className="text-xs text-[var(--color-text-600)] mb-1">{event.date}</p>

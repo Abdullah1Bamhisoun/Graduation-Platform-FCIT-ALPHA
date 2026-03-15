@@ -73,15 +73,18 @@ export function ImportantFilesManager() {
 
   useEffect(() => {
     getToken().then((token) => {
-      fetch('/api/important-files', {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      })
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+        if (user?.activeRole) headers['X-Active-Role'] = user.activeRole;
+      }
+      fetch('/api/important-files', { headers })
         .then((r) => r.json())
         .then((data) => setFiles(Array.isArray(data) ? data : []))
         .catch(() => setFiles([]))
         .finally(() => setLoading(false));
     });
-  }, []);
+  }, [user?.activeRole]);
 
   if (!user) return null;
 
