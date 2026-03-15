@@ -121,8 +121,8 @@ export function DocumentViewerWithAnnotations({
   fileName,
   onClose,
   userId,
-  userName,
-  userRole,
+  userName: _userName,
+  userRole: _userRole,
 }: Props) {
   const isPdf = /\.pdf$/i.test(fileName) || /\.pdf($|\?)/i.test(fileUrl);
 
