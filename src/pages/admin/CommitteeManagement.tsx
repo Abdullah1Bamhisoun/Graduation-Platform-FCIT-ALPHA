@@ -7,19 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { Label } from '../../components/ui/label';
 import { PresentationSchedule, StudentPresentationSelection } from '../../types';
-import { Plus, X, AlertCircle } from 'lucide-react';
+import { Plus, X, AlertCircle, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
-// Mock supervisor list
-const availableSupervisors = [
-  'Dr. Wafi Bedwai',
-  'Dr. Sultan Al-Qarni',
-  'Dr. Fouad Alallah',
-  'Dr. Mohammed Al-Rasheed',
-  'Dr. Khalid Abdullah',
-  'Dr. Fahad Al-Bakr',
-  'Dr. Omar Al-Zahrani',
-];
 
 export function AdminCommitteeManagement() {
   const { user } = useAuth();
@@ -81,8 +71,32 @@ export function AdminCommitteeManagement() {
     setShowAddMemberDialog(true);
   };
 
+  // Check if a supervisor has a time conflict with the selected schedule
+  const getSupervisorConflict = (supervisor: string, forGroupId: string): string | null => {
+    const targetSchedule = schedules.find(s => s.groupId === forGroupId);
+    if (!targetSchedule) return null;
+
+    const conflictingGroup = schedules.find(s =>
+      s.groupId !== forGroupId &&
+      s.day === targetSchedule.day &&
+      s.timeSlot === targetSchedule.timeSlot &&
+      s.committeeMembers.includes(supervisor)
+    );
+
+    if (conflictingGroup) {
+      return `Already assigned to "${conflictingGroup.groupName}" at the same time (${targetSchedule.day} – ${targetSchedule.timeSlot})`;
+    }
+    return null;
+  };
+
+  const selectedSupervisorConflict =
+    selectedSupervisor && selectedSchedule
+      ? getSupervisorConflict(selectedSupervisor, selectedSchedule)
+      : null;
+
   const handleConfirmAddMember = () => {
     if (!selectedSupervisor || !selectedSchedule) return;
+    if (selectedSupervisorConflict) return;
 
     const updatedSchedules = schedules.map(s => {
       if (s.groupId === selectedSchedule) {
@@ -314,13 +328,35 @@ export function AdminCommitteeManagement() {
                       <SelectValue placeholder="Choose a supervisor" />
                     </SelectTrigger>
                     <SelectContent>
-                      {availableSupervisors.map((supervisor) => (
-                        <SelectItem key={supervisor} value={supervisor}>
-                          {supervisor}
-                        </SelectItem>
-                      ))}
+                      {availableSupervisors.map((supervisor) => {
+                        const conflict = selectedSchedule ? getSupervisorConflict(supervisor, selectedSchedule) : null;
+                        return (
+                          <SelectItem key={supervisor} value={supervisor}>
+                            <div className="flex items-center justify-between gap-3 w-full">
+                              <span>{supervisor}</span>
+                              {conflict ? (
+                                <span className="text-xs text-red-500 flex items-center gap-1">
+                                  <AlertCircle className="w-3 h-3" /> Busy
+                                </span>
+                              ) : (
+                                <span className="text-xs text-green-600 flex items-center gap-1">
+                                  <CheckCircle className="w-3 h-3" /> Available
+                                </span>
+                              )}
+                            </div>
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
+
+                  {/* Conflict warning */}
+                  {selectedSupervisorConflict && (
+                    <div className="mt-2 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg p-3">
+                      <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
+                      <p className="text-sm text-red-700">{selectedSupervisorConflict}</p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex justify-end gap-2 pt-4">
@@ -328,10 +364,10 @@ export function AdminCommitteeManagement() {
                     <X className="w-4 h-4 mr-2" />
                     Cancel
                   </Button>
-                  <Button 
+                  <Button
                     onClick={handleConfirmAddMember}
                     className="bg-[#10B981] text-white hover:bg-[#0ea572]"
-                    disabled={!selectedSupervisor}
+                    disabled={!selectedSupervisor || !!selectedSupervisorConflict}
                   >
                     <Plus className="w-4 h-4 mr-2" />
                     Add Member

@@ -161,8 +161,9 @@ export function Settings() {
               <Input
                 id="email"
                 type="email"
-                defaultValue={user.email}
-                className="mt-1.5"
+                value={user.email}
+                disabled
+                className="mt-1.5 bg-[var(--color-surface-alt)]"
               />
             </div>
 
@@ -351,7 +352,7 @@ export function Settings() {
                 <Input
                   id="course"
                   type="text"
-                  value={group?.courseNumber ? `CPCS-${group.courseNumber}` : ''}
+                  value={group?.courseNumber ? `CPIS-${group.courseNumber}` : ''}
                   disabled
                   className="mt-1.5 bg-[var(--color-surface-alt)]"
                   placeholder={group === null ? 'Loading...' : '—'}

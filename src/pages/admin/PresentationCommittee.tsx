@@ -40,8 +40,7 @@ import {
   GripVertical,
   AlertCircle,
   CheckCircle,
-  Search,
-  Filter,
+  ChevronDown,
   Undo2,
   Redo2,
 } from 'lucide-react';
@@ -133,6 +132,9 @@ export function AdminPresentationCommittee() {
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [supervisors, setSupervisors] = useState<SupervisorAvailability[]>([]);
+  const [committeePool, setCommitteePool] = useState<Set<string>>(new Set());
+  const [poolOpen, setPoolOpen] = useState(true);
+  const [unassignedOpen, setUnassignedOpen] = useState(true);
   const [changesLog, setChangesLog] = useState<AuditLogEntry[]>([]);
 
   const isCoordinator = user?.activeRole === 'coordinator';
@@ -241,8 +243,6 @@ export function AdminPresentationCommittee() {
   const [editingSlot, setEditingSlot] = useState<Partial<TimeSlot>>({});
   const [draggedProject, setDraggedProject] = useState<Project | null>(null);
   const [activeTab, setActiveTab] = useState('schedule');
-  const [searchSupervisor, setSearchSupervisor] = useState('');
-  const [filterDay, setFilterDay] = useState<string>('all');
 
   // Auto-assign options
   const [autoPreferDay, setAutoPreferDay] = useState(true);
@@ -719,11 +719,6 @@ export function AdminPresentationCommittee() {
     return projects.filter(p => p.status === 'unassigned' && (course === null || p.course === course));
   };
 
-  const filteredSupervisors = supervisors.filter(s =>
-    s.name.toLowerCase().includes(searchSupervisor.toLowerCase()) &&
-    (filterDay === 'all' || (s[filterDay.toLowerCase() as keyof SupervisorAvailability] as number) > 0)
-  );
-
   return (
     <Layout user={user} pageTitle="Presentation & Committee Management">
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -1048,66 +1043,78 @@ export function AdminPresentationCommittee() {
               </div>
             </div>
 
-            {/* Right Panel - Availability Pool & Unassigned Projects */}
+            {/* Right Panel */}
             <div className="space-y-6">
-              {/* Availability Pool */}
-              <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-[var(--color-text-900)]">Availability Pool</h3>
-                  <span className="text-xs text-[var(--color-text-600)]">LIVE</span>
-                </div>
-
-                <div className="flex gap-2 mb-4">
-                  <div className="flex-1 relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <Input
-                      placeholder="Search supervisor..."
-                      value={searchSupervisor}
-                      onChange={(e) => setSearchSupervisor(e.target.value)}
-                      className="pl-9"
-                    />
+              {/* Committee Supervisors Pool */}
+              <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] overflow-hidden">
+                <button
+                  onClick={() => setPoolOpen(o => !o)}
+                  className="w-full flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition-colors"
+                >
+                  <div className="text-left">
+                    <h3 className="text-[var(--color-text-900)]">Committee Supervisors</h3>
+                    {!poolOpen && committeePool.size > 0 && (
+                      <p className="text-xs text-[var(--color-text-600)] mt-0.5">{committeePool.size} selected</p>
+                    )}
                   </div>
-                  <Select value={filterDay} onValueChange={setFilterDay}>
-                    <SelectTrigger className="w-[120px]">
-                      <Filter className="w-4 h-4 mr-2" />
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Days</SelectItem>
-                      <SelectItem value="sun">Sunday</SelectItem>
-                      <SelectItem value="mon">Monday</SelectItem>
-                      <SelectItem value="tue">Tuesday</SelectItem>
-                      <SelectItem value="wed">Wednesday</SelectItem>
-                      <SelectItem value="thu">Thursday</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                  {filteredSupervisors.map((supervisor) => (
-                    <div
-                      key={supervisor.id}
-                      className="p-3 border border-[var(--color-border)] rounded-lg hover:bg-gray-50 transition-colors"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm text-[var(--color-text-900)]">{supervisor.name}</span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${
-                          supervisor.status === 'ready' 
-                            ? 'bg-green-50 text-green-700 border border-green-200'
-                            : 'bg-gray-50 text-gray-600 border border-gray-200'
-                        }`}>
-                          {supervisor.status === 'ready' ? 'Ready' : 'None'}
-                        </span>
-                      </div>
+                  <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${poolOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {poolOpen && (
+                  <div className="px-6 pb-5 border-t border-[var(--color-border)]">
+                    <p className="text-xs text-[var(--color-text-600)] mt-3 mb-3">
+                      Select which supervisors can evaluate committees for CPIS-{course ?? '…'}
+                    </p>
+                    <div className="space-y-1 max-h-[260px] overflow-y-auto">
+                      {supervisors.map((sup) => {
+                        const checked = committeePool.has(sup.name);
+                        return (
+                          <label
+                            key={sup.id}
+                            className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                setCommitteePool(prev => {
+                                  const next = new Set(prev);
+                                  checked ? next.delete(sup.name) : next.add(sup.name);
+                                  return next;
+                                });
+                              }}
+                              className="w-4 h-4 accent-[var(--color-primary-600)]"
+                            />
+                            <span className="text-sm text-[var(--color-text-900)]">{sup.name}</span>
+                          </label>
+                        );
+                      })}
                     </div>
-                  ))}
-                </div>
+                    {committeePool.size > 0 && (
+                      <p className="text-xs text-[var(--color-text-600)] mt-3 border-t border-[var(--color-border)] pt-3">
+                        {committeePool.size} supervisor{committeePool.size !== 1 ? 's' : ''} selected
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Unassigned Projects */}
-              <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
-                <h3 className="text-[var(--color-text-900)] mb-4">Unassigned Projects</h3>
-                <div className="space-y-2 max-h-[400px] overflow-y-auto">
+              <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] overflow-hidden">
+                <button
+                  onClick={() => setUnassignedOpen(o => !o)}
+                  className="w-full flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition-colors"
+                >
+                  <div className="text-left">
+                    <h3 className="text-[var(--color-text-900)]">Unassigned Projects</h3>
+                    {!unassignedOpen && (
+                      <p className="text-xs text-[var(--color-text-600)] mt-0.5">{getUnassignedProjects().length} remaining</p>
+                    )}
+                  </div>
+                  <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${unassignedOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {unassignedOpen && (
+                <div className="px-6 pb-5 border-t border-[var(--color-border)]">
+                <div className="space-y-2 max-h-[400px] overflow-y-auto mt-4">
                   {getUnassignedProjects().map((project) => (
                     <div
                       key={project.id}
@@ -1156,6 +1163,8 @@ export function AdminPresentationCommittee() {
                     </div>
                   )}
                 </div>
+                </div>
+                )}
               </div>
             </div>
           </div>
@@ -1200,61 +1209,52 @@ export function AdminPresentationCommittee() {
           </DialogHeader>
 
           <div className="space-y-4 py-4">
-            {/* Supervisors eligible as committee members: exclude the group's own supervisor */}
+            {/* Committee member selectors */}
             {(() => {
-              const assignedProject = projects.find(p => p.id === (editingSlot.projectId ?? selectedSlot?.projectId));
-              const groupSupervisorName = assignedProject?.supervisor?.trim().toLowerCase();
-              const eligibleSupervisors = supervisors.filter(s =>
-                !groupSupervisorName || s.name.trim().toLowerCase() !== groupSupervisorName
-              );
-              const lockHint = groupSupervisorName
-                ? `${assignedProject!.supervisor} (group supervisor — cannot be committee member)`
-                : null;
-
+              const poolList = committeePool.size > 0
+                ? supervisors.filter(s => committeePool.has(s.name))
+                : supervisors;
               return (
-                <>
-                  {lockHint && (
-                    <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
-                      <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                      {lockHint}
-                    </div>
+                <div className="space-y-3">
+                  {committeePool.size === 0 && (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      No supervisors selected in the pool — showing all supervisors.
+                    </p>
                   )}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label>Committee Member 1</Label>
-                      <Select
-                        value={editingSlot.supervisor}
-                        onValueChange={(value) => setEditingSlot({ ...editingSlot, supervisor: value, status: 'offered' })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select supervisor" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {eligibleSupervisors.map((sup) => (
-                            <SelectItem key={sup.id} value={sup.name}>{sup.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label>Committee Member 2</Label>
-                      <Select
-                        value={editingSlot.supervisor2 || 'none'}
-                        onValueChange={(value) => setEditingSlot({ ...editingSlot, supervisor2: value === 'none' ? undefined : value })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select supervisor" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">None</SelectItem>
-                          {eligibleSupervisors.map((sup) => (
-                            <SelectItem key={sup.id} value={sup.name}>{sup.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  <div>
+                    <Label className="mb-1 block">Committee Member 1</Label>
+                    <Select
+                      value={editingSlot.supervisor}
+                      onValueChange={(value) => setEditingSlot({ ...editingSlot, supervisor: value, status: 'offered' })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a supervisor..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {poolList.map((sup) => (
+                          <SelectItem key={sup.id} value={sup.name}>{sup.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                </>
+                  <div>
+                    <Label className="mb-1 block">Committee Member 2</Label>
+                    <Select
+                      value={editingSlot.supervisor2 || 'none'}
+                      onValueChange={(value) => setEditingSlot({ ...editingSlot, supervisor2: value === 'none' ? undefined : value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a supervisor..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">— None —</SelectItem>
+                        {poolList.map((sup) => (
+                          <SelectItem key={sup.id} value={sup.name}>{sup.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
               );
             })()}
 

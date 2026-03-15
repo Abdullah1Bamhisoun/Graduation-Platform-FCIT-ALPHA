@@ -92,7 +92,7 @@ main .max-w-\[800px\] {
     --color-primary-700: #176148;
     --color-primary-100: #E7F3EF;
     
-    --color-text-900: #0B1220;
+    --color-text-900: #000000;
     --color-text-600: #5B6472;
     --color-text-700: #3F4651;
     
@@ -137,7 +137,7 @@ main .max-w-\[800px\] {
     --color-primary-700: #1F7A5C;
     --color-primary-100: #0D2B21;
 
-    --color-text-900: #F1F5F9;
+    --color-text-900: #FFFFFF;
     --color-text-600: #94A3B8;
     --color-text-700: #CBD5E1;
 
