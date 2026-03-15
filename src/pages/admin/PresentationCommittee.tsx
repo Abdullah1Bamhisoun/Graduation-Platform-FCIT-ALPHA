@@ -723,8 +723,8 @@ export function AdminPresentationCommittee() {
     <Layout user={user} pageTitle="Presentation & Committee Management">
       <Tabs value={activeTab} onValueChange={setActiveTab}>
       {/* Header Controls */}
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+      <div className="mb-6 flex flex-col sm:flex-row flex-wrap items-start sm:items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex rounded-lg border border-[var(--color-border)] overflow-hidden">
             <button
               onClick={() => !isCoordinator && setCourse('498')}
@@ -789,7 +789,7 @@ export function AdminPresentationCommittee() {
           </TabsList>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -808,11 +808,11 @@ export function AdminPresentationCommittee() {
           </Button>
           <Button variant="outline" onClick={() => setShowAutoAssignDialog(true)}>
             <Sparkles className="w-4 h-4 mr-2" />
-            Auto-Assign
+            <span className="hidden sm:inline">Auto-Assign</span>
           </Button>
           <Button variant="outline" onClick={handleReset}>
             <RotateCcw className="w-4 h-4 mr-2" />
-            Reset
+            <span className="hidden sm:inline">Reset</span>
           </Button>
           <Button onClick={() => setShowPublishDialog(true)} className="bg-green-600! hover:bg-green-700! text-white border-green-600">
             <Send className="w-4 h-4 mr-2" />
@@ -822,14 +822,14 @@ export function AdminPresentationCommittee() {
       </div>
 
         <TabsContent value="schedule">
-          <div className="grid grid-cols-[320px_1fr_380px] gap-6">
+          <div className="grid grid-cols-1 xl:grid-cols-[320px_1fr_380px] gap-6">
             {/* Left Panel - Planning & Capacity ONLY */}
             <div>
               <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
                 <h3 className="text-[var(--color-text-900)] mb-4">Planning & Capacity</h3>
                 
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <Label className="text-xs">Students (498)</Label>
                       <Input
@@ -860,7 +860,7 @@ export function AdminPresentationCommittee() {
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <Label className="text-xs">Max Sessions/Day</Label>
                       <Input
@@ -1258,7 +1258,7 @@ export function AdminPresentationCommittee() {
               );
             })()}
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label>Day</Label>
                 <Select

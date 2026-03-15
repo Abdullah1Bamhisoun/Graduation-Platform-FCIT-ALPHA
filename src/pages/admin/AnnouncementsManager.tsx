@@ -136,7 +136,7 @@ export function AnnouncementsManager() {
   return (
     <Layout user={user} pageTitle="Announcements Manager">
       {isLocked && <LockedBanner />}
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <p className="text-[var(--color-text-600)]">
           Create and manage announcements for students and supervisors
         </p>
@@ -246,21 +246,45 @@ export function AnnouncementsManager() {
       <div className="space-y-4">
         {announcements.length > 0 ? (
           announcements.map((announcement) => (
-            <Card key={announcement.id} className="p-6">
-              <div className="flex items-start gap-4">
-                <div className="p-3 bg-[var(--color-primary-100)] rounded-lg">
-                  <Bell className="w-6 h-6 text-[var(--color-primary-700)]" />
+            <Card key={announcement.id} className="p-4 sm:p-6">
+              <div className="flex items-start gap-3 sm:gap-4">
+                <div className="p-2.5 sm:p-3 bg-[var(--color-primary-100)] rounded-lg flex-shrink-0">
+                  <Bell className="w-5 h-5 sm:w-6 sm:h-6 text-[var(--color-primary-700)]" />
                 </div>
-                <div className="flex-1">
-                  <h2 className="text-[var(--color-text-900)] mb-2">
-                    {announcement.title}
-                  </h2>
-                  <p className="text-[var(--color-text-700)] mb-4 whitespace-pre-line">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <h2 className="text-[var(--color-text-900)] text-base sm:text-lg leading-snug">
+                      {announcement.title}
+                    </h2>
+                    <div className="flex gap-1.5 flex-shrink-0">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleOpenDialog(announcement.id)}
+                        disabled={isLocked}
+                        className="text-yellow-500 border-yellow-500 hover:bg-yellow-50 rounded-full h-7 px-2 text-xs"
+                      >
+                        <Edit className="w-3.5 h-3.5 sm:mr-1" />
+                        <span className="hidden sm:inline">Edit</span>
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => handleDeleteAnnouncement(announcement.id)}
+                        disabled={isLocked}
+                        className="text-white bg-red-600 hover:bg-red-700 rounded-full h-7 px-2 text-xs"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 sm:mr-1" />
+                        <span className="hidden sm:inline">Delete</span>
+                      </Button>
+                    </div>
+                  </div>
+                  <p className="text-[var(--color-text-700)] mb-3 text-sm whitespace-pre-line">
                     {announcement.content}
                   </p>
-                  <div className="flex items-center gap-4 text-[var(--color-text-600)]">
-                    <div className="flex items-center gap-2">
-                      <CalendarIcon className="w-4 h-4" />
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--color-text-600)]">
+                    <div className="flex items-center gap-1.5">
+                      <CalendarIcon className="w-3.5 h-3.5" />
                       <span>
                         {new Date(announcement.publishedAt).toLocaleDateString('en-US', {
                           month: 'short',
@@ -272,34 +296,10 @@ export function AnnouncementsManager() {
                       </span>
                     </div>
                     <span>•</span>
-                    <span>Posted by {announcement.author}</span>
+                    <span>By {announcement.author}</span>
                     <span>•</span>
-                    <span className="capitalize">
-                      {announcement.targetRoles.join(', ')}
-                    </span>
+                    <span className="capitalize">{announcement.targetRoles.join(', ')}</span>
                   </div>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleOpenDialog(announcement.id)}
-                    disabled={isLocked}
-                    className="text-yellow-500 border-yellow-500 hover:bg-yellow-50 rounded-full"
-                  >
-                    <Edit className="w-4 h-4 mr-1" />
-                    Edit
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => handleDeleteAnnouncement(announcement.id)}
-                    disabled={isLocked}
-                    className="text-white bg-red-600 hover:bg-red-700 rounded-full"
-                  >
-                    <Trash2 className="w-4 h-4 mr-1" />
-                    Delete
-                  </Button>
                 </div>
               </div>
             </Card>

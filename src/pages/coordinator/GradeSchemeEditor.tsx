@@ -85,7 +85,7 @@ interface CriterionRowProps {
 
 function CriterionRow({ criterion, isDeliverable, onEdit, onDelete, isDeleting }: CriterionRowProps) {
   return (
-    <tr className="border-b border-[var(--color-border)] hover:bg-gray-50/50 text-sm">
+    <tr className="border-b border-[var(--color-border)] hover:bg-gray-50 text-sm">
       <td className="py-3 px-4 text-[var(--color-text-900)] font-medium">
         {criterion.criterionName}
       </td>
@@ -419,15 +419,15 @@ export function CoordinatorGradeSchemeEditor() {
     return (
       <div className="space-y-6">
         {/* Total mark indicator */}
-        <div className={`flex items-center gap-3 p-4 rounded-xl border ${
+        <div className={`flex flex-wrap items-center gap-3 p-4 rounded-xl border ${
           totalOk
             ? 'bg-green-50 border-green-200'
             : 'bg-red-50 border-red-200'
         }`}>
           {totalOk
-            ? <CheckCircle className="w-5 h-5 text-green-600" />
-            : <AlertCircle className="w-5 h-5 text-red-500" />}
-          <div>
+            ? <CheckCircle className="w-5 h-5 text-green-600 shrink-0" />
+            : <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />}
+          <div className="flex-1 min-w-0">
             <p className={`font-semibold text-sm ${totalOk ? 'text-green-800' : 'text-red-700'}`}>
               {totalOk
                 ? 'Total = 100 marks ✓ Valid scheme'
@@ -437,22 +437,20 @@ export function CoordinatorGradeSchemeEditor() {
               Adjust component weights below then click Save Components.
             </p>
           </div>
-          <div className="ml-auto">
-            <Button
-              onClick={() => saveComponents(courseType)}
-              disabled={savingComponents || !totalOk}
-              className="bg-[#10B981] text-black border-2 border-black hover:bg-[#0ea572]"
-              size="sm"
-            >
-              <Save className="w-4 h-4 mr-2" />
-              {savingComponents ? 'Saving…' : 'Save Components'}
-            </Button>
-          </div>
+          <Button
+            onClick={() => saveComponents(courseType)}
+            disabled={savingComponents || !totalOk}
+            className="bg-[#10B981] text-white hover:bg-[#0ea572] w-full sm:w-auto"
+            size="sm"
+          >
+            <Save className="w-4 h-4 mr-2" />
+            {savingComponents ? 'Saving…' : 'Save Components'}
+          </Button>
         </div>
 
         {/* Info banner */}
         <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
-          <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <Info className="w-4 h-4 mt-0.5 shrink-0" />
           <span>
             Changes to component weights and rubric criteria will take effect immediately for all future grading.
             Weekly progress is always auto-calculated — its weight controls the denominator only.
@@ -472,16 +470,16 @@ export function CoordinatorGradeSchemeEditor() {
           return (
             <div key={comp.componentKey} className={`rounded-xl border ${colorClass} overflow-hidden`}>
               {/* Component header */}
-              <div className="p-4 flex items-center gap-3">
-                <Icon className="w-5 h-5 text-[var(--color-text-700)]" />
-                <div className="flex-1">
+              <div className="p-4 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                <Icon className="w-5 h-5 text-[var(--color-text-700)] shrink-0 mt-1 sm:mt-0" />
+                <div className="flex-1 w-full min-w-0">
                   <Input
                     value={draft[comp.componentKey]?.name ?? comp.componentName}
                     onChange={e => setDraft(prev => ({
                       ...prev,
                       [comp.componentKey]: { ...prev[comp.componentKey], name: e.target.value }
                     }))}
-                    className="h-8 text-sm font-medium bg-white border-[var(--color-border)] max-w-xs"
+                    className="h-8 text-sm font-medium bg-white border-[var(--color-border)] w-full sm:max-w-xs"
                     disabled={isAutoCalc}
                   />
                   {label && (
@@ -489,8 +487,8 @@ export function CoordinatorGradeSchemeEditor() {
                   )}
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <div className="text-right">
+                <div className="flex items-center gap-2 self-end sm:self-auto">
+                  <div>
                     <Label className="text-xs text-[var(--color-text-600)]">Total Marks</Label>
                     <Input
                       type="number"
@@ -508,7 +506,7 @@ export function CoordinatorGradeSchemeEditor() {
                   {!isAutoCalc && (
                     <button
                       onClick={() => toggleExpand(`${courseType}-${comp.componentKey}`)}
-                      className="p-1.5 rounded-lg hover:bg-white/60 transition-colors"
+                      className="p-1.5 rounded-lg hover:bg-white/60 transition-colors mt-4"
                       title={isExpanded ? 'Collapse criteria' : 'Expand criteria'}
                     >
                       {isExpanded
@@ -521,7 +519,7 @@ export function CoordinatorGradeSchemeEditor() {
 
               {/* Criteria table (expanded) */}
               {isExpanded && !isAutoCalc && (
-                <div className="border-t border-[var(--color-border)] bg-white/70">
+                <div className="border-t border-[var(--color-border)] bg-white">
                   <div className="px-4 py-3 flex items-center justify-between border-b border-[var(--color-border)]">
                     <div>
                       <p className="text-xs font-semibold text-[var(--color-text-700)] uppercase tracking-wide">
@@ -538,7 +536,7 @@ export function CoordinatorGradeSchemeEditor() {
                     <Button
                       size="sm"
                       onClick={() => setCreateCriterionOpen(true)}
-                      className="bg-purple-600 text-black border-2 border-black hover:bg-purple-700 gap-1.5 h-7"
+                      className="bg-purple-600 text-white hover:bg-purple-700 gap-1.5 h-7"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       Add Criterion
@@ -668,18 +666,20 @@ export function CoordinatorGradeSchemeEditor() {
           </div>
         ) : (
           // ADMIN VIEW: Keep existing dual-option tabs
-          <TabsList className="mb-6 gap-3 bg-transparent p-1">
+          <TabsList className="mb-6 flex flex-wrap gap-3 bg-transparent p-1 h-auto">
             <TabsTrigger
               value="498"
               className="px-4 py-2.5 border-2 border-[var(--color-border)] rounded-lg font-medium transition-all duration-200 data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-[var(--color-primary-50)] data-[state=active]:text-[var(--color-primary-900)] data-[state=inactive]:hover:border-[var(--color-primary-400)] data-[state=inactive]:hover:bg-[var(--color-surface-alt)]"
             >
-              CPIS-498 — Senior Project I
+              <span className="sm:hidden">CPIS-498</span>
+              <span className="hidden sm:inline">CPIS-498 — Senior Project I</span>
             </TabsTrigger>
             <TabsTrigger
               value="499"
               className="px-4 py-2.5 border-2 border-[var(--color-border)] rounded-lg font-medium transition-all duration-200 data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-[var(--color-primary-50)] data-[state=active]:text-[var(--color-primary-900)] data-[state=inactive]:hover:border-[var(--color-primary-400)] data-[state=inactive]:hover:bg-[var(--color-surface-alt)]"
             >
-              CPIS-499 — Senior Project II
+              <span className="sm:hidden">CPIS-499</span>
+              <span className="hidden sm:inline">CPIS-499 — Senior Project II</span>
             </TabsTrigger>
           </TabsList>
         )}
@@ -729,7 +729,7 @@ export function CoordinatorGradeSchemeEditor() {
                   <Label className="block">Scale Descriptions (1–5)</Label>
                   {[1,2,3,4,5].map(n => (
                     <div key={n} className="flex items-start gap-3">
-                      <span className="mt-2 w-6 h-6 flex-shrink-0 flex items-center justify-center rounded-full bg-[var(--color-primary-100)] text-xs font-bold text-[var(--color-primary-700)]">
+                      <span className="mt-2 w-6 h-6 shrink-0 flex items-center justify-center rounded-full bg-(--color-primary-100) text-xs font-bold text-(--color-primary-700)">
                         {n}
                       </span>
                       <Textarea

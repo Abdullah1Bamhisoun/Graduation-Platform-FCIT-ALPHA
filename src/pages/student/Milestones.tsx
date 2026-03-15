@@ -93,78 +93,122 @@ export function StudentMilestones() {
   return (
     <Layout user={user} pageTitle="Chapter Submissions">
       {isLocked && <LockedBanner />}
-      <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] shadow-sm">
-        {/* Table Header */}
-        <div className="grid grid-cols-12 gap-4 p-4 border-b border-[var(--color-border)] text-[var(--color-text-600)]">
+
+      <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] shadow-sm overflow-hidden">
+
+        {/* ── Desktop table header (hidden on mobile) ── */}
+        <div className="hidden sm:grid sm:grid-cols-12 gap-4 px-4 py-3 border-b border-[var(--color-border)] text-xs font-semibold uppercase tracking-wide text-[var(--color-text-600)]">
           <div className="col-span-4">Milestone</div>
           <div className="col-span-2">Course</div>
-          <div className="col-span-2">Due Date</div>
+          <div className="col-span-3">Due Date</div>
           <div className="col-span-2">Status</div>
-          <div className="col-span-2">Action</div>
+          <div className="col-span-1">Action</div>
         </div>
 
-        {/* Table Body */}
+        {/* ── Rows ── */}
         <div className="divide-y divide-[var(--color-border)]">
+          {chapterMilestones.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-16 text-center px-4">
+              <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center mb-3">
+                <FileText className="w-6 h-6 text-gray-400" />
+              </div>
+              <p className="text-sm font-medium text-[var(--color-text-900)]">No chapter submissions yet</p>
+              <p className="text-xs text-[var(--color-text-600)] mt-1">Milestones will appear here once configured by your coordinator.</p>
+            </div>
+          )}
+
           {chapterMilestones.map((milestone) => (
             <div
               key={milestone.id}
-              className="grid grid-cols-12 gap-4 p-4 hover:bg-[var(--color-surface-alt)] transition-colors cursor-pointer"
+              className="cursor-pointer hover:bg-[var(--color-surface-alt)] transition-colors"
               onClick={() => setSelectedMilestone(milestone)}
             >
-              <div className="col-span-4">
-                <h3 className="text-[var(--color-text-900)] mb-1">{milestone.name}</h3>
-                {milestone.lastAction && (
-                  <p className="text-[var(--color-text-600)]">{milestone.lastAction}</p>
-                )}
+              {/* ── Mobile card layout ── */}
+              <div className="sm:hidden p-4 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-semibold text-[var(--color-text-900)] leading-snug">{milestone.name}</h3>
+                    {milestone.lastAction && (
+                      <p className="text-xs text-[var(--color-text-600)] mt-0.5">{milestone.lastAction}</p>
+                    )}
+                  </div>
+                  <StatusBadge status={milestone.status} />
+                </div>
+                <div className="flex items-center justify-between text-xs text-[var(--color-text-600)]">
+                  <span>{milestone.course}</span>
+                  <span>Due: {new Date(milestone.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                </div>
+                <div onClick={(e) => e.stopPropagation()}>
+                  {milestone.status === 'draft' || milestone.status === 'changes-requested' ? (
+                    <Button
+                      size="sm"
+                      className="w-full"
+                      disabled={isLocked}
+                      onClick={() => navigate(`/student/submissions/${milestone.id}`)}
+                    >
+                      Submit
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => navigate(`/student/submissions/${milestone.id}`)}
+                    >
+                      View
+                    </Button>
+                  )}
+                </div>
               </div>
-              <div className="col-span-2 flex items-center">
-                <span className="text-[var(--color-text-900)]">{milestone.course}</span>
-              </div>
-              <div className="col-span-2 flex items-center">
-                <div>
-                  <p className="text-[var(--color-text-900)]">
+
+              {/* ── Desktop table row ── */}
+              <div className="hidden sm:grid sm:grid-cols-12 gap-4 px-4 py-4 items-center">
+                <div className="col-span-4">
+                  <h3 className="text-sm font-medium text-[var(--color-text-900)]">{milestone.name}</h3>
+                  {milestone.lastAction && (
+                    <p className="text-xs text-[var(--color-text-600)] mt-0.5">{milestone.lastAction}</p>
+                  )}
+                </div>
+                <div className="col-span-2">
+                  <span className="text-sm text-[var(--color-text-900)]">{milestone.course}</span>
+                </div>
+                <div className="col-span-3">
+                  <p className="text-sm text-[var(--color-text-900)]">
                     {new Date(milestone.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                   </p>
-                  <p className="text-[var(--color-text-600)]">
+                  <p className="text-xs text-[var(--color-text-600)]">
                     Opens: {new Date(milestone.openDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </p>
                 </div>
-              </div>
-              <div className="col-span-2 flex items-center">
-                <StatusBadge status={milestone.status} />
-              </div>
-              <div className="col-span-2 flex items-center">
-                {milestone.status === 'draft' || milestone.status === 'changes-requested' ? (
-                  <Button
-                    size="sm"
-                    disabled={isLocked}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigate(`/student/submissions/${milestone.id}`);
-                    }}
-                  >
-                    Submit
-                  </Button>
-                ) : (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigate(`/student/submissions/${milestone.id}`);
-                    }}
-                  >
-                    View
-                  </Button>
-                )}
+                <div className="col-span-2">
+                  <StatusBadge status={milestone.status} />
+                </div>
+                <div className="col-span-1" onClick={(e) => e.stopPropagation()}>
+                  {milestone.status === 'draft' || milestone.status === 'changes-requested' ? (
+                    <Button
+                      size="sm"
+                      disabled={isLocked}
+                      onClick={() => navigate(`/student/submissions/${milestone.id}`)}
+                    >
+                      Submit
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => navigate(`/student/submissions/${milestone.id}`)}
+                    >
+                      View
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Drawer for Milestone Details */}
-      {/* File Viewer Modal — full screen */}
+      {/* ── File Viewer Modal — full screen ── */}
       <Dialog open={viewModalOpen} onOpenChange={(open) => { if (!open) { setViewModalOpen(false); setViewModalUrl(''); } }}>
         <DialogContent className="!inset-0 !translate-x-0 !translate-y-0 !top-0 !left-0 !max-w-full !w-screen !h-screen !rounded-none flex flex-col p-0 gap-0">
           <DialogHeader className="px-6 py-3 border-b border-gray-200 flex-shrink-0 flex flex-row items-center justify-between">
@@ -190,45 +234,43 @@ export function StudentMilestones() {
         </DialogContent>
       </Dialog>
 
+      {/* ── Detail Drawer ── */}
       {selectedMilestone && (
         <>
           <div
             className="fixed inset-0 bg-black/20 z-40"
             onClick={() => setSelectedMilestone(null)}
           />
-          <div className="fixed right-0 top-0 h-full w-[600px] bg-[var(--color-surface-white)] shadow-2xl z-50 overflow-y-auto">
-            <div className="sticky top-0 bg-[var(--color-surface-white)] border-b border-[var(--color-border)] p-6 flex items-center justify-between">
-              <h2 className="text-[var(--color-text-900)]">{selectedMilestone.name}</h2>
+          {/* Full-width on mobile, 600px on sm+ */}
+          <div className="fixed right-0 top-0 h-full w-full sm:w-[520px] lg:w-[600px] bg-[var(--color-surface-white)] shadow-2xl z-50 overflow-y-auto">
+            <div className="sticky top-0 bg-[var(--color-surface-white)] border-b border-[var(--color-border)] px-4 sm:px-6 py-4 flex items-center justify-between">
+              <h2 className="text-base font-semibold text-[var(--color-text-900)] pr-4 leading-snug">{selectedMilestone.name}</h2>
               <button
                 onClick={() => setSelectedMilestone(null)}
-                className="p-2 hover:bg-[var(--color-surface-alt)] rounded-lg transition-colors"
+                className="p-2 hover:bg-[var(--color-surface-alt)] rounded-lg transition-colors flex-shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-6 space-y-6">
+            <div className="p-4 sm:p-6 space-y-6">
               {/* Status */}
               <div>
-                <label className="text-[var(--color-text-600)] mb-2 block">Status</label>
+                <label className="text-[var(--color-text-600)] mb-2 block text-xs font-medium uppercase tracking-wide">Status</label>
                 <StatusBadge status={selectedMilestone.status} />
               </div>
 
               {/* Timeline */}
               <div>
-                <label className="text-[var(--color-text-600)] mb-2 block">Timeline</label>
+                <label className="text-[var(--color-text-600)] mb-2 block text-xs font-medium uppercase tracking-wide">Timeline</label>
                 <div className="space-y-2">
                   <div className="flex items-center gap-3">
-                    <Calendar className="w-4 h-4 text-[var(--color-text-600)]" />
-                    <div>
-                      <p className="text-[var(--color-text-900)]">Opens: {new Date(selectedMilestone.openDate).toLocaleDateString()}</p>
-                    </div>
+                    <Calendar className="w-4 h-4 text-[var(--color-text-600)] flex-shrink-0" />
+                    <p className="text-sm text-[var(--color-text-900)]">Opens: {new Date(selectedMilestone.openDate).toLocaleDateString()}</p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <Calendar className="w-4 h-4 text-[var(--color-text-600)]" />
-                    <div>
-                      <p className="text-[var(--color-text-900)]">Due: {new Date(selectedMilestone.dueDate).toLocaleDateString()}</p>
-                    </div>
+                    <Calendar className="w-4 h-4 text-[var(--color-text-600)] flex-shrink-0" />
+                    <p className="text-sm text-[var(--color-text-900)]">Due: {new Date(selectedMilestone.dueDate).toLocaleDateString()}</p>
                   </div>
                 </div>
               </div>
@@ -236,26 +278,26 @@ export function StudentMilestones() {
               {/* Description */}
               {selectedMilestone.description && (
                 <div>
-                  <label className="text-[var(--color-text-600)] mb-2 block">Description</label>
-                  <p className="text-[var(--color-text-900)]">{selectedMilestone.description}</p>
+                  <label className="text-[var(--color-text-600)] mb-2 block text-xs font-medium uppercase tracking-wide">Description</label>
+                  <p className="text-sm text-[var(--color-text-900)]">{selectedMilestone.description}</p>
                 </div>
               )}
 
               {/* Rubric Preview */}
               {selectedMilestone.rubric && (
                 <div>
-                  <label className="text-[var(--color-text-600)] mb-2 block">Grading Rubric</label>
+                  <label className="text-[var(--color-text-600)] mb-2 block text-xs font-medium uppercase tracking-wide">Grading Rubric</label>
                   <div className="border border-[var(--color-border)] rounded-lg divide-y divide-[var(--color-border)]">
                     {selectedMilestone.rubric.map((criterion) => (
-                      <div key={criterion.id} className="p-4 flex justify-between items-center">
-                        <span className="text-[var(--color-text-900)]">{criterion.name}</span>
-                        <span className="text-[var(--color-text-600)]">{criterion.maxScore} points</span>
+                      <div key={criterion.id} className="px-4 py-3 flex justify-between items-center gap-3">
+                        <span className="text-sm text-[var(--color-text-900)]">{criterion.name}</span>
+                        <span className="text-sm text-[var(--color-text-600)] flex-shrink-0">{criterion.maxScore} pts</span>
                       </div>
                     ))}
-                    <div className="p-4 flex justify-between items-center bg-[var(--color-surface-alt)]">
-                      <span className="text-[var(--color-text-900)]">Total</span>
-                      <span className="text-[var(--color-text-900)]">
-                        {selectedMilestone.rubric.reduce((sum, c) => sum + c.maxScore, 0)} points
+                    <div className="px-4 py-3 flex justify-between items-center bg-[var(--color-surface-alt)]">
+                      <span className="text-sm font-semibold text-[var(--color-text-900)]">Total</span>
+                      <span className="text-sm font-semibold text-[var(--color-text-900)]">
+                        {selectedMilestone.rubric.reduce((sum, c) => sum + c.maxScore, 0)} pts
                       </span>
                     </div>
                   </div>
@@ -265,7 +307,7 @@ export function StudentMilestones() {
               {/* Submitted Files */}
               {drawerSubmission && drawerSubmission.versions.length > 0 && (
                 <div>
-                  <label className="text-[var(--color-text-600)] mb-2 block">Submitted Files</label>
+                  <label className="text-[var(--color-text-600)] mb-2 block text-xs font-medium uppercase tracking-wide">Submitted Files</label>
                   <div className="space-y-2">
                     {drawerSubmission.versions.map((v) => (
                       <div
@@ -274,13 +316,13 @@ export function StudentMilestones() {
                       >
                         <FileText className="w-4 h-4 text-blue-600 shrink-0" />
                         <div className="flex-1 min-w-0">
-                          <p className="text-[var(--color-text-900)] truncate">{v.fileName}</p>
-                          <p className="text-[var(--color-text-600)] text-xs">
+                          <p className="text-sm text-[var(--color-text-900)] truncate">{v.fileName}</p>
+                          <p className="text-xs text-[var(--color-text-600)]">
                             v{v.version} · {v.fileSize} · {new Date(v.uploadedAt).toLocaleDateString()}
                           </p>
                         </div>
                         {v.filePath && (
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1 flex-shrink-0">
                             <button
                               onClick={() => handleViewFile(v.filePath!, v.fileName)}
                               className="p-1.5 hover:bg-[var(--color-border)] rounded transition-colors"

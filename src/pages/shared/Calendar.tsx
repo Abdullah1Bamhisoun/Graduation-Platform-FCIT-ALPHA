@@ -176,9 +176,9 @@ export function Calendar() {
         )}
       </div>
 
-      <div className="grid grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Calendar */}
-        <div className="col-span-2 bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] shadow-sm">
+        <div className="col-span-1 lg:col-span-2 bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] shadow-sm">
           {/* Calendar Header */}
           <div className="p-6 border-b border-[var(--color-border)] flex items-center justify-between">
             <h2 className="text-[var(--color-text-900)]">
@@ -195,15 +195,16 @@ export function Calendar() {
           </div>
 
           {/* Calendar Grid */}
-          <div className="p-6">
-            <div className="grid grid-cols-7 gap-2 mb-2">
+          <div className="p-1.5 sm:p-6">
+            <div className="grid grid-cols-7 gap-1 sm:gap-2 mb-1 sm:mb-2">
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                <div key={day} className="text-center text-[var(--color-text-600)] py-2">
-                  {day}
+                <div key={day} className="text-center text-[var(--color-text-600)] py-1 text-xs sm:text-sm">
+                  <span className="sm:hidden">{day.charAt(0)}</span>
+                  <span className="hidden sm:inline">{day}</span>
                 </div>
               ))}
             </div>
-            <div className="grid grid-cols-7 gap-2">
+            <div className="grid grid-cols-7 gap-1 sm:gap-2">
               {Array.from({ length: firstDayOfMonth }, (_, i) => (
                 <div key={`empty-${i}`} className="aspect-square" />
               ))}
@@ -217,21 +218,27 @@ export function Calendar() {
                 return (
                   <div
                     key={day}
-                    className={`aspect-square border border-[var(--color-border)] rounded-lg p-2 ${
+                    className={`min-h-[4rem] sm:min-h-[5rem] border border-[var(--color-border)] rounded-lg p-1.5 sm:p-2 overflow-hidden ${
                       isToday ? 'bg-[var(--color-primary-100)] border-[var(--color-primary-600)]' : 'bg-[var(--color-surface-white)]'
                     }`}
                   >
-                    <div className={`mb-1 ${isToday ? 'text-[var(--color-primary-700)]' : 'text-[var(--color-text-900)]'}`}>
+                    <div className={`text-sm sm:text-base mb-1 font-semibold text-center ${isToday ? 'text-[var(--color-primary-700)]' : 'text-[var(--color-text-900)]'}`}>
                       {day}
                     </div>
-                    {dayEvents.map((event, idx) => (
+                    {dayEvents.slice(0, 2).map((event, idx) => (
                       <div
                         key={idx}
-                        className={`text-xs px-1 py-0.5 rounded mb-1 border ${eventTypeColors[event.type]}`}
+                        className={`text-[10px] sm:text-xs px-1 py-0.5 rounded mb-0.5 border truncate ${eventTypeColors[event.type]}`}
+                        title={event.title}
                       >
                         {event.title}
                       </div>
                     ))}
+                    {dayEvents.length > 2 && (
+                      <div className="text-[10px] text-[var(--color-text-500)] px-1">
+                        +{dayEvents.length - 2}
+                      </div>
+                    )}
                   </div>
                 );
               })}

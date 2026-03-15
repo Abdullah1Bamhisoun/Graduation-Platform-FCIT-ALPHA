@@ -68,15 +68,15 @@ export function StudentDashboard() {
     <Layout user={user} pageTitle="Dashboard" unreadCount={notifications.filter(n => !n.read).length}>
       {/* Group Info Header */}
       {group && (
-        <div className="!bg-white rounded-xl border border-[var(--color-border)] shadow-sm p-4 mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="!bg-white rounded-xl border border-[var(--color-border)] shadow-sm p-4 mb-6 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
               <FileText className="w-5 h-5 text-blue-600" />
             </div>
             <div>
               <p className="text-xs text-[var(--color-text-600)]">Group</p>
-              <p className="font-semibold text-[var(--color-text-900)]">
-                {group.groupNumber ? `Group ${group.groupNumber}` : group.groupCode}
+              <p className="font-semibold text-[var(--color-text-900)] break-all text-sm">
+                {group.groupCode}
               </p>
             </div>
           </div>
@@ -86,7 +86,7 @@ export function StudentDashboard() {
             </div>
             <div>
               <p className="text-xs text-[var(--color-text-600)]">Project</p>
-              <p className="font-semibold text-[var(--color-text-900)] truncate">{group.projectName || '—'}</p>
+              <p className="font-semibold text-[var(--color-text-900)] break-words">{group.projectName || '—'}</p>
             </div>
           </div>
           <div className="flex items-center gap-3">

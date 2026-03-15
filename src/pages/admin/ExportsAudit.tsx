@@ -414,7 +414,7 @@ export function AdminExportsAudit() {
         <TabsContent value="exports">
           {/* Export type cards */}
           <DashboardCard title="Export Data" icon={Download} className="mb-6">
-            <div className="grid grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {/* Grades */}
               <div className="rounded-xl border border-[var(--color-border)] p-5">
                 <div className="w-12 h-12 rounded-lg bg-white border border-green-500 flex items-center justify-center mb-4">
@@ -472,7 +472,8 @@ export function AdminExportsAudit() {
               </div>
             ) : (
               <div className="rounded-xl border border-[var(--color-border)] overflow-hidden">
-                <div className="grid grid-cols-12 gap-4 px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface-alt)] text-xs font-medium uppercase tracking-wide text-[var(--color-text-600)]">
+                {/* Desktop header — hidden on mobile */}
+                <div className="hidden sm:grid grid-cols-12 gap-4 px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface-alt)] text-xs font-medium uppercase tracking-wide text-[var(--color-text-600)]">
                   <div className="col-span-4">Date & Time</div>
                   <div className="col-span-3">Export Type</div>
                   <div className="col-span-3">Course</div>
@@ -485,24 +486,38 @@ export function AdminExportsAudit() {
                       : entry.type === 'submissions' ? 'Submissions Report'
                       : 'Activity Log';
                     const typeColor =
-                      entry.type === 'grades' ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-950/30 dark:text-green-400 dark:border-green-900/50'
-                      : entry.type === 'submissions' ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-900/50'
-                      : 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/30 dark:text-purple-400 dark:border-purple-900/50';
+                      entry.type === 'grades' ? 'bg-green-50 text-green-700 border-green-200'
+                      : entry.type === 'submissions' ? 'bg-blue-50 text-blue-700 border-blue-200'
+                      : 'bg-purple-50 text-purple-700 border-purple-200';
                     return (
-                      <div key={entry.id} className="grid grid-cols-12 gap-4 px-4 py-3 hover:bg-(--color-surface-alt) transition-colors items-center">
-                        <div className="col-span-4 text-sm text-(--color-text-900)">
-                          {new Date(entry.date).toLocaleString()}
+                      <div key={entry.id}>
+                        {/* Mobile card */}
+                        <div className="sm:hidden px-4 py-3 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className={`px-2.5 py-0.5 text-xs rounded-full border ${typeColor}`}>
+                              {typeLabel}
+                            </span>
+                            <span className="text-xs text-[var(--color-text-600)]">{entry.format}</span>
+                          </div>
+                          <p className="text-sm text-[var(--color-text-900)]">{entry.courseName}</p>
+                          <p className="text-xs text-[var(--color-text-600)]">{new Date(entry.date).toLocaleString()}</p>
                         </div>
-                        <div className="col-span-3">
-                          <span className={`px-2.5 py-1 text-xs rounded-full border ${typeColor}`}>
-                            {typeLabel}
-                          </span>
-                        </div>
-                        <div className="col-span-3 text-sm text-(--color-text-900)">
-                          {entry.courseName}
-                        </div>
-                        <div className="col-span-2 text-sm text-(--color-text-600)">
-                          {entry.format}
+                        {/* Desktop row */}
+                        <div className="hidden sm:grid grid-cols-12 gap-4 px-4 py-3 hover:bg-[var(--color-surface-alt)] transition-colors items-center">
+                          <div className="col-span-4 text-sm text-[var(--color-text-900)]">
+                            {new Date(entry.date).toLocaleString()}
+                          </div>
+                          <div className="col-span-3">
+                            <span className={`px-2.5 py-1 text-xs rounded-full border ${typeColor}`}>
+                              {typeLabel}
+                            </span>
+                          </div>
+                          <div className="col-span-3 text-sm text-[var(--color-text-900)]">
+                            {entry.courseName}
+                          </div>
+                          <div className="col-span-2 text-sm text-[var(--color-text-600)]">
+                            {entry.format}
+                          </div>
                         </div>
                       </div>
                     );
@@ -516,7 +531,7 @@ export function AdminExportsAudit() {
         {/* ── Audit Log ──────────────────────────────────────────────── */}
         <TabsContent value="audit">
           {/* Metric row */}
-          <div className="grid grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
             <MetricCard label="Total Entries" value={auditLog.length} icon={ClipboardList} color="primary" />
             <MetricCard label="Today's Activity" value={todayEntries} icon={Calendar} color="success" />
             <MetricCard label="Unique Actors" value={uniqueActors} icon={Users} color="info" />
@@ -551,7 +566,8 @@ export function AdminExportsAudit() {
                 <p className="text-sm mt-1">System events and user actions will appear here</p>
               </div>
             ) : (
-              <div className="rounded-xl border border-[var(--color-border)] overflow-hidden">
+              <div className="rounded-xl border border-[var(--color-border)] overflow-x-auto">
+                <div className="min-w-[620px]">
                 <div className="grid grid-cols-12 gap-4 px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface-alt)] text-xs font-medium uppercase tracking-wide text-[var(--color-text-600)]">
                   <div className="col-span-3">Date & Time</div>
                   <div className="col-span-2">Actor</div>
@@ -587,6 +603,7 @@ export function AdminExportsAudit() {
                     </div>
                   ))}
                 </div>
+                </div>{/* end min-w-[620px] */}
               </div>
             )}
           </DashboardCard>

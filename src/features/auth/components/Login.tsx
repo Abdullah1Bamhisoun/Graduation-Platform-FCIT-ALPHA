@@ -40,9 +40,9 @@ export function Login() {
 
 
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen flex flex-col lg:flex-row">
       {/* Left Panel - Login Form */}
-      <div className="w-1/2 flex items-center justify-center p-12 bg-[var(--color-surface-white)]">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-8 lg:p-12 bg-[var(--color-surface-white)]">
         <div className="w-full max-w-md">
           <div className="mb-8">
             <img src={gppLogo} alt="GPP FCIT KAU" className="w-64 mx-auto mb-8" />
@@ -134,8 +134,8 @@ export function Login() {
         </div>
       </div>
 
-      {/* Right Panel - Platform Info */}
-      <div className="w-1/2 bg-gradient-to-br from-[var(--color-primary-600)] to-[var(--color-primary-700)] p-12 flex items-center justify-center text-white">
+      {/* Right Panel - Platform Info (hidden on mobile) */}
+      <div className="hidden lg:flex w-1/2 bg-gradient-to-br from-[var(--color-primary-600)] to-[var(--color-primary-700)] p-12 items-center justify-center text-white">
         <div className="max-w-md">
           <h2 className="text-white mb-6">Graduation Project Platform</h2>
           <p className="mb-8 text-white/90">

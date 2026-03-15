@@ -33,7 +33,7 @@ export function StudentGroupBanner({ user }: Props) {
   const teammates = group.members.filter((m) => m.id !== user.id);
 
   return (
-    <div className="ml-[280px] bg-[var(--color-surface-white)] border-b border-[var(--color-border)] px-8 py-3 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+    <div className="lg:ml-[280px] bg-[var(--color-surface-white)] border-b border-[var(--color-border)] px-4 sm:px-8 py-3 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
       <div className="flex items-center gap-2">
         <span className="text-[var(--color-text-600)]">Group:</span>
         <span className="font-semibold text-[var(--color-text-900)]">{group.groupCode}</span>

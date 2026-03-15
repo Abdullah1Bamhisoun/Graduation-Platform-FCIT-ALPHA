@@ -1,7 +1,7 @@
 import { useLocation, Link } from 'react-router-dom';
 import {
   Home, FileText, Calendar, Bell, Settings,
-  Users, BarChart3, CheckSquare, FolderOpen, Lock, Sliders,
+  Users, BarChart3, CheckSquare, FolderOpen, Lock, Sliders, X,
 } from 'lucide-react';
 import { User, UserRole } from '../../types';
 import { useUnreadAnnouncements } from '../../hooks/useUnreadAnnouncements';
@@ -70,20 +70,38 @@ const navItems: Record<UserRole, NavItem[]> = {
 
 interface SidebarProps {
   user: User;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
-export function Sidebar({ user }: SidebarProps) {
+export function Sidebar({ user, isOpen = false, onClose }: SidebarProps) {
   const location = useLocation();
   const role = user.activeRole;
   const items = navItems[role] ?? navItems['student'];
   const { unreadCount } = useUnreadAnnouncements(user);
   const { pendingCount } = usePendingRegistrationsCount(user);
 
+  const handleNavClick = () => {
+    if (onClose) onClose();
+  };
+
   return (
-    <div className="w-[280px] h-screen bg-[var(--color-surface-white)] border-r border-[var(--color-border)] flex flex-col fixed left-0 top-0">
+    <div
+      className={`w-[280px] h-screen bg-[var(--color-surface-white)] border-r border-[var(--color-border)] flex flex-col fixed left-0 top-0 z-30 transition-transform duration-300 ease-in-out ${
+        isOpen ? 'translate-x-0' : '-translate-x-full'
+      } lg:translate-x-0`}
+    >
       {/* Logo */}
-      <div className="p-6 border-b border-[var(--color-border)]">
+      <div className="p-6 border-b border-[var(--color-border)] flex items-center justify-between">
         <img src={gppLogo} alt="GPP FCIT KAU" className="w-full h-auto" />
+        {/* Close button - mobile only */}
+        <button
+          onClick={onClose}
+          className="lg:hidden ml-2 p-1.5 rounded-lg hover:bg-[var(--color-surface-alt)] text-[var(--color-text-600)] flex-shrink-0"
+          aria-label="Close menu"
+        >
+          <X className="w-5 h-5" />
+        </button>
       </div>
 
       {/* Navigation */}
@@ -105,6 +123,7 @@ export function Sidebar({ user }: SidebarProps) {
               <li key={item.href}>
                 <Link
                   to={item.href}
+                  onClick={handleNavClick}
                   className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-sm ${
                     isActive
                       ? 'bg-[var(--color-primary-100)] text-[var(--color-primary-700)] font-semibold'

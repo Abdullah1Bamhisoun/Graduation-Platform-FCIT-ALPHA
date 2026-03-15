@@ -1,7 +1,6 @@
-import { ReactNode } from 'react';
+import { ReactNode, useState } from 'react';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
-import { StudentGroupBanner } from './StudentGroupBanner';
 import { User } from '../../types';
 
 interface LayoutProps {
@@ -12,14 +11,23 @@ interface LayoutProps {
 }
 
 export function Layout({ user, pageTitle, children, unreadCount }: LayoutProps) {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   return (
     <div className="min-h-screen bg-[var(--color-surface-alt)]">
-      <Sidebar user={user} />
-      <Topbar user={user} pageTitle={pageTitle} unreadCount={unreadCount} />
+      {/* Mobile sidebar backdrop */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-20 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <Sidebar user={user} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Topbar user={user} pageTitle={pageTitle} unreadCount={unreadCount} onMenuClick={() => setSidebarOpen(true)} />
 
       <div className="mt-16">
-        {user.activeRole === 'student' && <StudentGroupBanner user={user} />}
-        <main className="ml-[280px] py-8 px-5 w-[calc(100%-280px)]">
+        <main className="lg:ml-[280px] py-6 px-4 sm:px-5 w-full lg:w-[calc(100%-280px)]">
           <div className="w-full max-w-full">
             {children}
           </div>

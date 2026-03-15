@@ -803,10 +803,10 @@ export function SupervisorMyGroupsAndReviews() {
           </div>
 
           {/* Two-column layout: submissions table + right sidebar */}
-          <div className="flex gap-6 items-start">
+          <div className="flex flex-col lg:flex-row gap-6 items-start">
 
             {/* ── Left: submissions table ── */}
-            <div className="flex-1 max-w-[800px]">
+            <div className="flex-1 lg:max-w-[800px]">
 
               {/* Stats cards (same visual pattern as old grading summary cards) */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
@@ -1007,7 +1007,7 @@ export function SupervisorMyGroupsAndReviews() {
             </div>
 
             {/* ── Right sidebar (sticky) ── */}
-            <div className="w-[280px] flex-shrink-0">
+            <div className="w-full lg:w-[280px] flex-shrink-0">
               <div className="sticky top-6 space-y-4">
 
                 {/* Submission summary card */}

@@ -52,7 +52,7 @@ export function StudentFeedback() {
                 </div>
 
                 {/* Score Summary */}
-                <div className="grid grid-cols-4 gap-4 mt-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4">
                   <div className="bg-[var(--color-primary-100)] rounded-lg p-4">
                     <p className="text-[var(--color-text-600)] mb-1">Total Score</p>
                     <p className="text-[var(--color-text-900)]">

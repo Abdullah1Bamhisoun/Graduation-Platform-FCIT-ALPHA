@@ -421,9 +421,9 @@ export function AdminGradesDeliverables() {
       </div>
 
       {selectedGroup && currentGroup ? (
-        <div className="flex gap-6">
+        <div className="flex flex-col lg:flex-row gap-6">
           {/* Main Content */}
-          <div className="flex-1 max-w-[800px]">
+          <div className="flex-1 lg:max-w-[800px]">
             {/* Header */}
             <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6 mb-6">
               <div>
@@ -811,7 +811,7 @@ export function AdminGradesDeliverables() {
           </div>
 
           {/* Right Sidebar */}
-          <div className="w-[300px] flex-shrink-0">
+          <div className="w-full lg:w-[300px] flex-shrink-0">
             <div className="sticky top-6 space-y-6">
               {/* Grade Summary Card */}
               <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] shadow-md p-6">

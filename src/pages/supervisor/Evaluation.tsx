@@ -273,9 +273,9 @@ export function SupervisorEvaluation() {
   return (
     <Layout user={user} pageTitle="Evaluation">
       {isLocked && <LockedBanner />}
-      <div className="flex gap-6">
+      <div className="flex flex-col lg:flex-row gap-6">
         {/* Main Content Area */}
-        <div className="flex-1 max-w-[800px]">
+        <div className="flex-1 lg:max-w-[800px]">
           {/* Header Section */}
           <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6 mb-6">
             <div className="flex items-start justify-between mb-4">
@@ -561,7 +561,7 @@ export function SupervisorEvaluation() {
                 </div>
 
                 {/* Student Totals */}
-                <div className="mt-6 grid grid-cols-2 gap-4">
+                <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                     <p className="text-[var(--color-text-600)] mb-1">{groupData.students[0]}</p>
                     <p className="text-2xl text-[var(--color-text-900)]">
@@ -674,7 +674,7 @@ export function SupervisorEvaluation() {
         </div>
 
         {/* Right Sidebar - Rubric Summary (Sticky) */}
-        <div className="w-[320px] flex-shrink-0">
+        <div className="w-full lg:w-[320px] flex-shrink-0">
           <div className="sticky top-6 space-y-6">
             {/* Rubric Summary Card */}
             <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] shadow-md p-6">

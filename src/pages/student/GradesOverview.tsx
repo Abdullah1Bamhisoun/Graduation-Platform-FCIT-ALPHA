@@ -346,7 +346,7 @@ export function StudentGradesOverview() {
 
       {/* ── Group Header Card ───────────────────────────────────────────────── */}
       <div className="mb-5 bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="text-xs font-semibold bg-[var(--color-primary-100)] text-[var(--color-primary-700)] border border-[var(--color-primary-200)] px-2 py-0.5 rounded-full">
@@ -383,7 +383,7 @@ export function StudentGradesOverview() {
           </div>
 
           {/* Score + Grade badge */}
-          <div className="text-right flex-shrink-0">
+          <div className="sm:text-right flex-shrink-0 flex sm:flex-col items-center sm:items-end gap-3 sm:gap-0">
             <div className={`text-4xl font-bold tabular-nums ${getScoreColor(g.totalScore, 100)}`}>
               {g.totalScore.toFixed(1)}
             </div>
@@ -449,7 +449,7 @@ export function StudentGradesOverview() {
                   </div>
 
                   {/* Score + progress */}
-                  <div className="flex items-center gap-3 flex-shrink-0">
+                  <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
                     <span
                       className={`text-sm font-mono font-semibold tabular-nums ${
                         c.score != null ? getScoreColor(c.score, c.maxScore) : 'text-[var(--color-text-500)]'
@@ -457,8 +457,8 @@ export function StudentGradesOverview() {
                     >
                       {c.score != null ? c.score.toFixed(1) : '—'}
                     </span>
-                    <span className="text-xs text-[var(--color-text-500)]">/ {c.maxScore}</span>
-                    <div className="w-20 bg-gray-200 rounded-full h-1.5 hidden sm:block">
+                    <span className="text-xs text-[var(--color-text-500)]">/{c.maxScore}</span>
+                    <div className="w-16 sm:w-20 bg-gray-200 rounded-full h-1.5 hidden sm:block">
                       <div
                         className={`${barColor} h-1.5 rounded-full transition-all`}
                         style={{ width: `${pct}%` }}
@@ -650,10 +650,10 @@ export function StudentGradesOverview() {
                                             : ''
                                         }`}
                                       >
-                                        <span className={`text-xs font-bold w-32 flex-shrink-0 ${isCurrentLevel ? 'text-[var(--color-primary-700)]' : 'text-[var(--color-text-700)]'}`}>
+                                        <span className={`text-xs font-bold flex-shrink-0 min-w-[6rem] sm:w-32 ${isCurrentLevel ? 'text-[var(--color-primary-700)]' : 'text-[var(--color-text-700)]'}`}>
                                           {level.score}. {level.label}
                                           {isCurrentLevel && (
-                                            <span className="ml-1 text-[10px] font-semibold text-[var(--color-primary-600)]">← your grade</span>
+                                            <span className="block sm:inline ml-0 sm:ml-1 text-[10px] font-semibold text-[var(--color-primary-600)]">← your grade</span>
                                           )}
                                         </span>
                                         <span className={`text-xs leading-relaxed ${isCurrentLevel ? 'text-[var(--color-primary-800)]' : 'text-[var(--color-text-600)]'}`}>
@@ -736,7 +736,7 @@ export function StudentGradesOverview() {
           {g.peerEvaluation.averageRaw != null && (
             <div className="mb-4 pb-4 border-b border-[var(--color-border)]">
               <p className="text-xs text-[var(--color-text-600)] mb-1">Your received rating</p>
-              <div className="flex items-baseline gap-2 mb-1">
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 mb-1">
                 <span className="text-2xl font-bold tabular-nums text-[var(--color-text-900)]">
                   {g.peerEvaluation.averageRaw.toFixed(1)}
                 </span>

@@ -313,10 +313,10 @@ $$;`}</pre>
         </div>
 
         {/* ── Main Layout ─────────────────────────────────────────────── */}
-        <div className="grid grid-cols-12 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
           {/* Sidebar — Groups */}
-          <div className="col-span-3">
+          <div className="col-span-1 lg:col-span-3">
             <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] shadow-sm">
               <div className="p-4 border-b border-[var(--color-border)]">
                 <h3 className="text-[var(--color-text-900)]">Groups</h3>
@@ -367,7 +367,7 @@ $$;`}</pre>
           </div>
 
           {/* Main content — 16 week cards */}
-          <div className="col-span-9">
+          <div className="col-span-1 lg:col-span-9">
             {selectedGroup ? (
               <>
                 <div className="mb-4">

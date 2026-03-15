@@ -258,9 +258,9 @@ export function StudentSubmissionDetail() {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - File Preview & Upload */}
-        <div className="col-span-2 space-y-6">
+        <div className="col-span-1 lg:col-span-2 space-y-6">
           {/* Upload Area */}
           <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
             <h2 className="text-[var(--color-text-900)] mb-4">

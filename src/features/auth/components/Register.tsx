@@ -241,8 +241,8 @@ export function Register() {
   // ── Success Screen ─────────────────────────────────────────────────────────
   if (submitted) {
     return (
-      <div className="min-h-screen flex">
-        <div className="w-1/2 flex items-center justify-center p-12 bg-[var(--color-surface-white)]">
+      <div className="min-h-screen flex flex-col lg:flex-row">
+        <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-8 lg:p-12 bg-[var(--color-surface-white)]">
           <div className="w-full max-w-md text-center">
             <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-6">
               <CheckCircle className="w-10 h-10 text-green-600" />
@@ -254,7 +254,7 @@ export function Register() {
             <Button onClick={() => navigate('/login')} className="w-full">Back to Login</Button>
           </div>
         </div>
-        <div className="w-1/2 bg-gradient-to-br from-[var(--color-primary-600)] to-[var(--color-primary-700)] p-12 flex items-center justify-center text-white">
+        <div className="hidden lg:flex w-1/2 bg-gradient-to-br from-[var(--color-primary-600)] to-[var(--color-primary-700)] p-12 items-center justify-center text-white">
           <div className="max-w-md">
             <h2 className="text-white mb-6">What Happens Next?</h2>
             <ul className="space-y-4">
@@ -280,9 +280,9 @@ export function Register() {
 
   // ── Registration Form ──────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen flex flex-col lg:flex-row">
       {/* Left Panel */}
-      <div className="w-1/2 flex items-center justify-center p-12 bg-[var(--color-surface-white)] overflow-y-auto">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-8 lg:p-12 bg-[var(--color-surface-white)] overflow-y-auto">
         <div className="w-full max-w-md">
           <div className="mb-6">
             <img src="/gpp-logo.png" alt="GPP FCIT KAU" className="w-64 mx-auto mb-6" />
@@ -315,7 +315,7 @@ export function Register() {
             {accountType === 'student' ? (
               <>
                 {/* ── Student: Basic Info ── */}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="s-fname">First Name *</Label>
                     <Input id="s-fname" placeholder="First name" value={studentFirstName}
@@ -509,7 +509,7 @@ export function Register() {
             ) : (
               <>
                 {/* ── Supervisor Form ── */}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="sv-fname">First Name *</Label>
                     <Input id="sv-fname" placeholder="First name" value={supervisorFirstName}
@@ -583,8 +583,8 @@ export function Register() {
         </div>
       </div>
 
-      {/* Right Panel */}
-      <div className="w-1/2 bg-gradient-to-br from-[var(--color-primary-600)] to-[var(--color-primary-700)] p-12 flex items-center justify-center text-white sticky top-0 h-screen">
+      {/* Right Panel (hidden on mobile) */}
+      <div className="hidden lg:flex w-1/2 bg-gradient-to-br from-[var(--color-primary-600)] to-[var(--color-primary-700)] p-12 items-center justify-center text-white sticky top-0 h-screen">
         <div className="max-w-md">
           <h2 className="text-white mb-6">Graduation Project Platform</h2>
           <p className="mb-8 text-white/90">

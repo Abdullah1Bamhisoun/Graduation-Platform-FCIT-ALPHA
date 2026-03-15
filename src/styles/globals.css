@@ -85,6 +85,66 @@ main .max-w-\[800px\] {
   max-width: 100% !important;
 }
 
+/* ─── Mobile responsive overrides (< 1024px) ─────────────────────────────── */
+@media (max-width: 1023px) {
+  /* Main content takes full width when sidebar is hidden */
+  main {
+    margin-left: 0 !important;
+    width: 100% !important;
+  }
+
+  /* Sidebar does not push content on mobile */
+  .main-content {
+    margin-left: 0 !important;
+    width: 100% !important;
+  }
+}
+
+/* ─── Prevent horizontal overflow globally ───────────────────────────────── */
+html, body {
+  overflow-x: hidden;
+}
+
+/* ─── Responsive images/iframes ─────────────────────────────────────────── */
+img, video, iframe, embed, object {
+  max-width: 100%;
+  height: auto;
+}
+
+/* ─── Tables: horizontal scroll on small screens ────────────────────────── */
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Wrap any table that overflows inside a scrollable container */
+@media (max-width: 640px) {
+  /* Make sure overflow-x-auto tables get touch scrolling */
+  .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Cards and panels: remove horizontal padding constraints */
+  .px-6 {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
+
+/* ─── Flex min-width fix: prevent flex children from overflowing ─────────── */
+/* Flex children default min-width is auto which causes overflow */
+.flex > * {
+  min-width: 0;
+}
+
+/* ─── Safe area support for notched devices ──────────────────────────────── */
+@supports (padding: env(safe-area-inset-left)) {
+  .sidebar-safe {
+    padding-left: env(safe-area-inset-left);
+  }
+}
+
 @layer base {
   :root {
     /* Brand Colors - Accessible Palette */
@@ -234,11 +294,26 @@ main .max-w-\[800px\] {
   html.dark .bg-orange-100 { background-color: rgba(249, 115, 22, 0.15) !important; }
 
   /* Colored tint borders → semi-transparent equivalents */
-  html.dark .border-blue-200  { border-color: rgba(59, 130, 246, 0.35) !important; }
-  html.dark .border-green-200 { border-color: rgba(22, 163, 74, 0.35) !important; }
-  html.dark .border-amber-200 { border-color: rgba(245, 158, 11, 0.35) !important; }
-  html.dark .border-red-200   { border-color: rgba(239, 68, 68, 0.35) !important; }
+  html.dark .border-blue-200   { border-color: rgba(59, 130, 246, 0.35) !important; }
+  html.dark .border-green-200  { border-color: rgba(22, 163, 74, 0.35) !important; }
+  html.dark .border-amber-200  { border-color: rgba(245, 158, 11, 0.35) !important; }
+  html.dark .border-red-200    { border-color: rgba(239, 68, 68, 0.35) !important; }
   html.dark .border-purple-200 { border-color: rgba(147, 51, 234, 0.35) !important; }
+  html.dark .border-indigo-200 { border-color: rgba(99, 102, 241, 0.35) !important; }
+  html.dark .border-orange-200 { border-color: rgba(249, 115, 22, 0.35) !important; }
+  html.dark .border-red-300    { border-color: rgba(239, 68, 68, 0.45) !important; }
+
+  /* Colored text → lighter equivalents for dark backgrounds */
+  html.dark .text-blue-800,
+  html.dark .text-blue-700    { color: rgba(147, 197, 253, 1) !important; }
+
+  html.dark .text-green-800,
+  html.dark .text-green-700,
+  html.dark .text-green-600   { color: rgba(134, 239, 172, 1) !important; }
+
+  html.dark .text-red-700,
+  html.dark .text-red-600,
+  html.dark .text-red-500     { color: rgba(252, 165, 165, 1) !important; }
 
   * {
     @apply border-[var(--color-border)];

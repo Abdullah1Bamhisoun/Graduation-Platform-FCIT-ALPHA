@@ -180,74 +180,100 @@ export function AdminLockManager() {
 
       {/* Modules table */}
       <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)]">
-        <table className="w-full text-sm">
-          <thead className="bg-[var(--color-surface-alt)] border-b border-[var(--color-border)]">
-            <tr>
-              <th className="p-4 text-left text-[var(--color-text-700)]">Module</th>
-              <th className="p-4 text-center text-[var(--color-text-700)]">Status</th>
-              <th className="p-4 text-center text-[var(--color-text-700)]">Locked By</th>
-              <th className="p-4 text-center text-[var(--color-text-700)]">Locked At</th>
-              <th className="p-4 text-right text-[var(--color-text-700)]">Action</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[var(--color-border)]">
-            {MODULES.map((module) => {
-              const locked = isModuleLocked(module.entityType);
-              const lockedBy = getLockedBy(module.entityType);
-              const lockedAt = getLockedAt(module.entityType);
-              const busy = actionLoading === module.entityType;
-              const globalActive = lockMap.get('all')?.isLocked && module.entityType !== 'all';
+        {/* Desktop header */}
+        <div className="hidden sm:grid grid-cols-12 gap-3 p-4 bg-[var(--color-surface-alt)] border-b border-[var(--color-border)] text-sm font-medium text-[var(--color-text-700)] rounded-t-xl">
+          <div className="col-span-4">Module</div>
+          <div className="col-span-2 text-center">Status</div>
+          <div className="col-span-2 text-center">Locked By</div>
+          <div className="col-span-2 text-center">Locked At</div>
+          <div className="col-span-2 text-right">Action</div>
+        </div>
+        <div className="divide-y divide-[var(--color-border)]">
+          {MODULES.map((module) => {
+            const locked = isModuleLocked(module.entityType);
+            const lockedBy = getLockedBy(module.entityType);
+            const lockedAt = getLockedAt(module.entityType);
+            const busy = actionLoading === module.entityType;
+            const globalActive = lockMap.get('all')?.isLocked && module.entityType !== 'all';
 
-              return (
-                <tr
-                  key={module.entityType}
-                  className={module.isGlobal ? 'bg-[var(--color-surface-alt)]' : ''}
-                >
-                  <td className="p-4">
-                    <p className={`font-medium ${module.isGlobal ? 'text-red-700' : 'text-[var(--color-text-900)]'}`}>
+            const actionBtn = globalActive ? (
+              <span className="text-xs text-[var(--color-text-600)] italic">Controlled by Global Lock</span>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => handleToggle(module)}
+                className={locked
+                  ? 'text-green-600 border-green-300 hover:bg-green-50 h-7 text-xs'
+                  : 'text-red-600 border-red-300 hover:bg-red-50 h-7 text-xs'
+                }
+              >
+                {locked ? (
+                  <><Unlock className="w-3 h-3 mr-1" />Unlock</>
+                ) : (
+                  <><Lock className="w-3 h-3 mr-1" />{module.isGlobal ? 'Lock All' : 'Lock'}</>
+                )}
+              </Button>
+            );
+
+            return (
+              <div
+                key={module.entityType}
+                className={module.isGlobal ? 'bg-[var(--color-surface-alt)]' : ''}
+              >
+                {/* Mobile card */}
+                <div className="sm:hidden p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className={`font-medium text-sm ${module.isGlobal ? 'text-red-700' : 'text-[var(--color-text-900)]'}`}>
+                        {module.label}
+                      </p>
+                      <p className="text-xs text-[var(--color-text-600)] mt-0.5">{module.description}</p>
+                    </div>
+                    <div className="flex-shrink-0">
+                      <LockBadge locked={locked} />
+                      {globalActive && (
+                        <p className="text-xs text-red-600 mt-1 text-right">via Global</p>
+                      )}
+                    </div>
+                  </div>
+                  {(lockedBy || lockedAt) && (
+                    <div className="text-xs text-[var(--color-text-600)] space-y-0.5">
+                      {lockedBy && <p>By: {lockedBy}</p>}
+                      {lockedAt && <p>At: {new Date(lockedAt).toLocaleString()}</p>}
+                    </div>
+                  )}
+                  <div>{actionBtn}</div>
+                </div>
+                {/* Desktop row */}
+                <div className="hidden sm:grid grid-cols-12 gap-3 p-4 items-center">
+                  <div className="col-span-4">
+                    <p className={`font-medium text-sm ${module.isGlobal ? 'text-red-700' : 'text-[var(--color-text-900)]'}`}>
                       {module.label}
                     </p>
                     <p className="text-xs text-[var(--color-text-600)] mt-0.5">{module.description}</p>
-                  </td>
-                  <td className="p-4 text-center">
+                  </div>
+                  <div className="col-span-2 text-center">
                     <LockBadge locked={locked} />
                     {globalActive && (
                       <p className="text-xs text-red-600 mt-1">via Global Lock</p>
                     )}
-                  </td>
-                  <td className="p-4 text-center text-[var(--color-text-600)] text-xs">
+                  </div>
+                  <div className="col-span-2 text-center text-[var(--color-text-600)] text-xs">
                     {lockedBy || '—'}
-                  </td>
-                  <td className="p-4 text-center text-[var(--color-text-600)] text-xs">
+                  </div>
+                  <div className="col-span-2 text-center text-[var(--color-text-600)] text-xs">
                     {lockedAt ? new Date(lockedAt).toLocaleString() : '—'}
-                  </td>
-                  <td className="p-4 text-right">
-                    {globalActive ? (
-                      <span className="text-xs text-[var(--color-text-600)] italic">Controlled by Global Lock</span>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy}
-                        onClick={() => handleToggle(module)}
-                        className={locked
-                          ? 'text-green-600 border-green-300 hover:bg-green-50 h-7 text-xs'
-                          : 'text-red-600 border-red-300 hover:bg-red-50 h-7 text-xs'
-                        }
-                      >
-                        {locked ? (
-                          <><Unlock className="w-3 h-3 mr-1" />Unlock</>
-                        ) : (
-                          <><Lock className="w-3 h-3 mr-1" />{module.isGlobal ? 'Lock All' : 'Lock'}</>
-                        )}
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                  </div>
+                  <div className="col-span-2 text-right">
+                    {actionBtn}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Confirmation dialog */}

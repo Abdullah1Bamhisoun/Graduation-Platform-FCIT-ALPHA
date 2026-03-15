@@ -25,11 +25,11 @@ export function AdminCourseGrades() {
 
   return (
     <Layout user={user} pageTitle="Course Grades">
-      <div className="w-full pt-8 pb-12">
-        <div className="mb-8 flex items-start justify-between">
+      <div className="w-full pb-12">
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Course Grades</h1>
-            <p className="text-gray-600 mt-2">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Course Grades</h1>
+            <p className="text-gray-600 mt-1 text-sm">
               Manage group grading and evaluations across all courses
             </p>
           </div>
@@ -63,18 +63,19 @@ export function AdminCourseGrades() {
         </div>
 
         <Tabs defaultValue="chapter-submissions" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-6 h-11 border border-[var(--color-border)] rounded-lg bg-[var(--color-surface-alt)] p-1">
+          <TabsList className="grid w-full grid-cols-2 mb-6 h-auto min-h-[2.75rem] border border-[var(--color-border)] rounded-lg bg-[var(--color-surface-alt)] p-1">
             <TabsTrigger
               value="chapter-submissions"
-              className="rounded-md font-semibold data-[state=active]:bg-[var(--color-surface-white)] data-[state=active]:border data-[state=active]:border-[var(--color-border)] data-[state=active]:shadow-sm"
+              className="rounded-md font-semibold text-xs sm:text-sm py-2 leading-tight data-[state=active]:bg-[var(--color-surface-white)] data-[state=active]:border data-[state=active]:border-[var(--color-border)] data-[state=active]:shadow-sm"
             >
-              Chapter Submission
+              Chapter Submissions
             </TabsTrigger>
             <TabsTrigger
               value="groups-evaluation"
-              className="rounded-md font-semibold data-[state=active]:bg-[var(--color-surface-white)] data-[state=active]:border data-[state=active]:border-[var(--color-border)] data-[state=active]:shadow-sm"
+              className="rounded-md font-semibold text-xs sm:text-sm py-2 leading-tight data-[state=active]:bg-[var(--color-surface-white)] data-[state=active]:border data-[state=active]:border-[var(--color-border)] data-[state=active]:shadow-sm"
             >
-              Groups Grades & Evaluation
+              <span className="sm:hidden">Grades & Eval</span>
+              <span className="hidden sm:inline">Groups Grades & Evaluation</span>
             </TabsTrigger>
           </TabsList>
 

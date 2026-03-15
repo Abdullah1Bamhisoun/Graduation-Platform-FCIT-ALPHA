@@ -274,7 +274,7 @@ export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGrade
   return (
     <div className="space-y-6">
       {/* Stats Cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <Card className="p-4">
           <div className="flex items-center justify-between">
             <div>
@@ -317,10 +317,10 @@ export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGrade
       </div>
 
       {/* Group Filter */}
-      <div className="flex items-center gap-3">
-        <label className="text-sm font-medium text-gray-700">Filter by Group:</label>
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Filter by Group:</label>
         <Select value={selectedGroupFilter} onValueChange={setSelectedGroupFilter}>
-          <SelectTrigger className="w-64">
+          <SelectTrigger className="w-full sm:w-64">
             <SelectValue placeholder="Select a group..." />
           </SelectTrigger>
           <SelectContent>
@@ -337,6 +337,7 @@ export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGrade
       {/* Submissions Table */}
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
+          <div className="min-w-[700px]">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
@@ -460,6 +461,7 @@ export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGrade
               )}
             </tbody>
           </table>
+          </div>
         </div>
       </Card>
 

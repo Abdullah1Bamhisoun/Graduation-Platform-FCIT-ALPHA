@@ -551,7 +551,7 @@ export function AdminUserManagement() {
     <Layout user={user} pageTitle="User Management">
       {isLocked && <LockedBanner />}
       {/* Stats row */}
-      <div className="grid grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
         <div className="!bg-white rounded-lg border border-amber-200 p-4">
           <p className="text-amber-600 mb-1">Pending Approvals</p>
           <p className="text-[var(--color-text-900)] text-xl font-semibold">{pendingRegs.length}</p>
@@ -583,9 +583,10 @@ export function AdminUserManagement() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 mb-6">
+      <div className="flex flex-wrap gap-2 mb-6">
         <button className={tabClass('pending')} onClick={() => setActiveTab('pending')}>
-          Pending Approvals
+          <span className="sm:hidden">Pending</span>
+          <span className="hidden sm:inline">Pending Approvals</span>
           {pendingRegs.length > 0 && (
             <span className="ml-2 inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-500 text-white text-xs font-semibold">
               {pendingRegs.length}
@@ -611,22 +612,24 @@ export function AdminUserManagement() {
           ) : (
             <div className="space-y-3">
               {pendingRegs.map((reg) => (
-                <div key={reg.id} className="!bg-white rounded-xl border border-amber-200 shadow-sm p-4 flex items-center justify-between">
-                  <div className="flex items-center gap-4 flex-1 min-w-0">
-                    <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
-                      <Clock className="w-5 h-5 text-amber-600" />
+                <div key={reg.id} className="!bg-white rounded-xl border border-amber-200 shadow-sm p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                      <Clock className="w-4 h-4 text-amber-600" />
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <h3 className="font-medium text-[var(--color-text-900)] truncate">{reg.name}</h3>
                       <p className="text-sm text-[var(--color-text-600)] truncate">{reg.email}</p>
+                      <div className="flex flex-wrap items-center gap-2 mt-1">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs capitalize ${getRoleBadge(reg.accountType)}`}>
+                          {reg.accountType}
+                        </span>
+                        {reg.department && <span className="text-xs text-[var(--color-text-600)]">{reg.department}</span>}
+                        <span className="text-xs text-[var(--color-text-600)]">{formatDate(reg.submittedAt)}</span>
+                      </div>
                     </div>
-                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm capitalize ${getRoleBadge(reg.accountType)}`}>
-                      {reg.accountType}
-                    </span>
-                    <span className="text-sm text-[var(--color-text-600)]">{reg.department}</span>
-                    <span className="text-sm text-[var(--color-text-600)]">{formatDate(reg.submittedAt)}</span>
                   </div>
-                  <div className="flex items-center gap-2 ml-4">
+                  <div className="flex items-center gap-2 flex-shrink-0">
                     <Button size="sm" variant="outline" onClick={() => { setViewingReg(reg); setIsViewDialogOpen(true); }}>
                       <Eye className="w-4 h-4 mr-1" />Details
                     </Button>
@@ -714,8 +717,8 @@ export function AdminUserManagement() {
           </div>
 
           <div className="!bg-white rounded-xl border border-[var(--color-border)] shadow-sm overflow-hidden">
-            {/* Table Header — col spans sum to 12 */}
-            <div className="grid grid-cols-12 gap-4 px-5 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface-alt)]">
+            {/* Desktop header */}
+            <div className="hidden sm:grid grid-cols-12 gap-4 px-5 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface-alt)]">
               <div className="col-span-3 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-600)]">Full Name</div>
               <div className="col-span-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-600)]">Email</div>
               <div className="col-span-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-600)]">Department</div>
@@ -723,7 +726,6 @@ export function AdminUserManagement() {
               <div className="col-span-1 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-600)]">Status</div>
               <div className="col-span-2" />
             </div>
-            {/* Table Rows */}
             <div className="divide-y divide-[var(--color-border)]">
               {isLoading ? (
                 <div className="py-12 text-center text-sm text-[var(--color-text-600)]">Loading users…</div>
@@ -731,95 +733,75 @@ export function AdminUserManagement() {
                 <div className="py-12 text-center text-sm text-[var(--color-text-600)]">No users match your filters</div>
               ) : (
                 filteredUsers.map((u) => (
-                  <div
-                    key={u.id}
-                    className="grid grid-cols-12 gap-4 px-5 py-3.5 items-center hover:bg-[var(--color-surface-alt)] transition-colors"
-                  >
-                    {/* Full Name + ID */}
-                    <div className="col-span-3 min-w-0">
-                      <p className="text-sm font-semibold text-[var(--color-text-900)] truncate">{u.name}</p>
-                      <p className="text-xs text-[var(--color-text-600)] mt-0.5 tabular-nums">
-                        {u.role === 'student' ? u.studentId : u.employeeNumber}
-                      </p>
-                    </div>
-                    {/* Email */}
-                    <div className="col-span-2 min-w-0">
-                      <p className="text-sm text-[var(--color-text-700)] truncate">{u.email}</p>
-                    </div>
-                    {/* Department + Gender (secondary) */}
-                    <div className="col-span-2">
-                      <p className="text-sm text-[var(--color-text-700)]">{u.department || '—'}</p>
-                      {u.gender && (
-                        <p className="text-xs text-[var(--color-text-600)] capitalize mt-0.5">{u.gender}</p>
-                      )}
-                    </div>
-                    {/* Role badge */}
-                    <div className="col-span-2 flex flex-col gap-1">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize w-fit ${getRoleBadge(u.role)}`}>
-                        {u.role}
-                      </span>
-                      {coordinatorMap[u.id] && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium w-fit bg-teal-50 text-teal-700 border border-teal-200">
-                          <span className="w-1.5 h-1.5 rounded-full bg-teal-500 inline-block" />
-                          Coordinator · {coordinatorMap[u.id]}
-                        </span>
-                      )}
-                    </div>
-                    {/* Status badge */}
-                    <div className="col-span-1">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${
-                        u.status === 'active'
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : 'bg-gray-50 text-gray-500 border border-gray-200'
-                      }`}>
-                        {u.status}
-                      </span>
-                      {u.role === 'student' && !groupedStudentIds.has(u.id) && (
-                        <span className="mt-1 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-700 border border-orange-200">
-                          No Group
-                        </span>
-                      )}
-                    </div>
-                    {/* Actions */}
-                    <div className="col-span-2 flex items-center justify-end gap-2">
-                      {u.role === 'student' && !groupedStudentIds.has(u.id) && (
-                        <button
-                          className="text-xs px-2 py-1 border border-blue-300 text-blue-700 hover:bg-blue-50 transition-colors rounded whitespace-nowrap"
-                          onClick={() => { setQuickAssignStudent(u); setQuickAssignGroupId(''); }}
-                          disabled={isLocked}
-                        >
-                          Assign Group
-                        </button>
-                      )}
-                      {u.role === 'supervisor' && (
-                        coordinatorMap[u.id] ? (
-                          <button
-                            style={{ borderRadius: 0 }}
-                            className="text-xs px-2 py-1 border border-orange-400 text-orange-600 hover:bg-orange-50 transition-colors whitespace-nowrap"
-                            onClick={() => handleRemoveCoordinator(u)}
-                          >
-                            Remove Coordinator
-                          </button>
+                  <div key={u.id}>
+                    {/* Mobile card */}
+                    <div className="sm:hidden px-4 py-3 space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-[var(--color-text-900)] truncate">{u.name}</p>
+                          <p className="text-xs text-[var(--color-text-600)] truncate">{u.email}</p>
+                          <p className="text-xs text-[var(--color-text-600)] tabular-nums">{u.role === 'student' ? u.studentId : u.employeeNumber}</p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${getRoleBadge(u.role)}`}>{u.role}</span>
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${u.status === 'active' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-gray-50 text-gray-500 border border-gray-200'}`}>{u.status}</span>
+                          {u.role === 'student' && !groupedStudentIds.has(u.id) && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-700 border border-orange-200">No Group</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {u.department && <span className="text-xs text-[var(--color-text-600)] bg-[var(--color-surface-alt)] px-2 py-0.5 rounded">{u.department}</span>}
+                        {coordinatorMap[u.id] && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-teal-50 text-teal-700 border border-teal-200">Coordinator · {coordinatorMap[u.id]}</span>}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {u.role === 'student' && !groupedStudentIds.has(u.id) && (
+                          <button className="text-xs px-2 py-1 border border-blue-300 text-blue-700 hover:bg-blue-50 rounded" onClick={() => { setQuickAssignStudent(u); setQuickAssignGroupId(''); }} disabled={isLocked}>Assign Group</button>
+                        )}
+                        {u.role === 'supervisor' && (coordinatorMap[u.id] ? (
+                          <button className="text-xs px-2 py-1 border border-orange-400 text-orange-600 hover:bg-orange-50 rounded" onClick={() => handleRemoveCoordinator(u)}>Remove Coordinator</button>
                         ) : (
-                          <button
-                            style={{ borderRadius: 0 }}
-                            className="text-xs px-2 py-1 border border-purple-300 text-purple-700 hover:bg-purple-50 transition-colors whitespace-nowrap"
-                            onClick={() => { setAssigningCoordinatorUser(u); setSelectedCoordinatorCourseId(''); }}
-                          >
-                            Assign Coordinator
+                          <button className="text-xs px-2 py-1 border border-purple-300 text-purple-700 hover:bg-purple-50 rounded" onClick={() => { setAssigningCoordinatorUser(u); setSelectedCoordinatorCourseId(''); }}>Assign Coordinator</button>
+                        ))}
+                        {u.id !== user?.id && !(user?.activeRole === 'coordinator' && u.role === 'admin') && (
+                          <button className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded font-medium bg-red-600 text-white hover:bg-red-700 disabled:opacity-50" onClick={() => { setDeletingUser(u); setIsDeleteDialogOpen(true); }} disabled={isLocked}>
+                            <Trash2 className="w-3 h-3" />Delete
                           </button>
-                        )
-                      )}
-                      {u.id !== user?.id && !(user?.activeRole === 'coordinator' && u.role === 'admin') && (
-                        <button
-                          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          onClick={() => { setDeletingUser(u); setIsDeleteDialogOpen(true); }}
-                          disabled={isLocked}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          Delete
-                        </button>
-                      )}
+                        )}
+                      </div>
+                    </div>
+                    {/* Desktop row */}
+                    <div className="hidden sm:grid grid-cols-12 gap-4 px-5 py-3.5 items-center hover:bg-[var(--color-surface-alt)] transition-colors">
+                      <div className="col-span-3 min-w-0">
+                        <p className="text-sm font-semibold text-[var(--color-text-900)] truncate">{u.name}</p>
+                        <p className="text-xs text-[var(--color-text-600)] mt-0.5 tabular-nums">{u.role === 'student' ? u.studentId : u.employeeNumber}</p>
+                      </div>
+                      <div className="col-span-2 min-w-0"><p className="text-sm text-[var(--color-text-700)] truncate">{u.email}</p></div>
+                      <div className="col-span-2">
+                        <p className="text-sm text-[var(--color-text-700)]">{u.department || '—'}</p>
+                        {u.gender && <p className="text-xs text-[var(--color-text-600)] capitalize mt-0.5">{u.gender}</p>}
+                      </div>
+                      <div className="col-span-2 flex flex-col gap-1">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize w-fit ${getRoleBadge(u.role)}`}>{u.role}</span>
+                        {coordinatorMap[u.id] && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium w-fit bg-teal-50 text-teal-700 border border-teal-200"><span className="w-1.5 h-1.5 rounded-full bg-teal-500 inline-block" />Coordinator · {coordinatorMap[u.id]}</span>}
+                      </div>
+                      <div className="col-span-1">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${u.status === 'active' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-gray-50 text-gray-500 border border-gray-200'}`}>{u.status}</span>
+                        {u.role === 'student' && !groupedStudentIds.has(u.id) && <span className="mt-1 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-700 border border-orange-200">No Group</span>}
+                      </div>
+                      <div className="col-span-2 flex items-center justify-end gap-2">
+                        {u.role === 'student' && !groupedStudentIds.has(u.id) && <button className="text-xs px-2 py-1 border border-blue-300 text-blue-700 hover:bg-blue-50 transition-colors rounded whitespace-nowrap" onClick={() => { setQuickAssignStudent(u); setQuickAssignGroupId(''); }} disabled={isLocked}>Assign Group</button>}
+                        {u.role === 'supervisor' && (coordinatorMap[u.id] ? (
+                          <button style={{ borderRadius: 0 }} className="text-xs px-2 py-1 border border-orange-400 text-orange-600 hover:bg-orange-50 transition-colors whitespace-nowrap" onClick={() => handleRemoveCoordinator(u)}>Remove Coordinator</button>
+                        ) : (
+                          <button style={{ borderRadius: 0 }} className="text-xs px-2 py-1 border border-purple-300 text-purple-700 hover:bg-purple-50 transition-colors whitespace-nowrap" onClick={() => { setAssigningCoordinatorUser(u); setSelectedCoordinatorCourseId(''); }}>Assign Coordinator</button>
+                        ))}
+                        {u.id !== user?.id && !(user?.activeRole === 'coordinator' && u.role === 'admin') && (
+                          <button className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" onClick={() => { setDeletingUser(u); setIsDeleteDialogOpen(true); }} disabled={isLocked}>
+                            <Trash2 className="w-3.5 h-3.5" />Delete
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))
@@ -900,8 +882,8 @@ export function AdminUserManagement() {
           </div>
 
           <div className="!bg-white rounded-xl border border-[var(--color-border)] shadow-sm">
-            {/* Header */}
-            <div className="grid grid-cols-12 gap-3 p-4 border-b border-[var(--color-border)] text-sm font-medium text-[var(--color-text-600)]">
+            {/* Desktop header — hidden on mobile */}
+            <div className="hidden sm:grid grid-cols-12 gap-3 p-4 border-b border-[var(--color-border)] text-sm font-medium text-[var(--color-text-600)]">
               <div className="col-span-1">#</div>
               <div className="col-span-1">Group ID</div>
               <div className="col-span-1">Dept</div>
@@ -919,92 +901,178 @@ export function AdminUserManagement() {
                 <div className="p-8 text-center text-[var(--color-text-600)]">No groups found</div>
               ) : (
                 filteredGroups.map((g) => (
-                  <div key={g.id} className="grid grid-cols-12 gap-3 p-4 hover:bg-[var(--color-surface-alt)] transition-colors items-center">
-                    <div className="col-span-1 font-semibold text-[var(--color-text-900)]">
-                      {g.groupNumber ?? '—'}
-                    </div>
-                    <div className="col-span-1 text-xs text-[var(--color-text-600)] font-mono truncate" title={g.groupCode}>
-                      {g.groupCode || '—'}
-                    </div>
-                    <div className="col-span-1 text-sm text-[var(--color-text-600)]">{g.department || '—'}</div>
-                    <div className="col-span-1">
-                      <p className="text-sm font-medium text-[var(--color-text-900)] truncate">{g.projectName || '—'}</p>
-                    </div>
-                    <div className="col-span-1 text-sm text-center">
-                      <span className={`inline-flex items-center justify-center px-2 py-1 rounded-full text-xs font-medium ${
-                        g.membersCount >= 3 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
-                      }`}>
-                        {g.membersCount}/3
-                      </span>
-                    </div>
-                    <div className="col-span-2 text-sm">
-                      {g.members.length > 0 ? (
-                        <div className="space-y-0.5">
-                          {g.members.map((m) => (
-                            <p key={m.id} className="text-xs text-[var(--color-text-900)] truncate">{m.name || '—'}</p>
-                          ))}
+                  <div key={g.id}>
+                    {/* Mobile card */}
+                    <div className="sm:hidden p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-[var(--color-text-900)] text-sm break-all">{g.groupCode || '—'}</p>
+                          <p className="text-xs text-[var(--color-text-600)] mt-0.5 break-words">{g.projectName || 'No project name'}</p>
+                          <p className="text-xs text-[var(--color-text-500)] mt-0.5">{g.department || '—'}</p>
                         </div>
-                      ) : (
-                        <span className="text-[var(--color-text-400)] text-xs">No members</span>
-                      )}
-                    </div>
-                    <div className="col-span-2 text-sm">
-                      {g.supervisorName ? (
-                        <div className="flex items-center gap-1">
-                          <span className="text-[var(--color-text-900)] truncate">{g.supervisorName}</span>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs capitalize ${getStatusBadge(g.status)}`}>
+                            {g.status}
+                          </span>
+                          <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                            g.membersCount >= 3 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            {g.membersCount}/3
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-xs text-[var(--color-text-700)] space-y-0.5">
+                        {g.members.length > 0 ? (
+                          g.members.map((m) => (
+                            <p key={m.id}>{m.name || '—'}</p>
+                          ))
+                        ) : (
+                          <p className="text-[var(--color-text-400)]">No members</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="text-[var(--color-text-600)]">Supervisor:</span>
+                        {g.supervisorName ? (
+                          <>
+                            <span className="text-[var(--color-text-900)]">{g.supervisorName}</span>
+                            <button
+                              className="text-[var(--color-primary-600)] hover:underline"
+                              onClick={() => { setAssigningGroup(g); setSelectedSupervisorId(''); }}
+                            >
+                              Change
+                            </button>
+                          </>
+                        ) : (
                           <button
-                            className="text-xs text-[var(--color-text-600)] hover:text-[var(--color-primary-600)] hover:underline flex-shrink-0"
+                            className="text-[var(--color-primary-600)] hover:underline"
                             onClick={() => { setAssigningGroup(g); setSelectedSupervisorId(''); }}
                           >
-                            Change
+                            + Assign
                           </button>
-                        </div>
-                      ) : (
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {g.status === 'pending' && (
+                          <>
+                            <Button size="sm" variant="primary" onClick={() => handleGroupStatus(g.id, 'approved')} disabled={isLocked} className="text-xs h-7 px-2.5">
+                              Approve
+                            </Button>
+                            <Button size="sm" variant="destructive" onClick={() => handleGroupStatus(g.id, 'rejected')} disabled={isLocked} className="text-xs h-7 px-2.5">
+                              Reject
+                            </Button>
+                          </>
+                        )}
                         <button
-                          className="text-[var(--color-primary-600)] hover:underline text-xs"
-                          onClick={() => { setAssigningGroup(g); setSelectedSupervisorId(''); }}
+                          className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg font-medium bg-yellow-400 text-yellow-900 hover:bg-yellow-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          onClick={() => {
+                            setEditingGroup(g);
+                            setEditProjectName(g.projectName || '');
+                            setRemovingMemberIds([]);
+                            setAddingMemberIds([]);
+                          }}
+                          disabled={isLocked}
                         >
-                          + Assign
+                          <Pencil className="w-3 h-3" />
+                          Edit
                         </button>
-                      )}
+                        <button
+                          className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg font-medium bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          onClick={() => setDeletingGroup(g)}
+                          disabled={isLocked}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          Delete
+                        </button>
+                      </div>
                     </div>
-                    <div className="col-span-1">
-                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs capitalize ${getStatusBadge(g.status)}`}>
-                        {g.status}
-                      </span>
-                    </div>
-                    <div className="col-span-2 flex items-center gap-1 flex-wrap">
-                      {g.status === 'pending' && (
-                        <>
-                          <Button size="sm" variant="primary" onClick={() => handleGroupStatus(g.id, 'approved')} disabled={isLocked}>
-                            Approve
-                          </Button>
-                          <Button size="sm" variant="destructive" onClick={() => handleGroupStatus(g.id, 'rejected')} disabled={isLocked}>
-                            Reject
-                          </Button>
-                        </>
-                      )}
-                      <button
-                        className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium bg-yellow-400 text-yellow-900 hover:bg-yellow-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        onClick={() => {
-                          setEditingGroup(g);
-                          setEditProjectName(g.projectName || '');
-                          setRemovingMemberIds([]);
-                          setAddingMemberIds([]);
-                        }}
-                        disabled={isLocked}
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                        Edit
-                      </button>
-                      <button
-                        className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        onClick={() => setDeletingGroup(g)}
-                        disabled={isLocked}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        Delete
-                      </button>
+                    {/* Desktop row */}
+                    <div className="hidden sm:grid grid-cols-12 gap-3 p-4 hover:bg-[var(--color-surface-alt)] transition-colors items-center">
+                      <div className="col-span-1 font-semibold text-[var(--color-text-900)]">
+                        {g.groupNumber ?? '—'}
+                      </div>
+                      <div className="col-span-1 text-xs text-[var(--color-text-600)] font-mono truncate" title={g.groupCode}>
+                        {g.groupCode || '—'}
+                      </div>
+                      <div className="col-span-1 text-sm text-[var(--color-text-600)]">{g.department || '—'}</div>
+                      <div className="col-span-1">
+                        <p className="text-sm font-medium text-[var(--color-text-900)] truncate">{g.projectName || '—'}</p>
+                      </div>
+                      <div className="col-span-1 text-sm text-center">
+                        <span className={`inline-flex items-center justify-center px-2 py-1 rounded-full text-xs font-medium ${
+                          g.membersCount >= 3 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
+                        }`}>
+                          {g.membersCount}/3
+                        </span>
+                      </div>
+                      <div className="col-span-2 text-sm">
+                        {g.members.length > 0 ? (
+                          <div className="space-y-0.5">
+                            {g.members.map((m) => (
+                              <p key={m.id} className="text-xs text-[var(--color-text-900)] truncate">{m.name || '—'}</p>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-[var(--color-text-400)] text-xs">No members</span>
+                        )}
+                      </div>
+                      <div className="col-span-2 text-sm">
+                        {g.supervisorName ? (
+                          <div className="flex items-center gap-1">
+                            <span className="text-[var(--color-text-900)] truncate">{g.supervisorName}</span>
+                            <button
+                              className="text-xs text-[var(--color-text-600)] hover:text-[var(--color-primary-600)] hover:underline flex-shrink-0"
+                              onClick={() => { setAssigningGroup(g); setSelectedSupervisorId(''); }}
+                            >
+                              Change
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            className="text-[var(--color-primary-600)] hover:underline text-xs"
+                            onClick={() => { setAssigningGroup(g); setSelectedSupervisorId(''); }}
+                          >
+                            + Assign
+                          </button>
+                        )}
+                      </div>
+                      <div className="col-span-1">
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs capitalize ${getStatusBadge(g.status)}`}>
+                          {g.status}
+                        </span>
+                      </div>
+                      <div className="col-span-2 flex items-center gap-1 flex-wrap">
+                        {g.status === 'pending' && (
+                          <>
+                            <Button size="sm" variant="primary" onClick={() => handleGroupStatus(g.id, 'approved')} disabled={isLocked}>
+                              Approve
+                            </Button>
+                            <Button size="sm" variant="destructive" onClick={() => handleGroupStatus(g.id, 'rejected')} disabled={isLocked}>
+                              Reject
+                            </Button>
+                          </>
+                        )}
+                        <button
+                          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium bg-yellow-400 text-yellow-900 hover:bg-yellow-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          onClick={() => {
+                            setEditingGroup(g);
+                            setEditProjectName(g.projectName || '');
+                            setRemovingMemberIds([]);
+                            setAddingMemberIds([]);
+                          }}
+                          disabled={isLocked}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                          Edit
+                        </button>
+                        <button
+                          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          onClick={() => setDeletingGroup(g)}
+                          disabled={isLocked}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))
@@ -1396,7 +1464,7 @@ export function AdminUserManagement() {
                 </Select>
               </div>
             )}
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <Label>Department</Label>
                 <Select value={createGroupForm.department} onValueChange={(v) => setCreateGroupForm((f) => ({ ...f, department: v }))}>

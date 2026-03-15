@@ -229,7 +229,7 @@ export function SupervisorMyAvailability() {
         </div>
       </div>
 
-      <div className="flex gap-6">
+      <div className="flex flex-col lg:flex-row gap-6">
         {/* Main Calendar */}
         <div className="flex-1">
           <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6 mb-6">
@@ -348,7 +348,7 @@ export function SupervisorMyAvailability() {
         </div>
 
         {/* Right Sidebar */}
-        <div className="w-[320px] flex-shrink-0">
+        <div className="w-full lg:w-[320px] flex-shrink-0">
           <div className="space-y-6 sticky top-6">
             {/* Offered Slots Summary */}
             <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
@@ -459,7 +459,7 @@ export function SupervisorMyAvailability() {
                 </Select>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <Label>Start Time</Label>
                   <Input
