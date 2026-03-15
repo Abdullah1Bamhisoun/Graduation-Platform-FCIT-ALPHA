@@ -8,7 +8,7 @@ const bcrypt = require('bcryptjs');
 async function submitRegistration(req, res) {
   try {
     const {
-      accountType, name, email, passwordHash, department, gender,
+      accountType, name, email, department, gender,
       studentId, course, courseId, term, groupId, projectName, projectIdea,
       teammateSubmittedIdea, employeeNumber,
     } = req.body;
@@ -48,7 +48,6 @@ async function submitRegistration(req, res) {
       account_type: accountType,
       name,
       email,
-      password_hash: passwordHash,
       department: department || null,
       gender: gender || null,
       student_id: studentId || null,
@@ -126,24 +125,18 @@ async function approveRegistration(req, res) {
       }
     }
 
-    // Create user in Supabase Auth
-    const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
-      email: registration.email,
-      password: registration.password_hash, // Use the stored password
-      email_confirm: true, // Auto-confirm email
-      user_metadata: {
-        name: registration.name,
-        role: registration.account_type === 'student' ? 'student' : 'supervisor',
-      }
-    });
-
-    if (authError) {
-      console.error('Error creating auth user:', authError);
-      return res.status(500).json({
-        error: 'Failed to create user account',
-        details: authError.message
-      });
+    // Look up existing auth user created during registration
+    const { data: { users }, error: listError } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
+    if (listError) {
+      return res.status(500).json({ error: 'Failed to look up user account' });
     }
+
+    const existingUser = users.find(u => u.email?.toLowerCase() === registration.email.toLowerCase());
+    if (!existingUser) {
+      return res.status(404).json({ error: 'User account not found. The user may not have completed registration.' });
+    }
+
+    const authUser = { user: existingUser };
 
     // Upsert the profile — creates it if no DB trigger does so automatically
     const { error: profileError } = await supabaseAdmin
@@ -392,6 +385,18 @@ async function rejectRegistration(req, res) {
     if (updateError) {
       console.error('Error updating registration:', updateError);
       return res.status(500).json({ error: 'Failed to reject registration' });
+    }
+
+    // Delete the Supabase auth user created during registration
+    try {
+      const { data: { users } } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
+      const authUser = users.find(u => u.email?.toLowerCase() === registration.email.toLowerCase());
+      if (authUser) {
+        await supabaseAdmin.auth.admin.deleteUser(authUser.id);
+      }
+    } catch (deleteErr) {
+      console.error('Failed to delete auth user on rejection:', deleteErr.message);
+      // Non-fatal — registration is already marked rejected
     }
 
     // Log the action in audit log (non-fatal if table missing)

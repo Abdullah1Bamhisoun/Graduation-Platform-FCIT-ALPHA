@@ -5,7 +5,7 @@ export interface PendingRegistration {
   accountType: 'student' | 'supervisor';
   name: string;
   email: string;
-  password: string;
+  password?: string;
   department: string;
   gender?: string;
   status: 'pending' | 'approved' | 'rejected';
@@ -118,7 +118,6 @@ export async function addRegistration(
         accountType: reg.accountType,
         name: reg.name,
         email: reg.email,
-        passwordHash: reg.password,
         department: reg.department || null,
         gender: reg.gender || null,
         studentId: reg.studentId,

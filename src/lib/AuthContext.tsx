@@ -52,7 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error || !profile) {
         console.error('Failed to load profile:', error?.message);
-        throw new Error('Failed to load user profile. Please contact an administrator.');
+        throw new Error('Your account is pending admin approval. Please wait — you will be able to log in once approved.');
       }
 
       // 2. Fetch all roles from user_roles table (authoritative source)

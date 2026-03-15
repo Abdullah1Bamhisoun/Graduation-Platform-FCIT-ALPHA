@@ -7,7 +7,7 @@ import { Label } from '../../components/ui/label';
 import { Switch } from '../../components/ui/switch';
 import { Separator } from '../../components/ui/separator';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/dialog';
-import { Bell, Lock, User as UserIcon, Mail, Building, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Bell, Lock, User as UserIcon, Mail, Building, CalendarDays, ChevronLeft, ChevronRight, Eye, EyeOff } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { supabase } from '../../lib/supabase';
@@ -29,9 +29,16 @@ interface CurrentTerm {
 export function Settings() {
   const { user } = useAuth();
   const [emailNotifications, setEmailNotifications] = useState(true);
-  const [pushNotifications, setPushNotifications] = useState(true);
-  const [weeklyDigest, setWeeklyDigest] = useState(false);
+  const [notifSaving, setNotifSaving]               = useState(false);
   const [group, setGroup] = useState<GroupData | null>(null);
+
+  // ── Change Password dialog ────────────────────────────────────────────────
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [newPassword, setNewPassword]               = useState('');
+  const [confirmPassword, setConfirmPassword]       = useState('');
+  const [showNew, setShowNew]                       = useState(false);
+  const [showConfirm, setShowConfirm]               = useState(false);
+  const [passwordLoading, setPasswordLoading]       = useState(false);
 
   // ── Term management (admin only) ─────────────────────────────────────────
   const [currentTerm, setCurrentTerm] = useState<CurrentTerm | null>(null);
@@ -51,6 +58,14 @@ export function Settings() {
       const res = await fetch('/api/settings/current-term');
       if (res.ok) setCurrentTerm(await res.json());
     } catch (_) {}
+  }, []);
+
+  // Load saved notification preferences from user metadata
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user: authUser } }) => {
+      const meta = authUser?.user_metadata ?? {};
+      if (meta.email_notifications !== undefined) setEmailNotifications(meta.email_notifications);
+    });
   }, []);
 
   useEffect(() => {
@@ -125,12 +140,43 @@ export function Settings() {
     toast.success('Profile settings saved successfully');
   };
 
-  const handleSaveNotifications = () => {
-    toast.success('Notification preferences updated');
+  const handleSaveNotifications = async () => {
+    setNotifSaving(true);
+    try {
+      const { error } = await supabase.auth.updateUser({
+        data: { email_notifications: emailNotifications },
+      });
+      if (error) throw error;
+      toast.success('Notification preferences saved');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save preferences');
+    } finally {
+      setNotifSaving(false);
+    }
   };
 
-  const handleChangePassword = () => {
-    toast.success('Password change email sent to your address');
+  const handleChangePassword = async () => {
+    if (newPassword.length < 8) {
+      toast.error('Password must be at least 8 characters');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error('Passwords do not match');
+      return;
+    }
+    setPasswordLoading(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+      toast.success('Password changed successfully');
+      setShowPasswordDialog(false);
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to change password');
+    } finally {
+      setPasswordLoading(false);
+    }
   };
 
   if (!user) return null;
@@ -244,39 +290,9 @@ export function Settings() {
               />
             </div>
 
-            <Separator />
-
-            <div className="flex items-center justify-between py-3">
-              <div className="space-y-0.5">
-                <Label>Push Notifications</Label>
-                <p className="text-[var(--color-text-600)]">
-                  Receive push notifications in your browser
-                </p>
-              </div>
-              <Switch
-                checked={pushNotifications}
-                onCheckedChange={setPushNotifications}
-              />
-            </div>
-
-            <Separator />
-
-            <div className="flex items-center justify-between py-3">
-              <div className="space-y-0.5">
-                <Label>Weekly Digest</Label>
-                <p className="text-[var(--color-text-600)]">
-                  Receive a weekly summary of your activity
-                </p>
-              </div>
-              <Switch
-                checked={weeklyDigest}
-                onCheckedChange={setWeeklyDigest}
-              />
-            </div>
-
             <div className="pt-2">
-              <Button onClick={handleSaveNotifications}>
-                Save Preferences
+              <Button onClick={handleSaveNotifications} disabled={notifSaving}>
+                {notifSaving ? 'Saving…' : 'Save Preferences'}
               </Button>
             </div>
           </div>
@@ -295,20 +311,8 @@ export function Settings() {
               <p className="text-[var(--color-text-600)] mt-1.5 mb-3">
                 Change your password to keep your account secure
               </p>
-              <Button variant="outline" onClick={handleChangePassword}>
+              <Button variant="outline" onClick={() => setShowPasswordDialog(true)}>
                 Change Password
-              </Button>
-            </div>
-
-            <Separator className="my-6" />
-
-            <div>
-              <Label>Two-Factor Authentication</Label>
-              <p className="text-[var(--color-text-600)] mt-1.5 mb-3">
-                Add an extra layer of security to your account
-              </p>
-              <Button variant="outline" disabled>
-                Enable 2FA (Coming Soon)
               </Button>
             </div>
           </div>
@@ -450,6 +454,73 @@ export function Settings() {
             </div>
           </Card>
         )}
+
+        {/* ── Change Password Dialog ─────────────────────────────────────── */}
+        <Dialog open={showPasswordDialog} onOpenChange={(open) => {
+          if (!open) { setShowPasswordDialog(false); setNewPassword(''); setConfirmPassword(''); }
+        }}>
+          <DialogContent className="sm:max-w-[420px]">
+            <DialogHeader>
+              <DialogTitle>Change Password</DialogTitle>
+              <DialogDescription>Enter and confirm your new password below.</DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-2">
+              <div>
+                <Label htmlFor="new-password">New Password</Label>
+                <div className="relative mt-1.5">
+                  <Input
+                    id="new-password"
+                    type={showNew ? 'text' : 'password'}
+                    placeholder="At least 8 characters"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNew((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-text-600)]"
+                    tabIndex={-1}
+                  >
+                    {showNew ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="confirm-password">Confirm New Password</Label>
+                <div className="relative mt-1.5">
+                  <Input
+                    id="confirm-password"
+                    type={showConfirm ? 'text' : 'password'}
+                    placeholder="Repeat your new password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirm((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-text-600)]"
+                    tabIndex={-1}
+                  >
+                    {showConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowPasswordDialog(false)} disabled={passwordLoading}>
+                Cancel
+              </Button>
+              <Button onClick={handleChangePassword} disabled={passwordLoading}>
+                {passwordLoading ? 'Saving…' : 'Change Password'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* ── Migration Confirmation Dialog ──────────────────────────────── */}
         <Dialog open={showMigrationDialog} onOpenChange={(open) => { if (!open) { setShowMigrationDialog(false); setPendingTerm(null); } }}>

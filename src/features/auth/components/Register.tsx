@@ -14,6 +14,7 @@ import { addRegistration } from '../../../lib/pending-registrations';
 import { getPublicGroups, type PublicGroup } from '../../../services/groups';
 import { getActiveCourses } from '../../../services/courses';
 import type { Course } from '../../../types';
+import { supabase } from '../../../lib/supabase';
 
 type AccountType = 'student' | 'supervisor';
 type Term = 'First' | 'Second' | 'Summer' | '';
@@ -203,21 +204,27 @@ export function Register() {
 
     setSubmitting(true);
     try {
+      const email    = accountType === 'student' ? studentEmail    : supervisorEmail;
+      const password = accountType === 'student' ? studentPassword : supervisorPassword;
+
+      // Step 1: Create Supabase auth user → triggers confirmation email
+      const { error: signUpError } = await supabase.auth.signUp({ email, password });
+      if (signUpError) throw signUpError;
+
+      // Step 2: Store registration data as pending (no password stored)
       if (accountType === 'student') {
         await addRegistration({
           accountType: 'student',
           name:        `${studentFirstName} ${studentLastName}`,
           email:       studentEmail,
-          password:    studentPassword,
-          // Department defaults to FCIT internally — not collected from UI
           department:  'IS',
           studentId,
           courseId:    selectedCourseId,
           course:      selectedCourse?.code ?? '',
           term,
-          groupId:       hasIdea === false ? selectedGroupId : undefined,
-          projectName:   hasIdea === true  ? projectName     : undefined,
-          projectIdea:   hasIdea === true  ? projectIdea     : undefined,
+          groupId:              hasIdea === false ? selectedGroupId : undefined,
+          projectName:          hasIdea === true  ? projectName     : undefined,
+          projectIdea:          hasIdea === true  ? projectIdea     : undefined,
           teammateSubmittedIdea: hasIdea === false,
         });
       } else {
@@ -225,7 +232,6 @@ export function Register() {
           accountType:    'supervisor',
           name:           `${supervisorFirstName} ${supervisorLastName}`,
           email:          supervisorEmail,
-          password:       supervisorPassword,
           department:     'IS',
           employeeNumber: supervisorId,
         });
@@ -247,9 +253,9 @@ export function Register() {
             <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-6">
               <CheckCircle className="w-10 h-10 text-green-600" />
             </div>
-            <h1 className="text-[var(--color-text-900)] mb-3">Request Submitted!</h1>
+            <h1 className="text-[var(--color-text-900)] mb-3">Check Your Email!</h1>
             <p className="text-[var(--color-text-600)] mb-8">
-              Your account request has been sent for approval. You will be notified once your account is activated.
+              A confirmation link has been sent to your email. Please confirm your email first, then wait for admin approval before logging in.
             </p>
             <Button onClick={() => navigate('/login')} className="w-full">Back to Login</Button>
           </div>
@@ -258,15 +264,15 @@ export function Register() {
           <div className="max-w-md">
             <h2 className="text-white mb-6">What Happens Next?</h2>
             <ul className="space-y-4">
-              {['Admin/Coordinator Review', 'Account Activation', 'Get Started'].map((step, i) => (
+              {['Confirm Your Email', 'Admin Review', 'Get Started'].map((step, i) => (
                 <li key={step} className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0 mt-0.5 text-sm font-semibold">{i + 1}</div>
                   <div>
                     <h3 className="text-white mb-1">{step}</h3>
                     <p className="text-white/80">{[
-                      'Your registration will be reviewed by the course coordinator or admin',
-                      'Once approved, your account will be activated',
-                      'Sign in and start using the Graduation Project Platform',
+                      'Click the confirmation link sent to your university email',
+                      'Your registration will be reviewed by the coordinator or admin',
+                      'Once approved, sign in and start using the platform',
                     ][i]}</p>
                   </div>
                 </li>
