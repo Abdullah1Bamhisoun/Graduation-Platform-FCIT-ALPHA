@@ -1,12 +1,12 @@
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
-import { FileText, Download, File, Eye, Loader2 } from 'lucide-react';
+import { FileText, Download, File, Eye, Loader2, X } from 'lucide-react';
 import { getSignedUrl } from '../../services/storage';
 import { toast } from 'sonner';
 import { Card } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { supabase } from '../../lib/supabase';
 
 interface FileItem {
@@ -24,11 +24,11 @@ export function ImportantFiles() {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // File viewer modal state
-  const [viewModalOpen, setViewModalOpen] = useState(false);
-  const [viewModalUrl, setViewModalUrl] = useState('');
-  const [viewModalName, setViewModalName] = useState('');
-  const [viewModalLoading, setViewModalLoading] = useState(false);
+  // Popup viewer state
+  const [viewerFile, setViewerFile] = useState<FileItem | null>(null);
+  const [viewerUrl, setViewerUrl] = useState('');
+  const [viewerLoading, setViewerLoading] = useState(false);
+  const viewerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -66,21 +66,23 @@ export function ImportantFiles() {
 
   const handleView = async (file: FileItem) => {
     if (!file.fileUrl) return;
-    setViewModalName(file.name);
-    setViewModalUrl('');
-    setViewModalOpen(true);
-    setViewModalLoading(true);
+    setViewerFile(file);
+    setViewerUrl('');
+    setViewerLoading(true);
     try {
       const url = await getUrl(file.fileUrl);
-      const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-      const isPdf = ext === 'pdf' || file.type === 'pdf';
-      setViewModalUrl(isPdf ? url : `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`);
+      setViewerUrl(`https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`);
     } catch {
       toast.error('Failed to open file');
-      setViewModalOpen(false);
+      setViewerFile(null);
     } finally {
-      setViewModalLoading(false);
+      setViewerLoading(false);
     }
+  };
+
+  const handleCloseViewer = () => {
+    setViewerFile(null);
+    setViewerUrl('');
   };
 
   const handleDownload = async (file: FileItem) => {
@@ -110,6 +112,7 @@ export function ImportantFiles() {
         </p>
       </div>
 
+      {/* File list */}
       <div className="grid gap-4">
         {loading ? (
           <Card className="p-12">
@@ -123,26 +126,15 @@ export function ImportantFiles() {
                   {getFileIcon(file.type)}
                 </div>
                 <div className="flex-1">
-                  <h2 className="text-[var(--color-text-900)] mb-2">
-                    {file.name}
-                  </h2>
-                  <p className="text-[var(--color-text-600)] mb-4">
-                    {file.description}
-                  </p>
+                  <h2 className="text-[var(--color-text-900)] mb-2">{file.name}</h2>
+                  <p className="text-[var(--color-text-600)] mb-4">{file.description}</p>
                   <div className="flex items-center gap-4 text-[var(--color-text-600)]">
                     <span className="uppercase">{file.type}</span>
-                    {file.size && (
-                      <>
-                        <span>•</span>
-                        <span>{file.size}</span>
-                      </>
-                    )}
+                    {file.size && <><span>•</span><span>{file.size}</span></>}
                     <span>•</span>
                     <span>
                       Added {new Date(file.uploadedAt).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric',
+                        month: 'short', day: 'numeric', year: 'numeric',
                       })}
                     </span>
                   </div>
@@ -173,38 +165,75 @@ export function ImportantFiles() {
         )}
       </div>
 
-      <div className="mt-8 p-6 !bg-white border border-blue-500 border-[1.5px] rounded-lg">
+      {/* Portal popup viewer — rendered directly in document.body to avoid any CSS constraints */}
+      {viewerFile && createPortal(
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            display: 'flex', flexDirection: 'column',
+            background: '#fff',
+          }}
+        >
+          {/* Modal box */}
+          <div
+            ref={viewerRef}
+            style={{
+              width: '100%',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              background: '#fff',
+              overflow: 'hidden',
+            }}
+          >
+            {/* Toolbar */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '12px 20px', borderBottom: '1px solid #e5e7eb',
+              background: '#fff', flexShrink: 0,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                <Eye size={16} color="#2563eb" style={{ flexShrink: 0 }} />
+                <span style={{ fontWeight: 500, fontSize: 14, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {viewerFile.name}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                <Button size="sm" onClick={() => handleDownload(viewerFile)}>
+                  <Download className="w-4 h-4 mr-1" /> Download
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleCloseViewer}>
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+
+            {/* Viewer */}
+            <div style={{ flex: 1, overflow: 'hidden', background: '#f3f4f6' }}>
+              {viewerLoading ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 8, color: '#6b7280' }}>
+                  <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
+                  Loading file...
+                </div>
+              ) : (
+                <iframe
+                  src={viewerUrl}
+                  title={viewerFile.name}
+                  style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+                />
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      <div className="mt-8 p-6 !bg-white border-[1.5px] border-blue-500 rounded-lg">
         <h3 className="text-blue-900 mb-2">Need More Resources?</h3>
         <p className="text-blue-700">
           If you need additional documents or templates, please contact your supervisor or the department administrator.
         </p>
       </div>
-
-      {/* File Viewer Modal — full screen */}
-      <Dialog open={viewModalOpen} onOpenChange={(open) => { if (!open) { setViewModalOpen(false); setViewModalUrl(''); } }}>
-        <DialogContent className="!inset-0 !translate-x-0 !translate-y-0 !top-0 !left-0 !max-w-full !w-screen !h-screen !rounded-none flex flex-col p-0 gap-0">
-          <DialogHeader className="px-6 py-3 border-b border-gray-200 flex-shrink-0 flex flex-row items-center justify-between">
-            <DialogTitle className="flex items-center gap-2 text-base">
-              <Eye className="w-4 h-4 text-blue-600" />
-              {viewModalName}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="flex-1 overflow-hidden">
-            {viewModalLoading ? (
-              <div className="flex items-center justify-center h-full gap-2 text-gray-500">
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Loading file...
-              </div>
-            ) : viewModalUrl ? (
-              <iframe
-                src={viewModalUrl}
-                className="w-full h-full border-0"
-                title={viewModalName}
-              />
-            ) : null}
-          </div>
-        </DialogContent>
-      </Dialog>
     </Layout>
   );
 }

@@ -158,10 +158,18 @@ export function ImportantFilesManager() {
 
     try {
       if (selectedFile) {
-        storagePath = await uploadImportantFile(selectedFile);
+        try {
+          storagePath = await uploadImportantFile(selectedFile);
+        } catch (storageErr: any) {
+          throw new Error(`File upload failed: ${storageErr.message || 'unknown storage error'}`);
+        }
       }
 
-      const token = await getToken();
+      // Ensure we have a fresh token (getSession auto-refreshes if expired)
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token ?? '';
+      if (!token) throw new Error('Your session has expired. Please refresh the page and log in again.');
+
       const payload = {
         name: formData.name,
         description: formData.description,
@@ -173,19 +181,25 @@ export function ImportantFilesManager() {
       if (editingId) {
         const res = await fetch(`/api/important-files/${editingId}`, {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'X-Active-Role': user.activeRole },
           body: JSON.stringify(payload),
         });
-        if (!res.ok) throw new Error('Failed to update file');
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || 'Failed to update file');
+        }
         setFiles(files.map(f => f.id === editingId ? { ...f, ...payload, fileUrl: payload.fileUrl } : f));
         toast.success('File updated successfully');
       } else {
         const res = await fetch('/api/important-files', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'X-Active-Role': user.activeRole },
           body: JSON.stringify(payload),
         });
-        if (!res.ok) throw new Error('Failed to create file');
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || 'Failed to create file');
+        }
         const created: FileItem = await res.json();
         setFiles([created, ...files]);
         toast.success('File added successfully');
@@ -208,7 +222,7 @@ export function ImportantFilesManager() {
       const token = await getToken();
       const res = await fetch(`/api/important-files/${id}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, 'X-Active-Role': user.activeRole },
       });
       if (!res.ok) throw new Error('Failed to delete file');
       setFiles(files.filter(f => f.id !== id));
