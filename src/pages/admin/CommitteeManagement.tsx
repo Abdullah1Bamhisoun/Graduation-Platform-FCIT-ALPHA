@@ -35,6 +35,9 @@ export function AdminCommitteeManagement() {
   // Get unique days from schedules
   const availableDays = ['all', ...Array.from(new Set(schedules.map(s => s.day)))];
 
+  // Get unique supervisors already assigned across all schedules
+  const availableSupervisors = Array.from(new Set(schedules.flatMap(s => s.committeeMembers)));
+
   // Combine confirmed schedules and student selections
   const allTimeSlots = [
     ...schedules,

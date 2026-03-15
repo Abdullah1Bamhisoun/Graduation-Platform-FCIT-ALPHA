@@ -230,17 +230,6 @@ interface SubmissionComment {
   createdAt: string;
 }
 
-async function fetchComments(submissionId: string, token: string): Promise<SubmissionComment[]> {
-  const res = await fetch(`/api/submissions/${submissionId}/comments`, {
-    headers: { Authorization: `Bearer ${token}`, 'X-Active-Role': 'supervisor' },
-  });
-  // If table isn't created yet (500/503) return empty rather than crashing the dialog
-  if (!res.ok) {
-    if (res.status >= 500) return [];
-    throw new Error('Failed to fetch comments');
-  }
-  return res.json();
-}
 
 async function postComment(submissionId: string, content: string, token: string): Promise<SubmissionComment> {
   const res = await fetch(`/api/submissions/${submissionId}/comments`, {
@@ -343,7 +332,7 @@ export function SupervisorMyGroupsAndReviews() {
   // Discussion dialog
   const [discussionTarget, setDiscussionTarget]     = useState<ChapterSubmission | null>(null);
   const [discussionComments, setDiscussionComments] = useState<SubmissionComment[]>([]);
-  const [discussionLoading, setDiscussionLoading]   = useState(false);
+  const [discussionLoading]                         = useState(false);
   const [newDiscussionComment, setNewDiscussionComment] = useState('');
   const [discussionPosting, setDiscussionPosting]   = useState(false);
 
@@ -528,21 +517,6 @@ export function SupervisorMyGroupsAndReviews() {
     return session.data.session?.access_token ?? '';
   };
 
-  const handleOpenDiscussion = async (sub: ChapterSubmission) => {
-    setDiscussionTarget(sub);
-    setDiscussionComments([]);
-    setNewDiscussionComment('');
-    setDiscussionLoading(true);
-    try {
-      const token = await getToken();
-      const comments = await fetchComments(sub.id, token);
-      setDiscussionComments(comments);
-    } catch {
-      toast.error('Failed to load discussion');
-    } finally {
-      setDiscussionLoading(false);
-    }
-  };
 
   const handlePostDiscussionComment = async () => {
     if (!discussionTarget || !newDiscussionComment.trim()) return;
