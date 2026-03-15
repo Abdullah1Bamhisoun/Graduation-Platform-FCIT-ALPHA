@@ -29,6 +29,7 @@ import { getCoordinatorGroupsWithGrades } from '../../services/groups';
 import { getMilestoneConfigs } from '../../services/milestones';
 import { saveCoordinatorDeliverableScore } from '../../services/grading-rubric';
 import { supabase } from '../../lib/supabase';
+import { DocumentViewerWithAnnotations } from '../DocumentViewerWithAnnotations';
 import type { ChapterSubmission, CoordinatorChapterSubmissionsResult } from '../../services/submissions';
 import type { CoordinatorGroupWithGrades } from '../../services/groups';
 import type { MilestoneConfig } from '../../types';
@@ -68,19 +69,19 @@ export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGrade
   const [isSavingGrade, setIsSavingGrade] = useState(false);
 
   // View file modal state
-  const [viewModalOpen, setViewModalOpen] = useState(false);
-  const [viewModalUrl, setViewModalUrl] = useState<string>('');
-  const [viewModalName, setViewModalName] = useState<string>('');
-  const [viewModalLoading, setViewModalLoading] = useState(false);
+  const [viewerFile, setViewerFile] = useState<{ url: string; filePath: string; fileName: string } | null>(null);
 
-  // Track current user id
+  // Track current user info
   const userIdRef = useRef<string | null>(null);
+  const userNameRef = useRef<string>('');
+  const userRoleRef = useRef<string>(role);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       userIdRef.current = data.session?.user?.id ?? null;
+      userNameRef.current = data.session?.user?.user_metadata?.name ?? data.session?.user?.email ?? '';
     });
-  }, []);
+  }, [role]);
 
   // Reset filter and reload when course type changes
   useEffect(() => {
@@ -229,29 +230,11 @@ export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGrade
   };
 
   const handleView = async (filePath: string, fileName: string) => {
-    setViewModalName(fileName);
-    setViewModalUrl('');
-    setViewModalOpen(true);
-    setViewModalLoading(true);
     try {
       const url = await getSignedUrl(filePath);
-      const ext = filePath.split('.').pop()?.toLowerCase();
-      if (ext === 'pdf') {
-        // Fetch as blob so Content-Disposition: attachment is bypassed in the iframe
-        const response = await fetch(url);
-        const blob = await response.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        setViewModalUrl(blobUrl);
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
-      } else {
-        // Office / other formats — use Google Docs Viewer
-        setViewModalUrl(`https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`);
-      }
+      setViewerFile({ url, filePath, fileName });
     } catch {
-      setViewModalOpen(false);
       toast.error('Failed to open file');
-    } finally {
-      setViewModalLoading(false);
     }
   };
 
@@ -465,31 +448,18 @@ export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGrade
         </div>
       </Card>
 
-      {/* File Viewer Modal — full screen */}
-      <Dialog open={viewModalOpen} onOpenChange={(open) => { if (!open) { setViewModalOpen(false); setViewModalUrl(''); } }}>
-        <DialogContent className="!inset-0 !translate-x-0 !translate-y-0 !top-0 !left-0 !max-w-full !w-screen !h-screen !rounded-none flex flex-col p-0 gap-0">
-          <DialogHeader className="px-6 py-3 border-b border-gray-200 flex-shrink-0 flex flex-row items-center justify-between">
-            <DialogTitle className="flex items-center gap-2 text-base">
-              <Eye className="w-4 h-4 text-blue-600" />
-              {viewModalName}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="flex-1 overflow-hidden">
-            {viewModalLoading ? (
-              <div className="flex items-center justify-center h-full gap-2 text-gray-500">
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Loading file...
-              </div>
-            ) : viewModalUrl ? (
-              <iframe
-                src={viewModalUrl}
-                className="w-full h-full border-0"
-                title={viewModalName}
-              />
-            ) : null}
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* File Viewer with Annotations */}
+      {viewerFile && (
+        <DocumentViewerWithAnnotations
+          fileUrl={viewerFile.url}
+          filePath={viewerFile.filePath}
+          fileName={viewerFile.fileName}
+          onClose={() => setViewerFile(null)}
+          userId={userIdRef.current ?? ''}
+          userName={userNameRef.current}
+          userRole={userRoleRef.current}
+        />
+      )}
 
       {/* Grade Dialog */}
       <Dialog open={!!gradingSubmission} onOpenChange={(open) => { if (!open) setGradingSubmission(null); }}>

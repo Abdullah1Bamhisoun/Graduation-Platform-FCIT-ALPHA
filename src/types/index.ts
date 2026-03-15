@@ -425,6 +425,11 @@ export interface MilestoneConfig {
   gradingCriterionMax?: number;
   /** When true, this milestone appears in Committee Evaluation for file review + feedback */
   includeInCommitteeEval?: boolean;
+  /**
+   * Restrict uploaded file type. Undefined / empty string = any format.
+   * Example values: 'pdf', 'docx', 'pptx', 'zip', 'xlsx'
+   */
+  allowedFileType?: string;
 }
 
 // ─── Audit Log ────────────────────────────────────────────────────────────────

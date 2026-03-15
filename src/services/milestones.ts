@@ -44,6 +44,7 @@ function mapApiMilestoneConfig(data: any): MilestoneConfig {
     gradingCriterionName:   data.gradingCriterionName ?? undefined,
     gradingCriterionMax:    data.gradingCriterionMax ?? undefined,
     includeInCommitteeEval: data.includeInCommitteeEval ?? false,
+    allowedFileType:        data.allowedFileType ?? undefined,
   };
 }
 
@@ -217,6 +218,7 @@ export async function createMilestone(config: Omit<MilestoneConfig, 'id'>): Prom
       description:          config.description ?? '',
       gradingCriterionId:   config.gradingCriterionId ?? null,
       includeInCommitteeEval: config.includeInCommitteeEval ?? false,
+      allowedFileType:      config.allowedFileType ?? null,
     }),
   });
 
@@ -253,6 +255,7 @@ export async function updateMilestone(id: string, updates: Partial<MilestoneConf
       description:          updates.description,
       gradingCriterionId:     updates.gradingCriterionId ?? null,
       includeInCommitteeEval: updates.includeInCommitteeEval ?? false,
+      allowedFileType:        updates.allowedFileType ?? null,
     }),
   });
 

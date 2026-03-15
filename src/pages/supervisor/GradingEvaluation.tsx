@@ -37,6 +37,7 @@ import {
 } from '../../services/grading-rubric';
 import { getSignedUrl } from '../../services/storage';
 import { supabase } from '../../lib/supabase';
+import { DocumentViewerWithAnnotations } from '../../components/DocumentViewerWithAnnotations';
 import {
   Save, Send, CheckCircle, AlertCircle, Info, FileText,
   Download, Eye, ChevronDown, ChevronUp, MessageSquare,
@@ -149,10 +150,11 @@ interface MilestoneSubmissionCardProps {
 function MilestoneSubmissionCard({
   milestone, groupId, courseId, evaluatorId, isReadOnly,
 }: MilestoneSubmissionCardProps) {
+  const { user } = useAuth();
   const [feedback, setFeedback] = useState('');
   const [savedFeedback, setSavedFeedback] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [viewUrl, setViewUrl] = useState<string | null>(null);
+  const [viewerFile, setViewerFile] = useState<{ url: string; filePath: string; fileName: string } | null>(null);
   const [loadingUrl, setLoadingUrl] = useState(false);
 
   // Load existing feedback
@@ -178,7 +180,7 @@ function MilestoneSubmissionCard({
     setLoadingUrl(true);
     try {
       const url = await getSignedUrl(milestone.submission.filePath);
-      setViewUrl(url);
+      setViewerFile({ url, filePath: milestone.submission.filePath, fileName: milestone.submission.fileName });
     } catch {
       toast.error('Could not load file URL');
     } finally {
@@ -246,26 +248,15 @@ function MilestoneSubmissionCard({
               </p>
             </div>
             <div className="flex gap-2 flex-shrink-0">
-              {viewUrl ? (
-                <a
-                  href={viewUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-                >
-                  <Eye className="w-3.5 h-3.5" />View
-                </a>
-              ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleGetSignedUrl}
-                  disabled={loadingUrl}
-                  className="text-xs gap-1.5"
-                >
-                  <Eye className="w-3.5 h-3.5" />View File
-                </Button>
-              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleGetSignedUrl}
+                disabled={loadingUrl}
+                className="text-xs gap-1.5"
+              >
+                <Eye className="w-3.5 h-3.5" />View File
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -317,6 +308,19 @@ function MilestoneSubmissionCard({
           </div>
         )}
       </div>
+
+      {/* File Viewer with Annotations */}
+      {viewerFile && user && (
+        <DocumentViewerWithAnnotations
+          fileUrl={viewerFile.url}
+          filePath={viewerFile.filePath}
+          fileName={viewerFile.fileName}
+          onClose={() => setViewerFile(null)}
+          userId={user.id}
+          userName={user.name}
+          userRole={user.role}
+        />
+      )}
     </div>
   );
 }

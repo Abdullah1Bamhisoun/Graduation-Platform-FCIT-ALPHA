@@ -13,7 +13,7 @@ import { Label } from '../../components/ui/label';
 import { Switch } from '../../components/ui/switch';
 import { Textarea } from '../../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { Settings, Plus, Edit2, Save, X, Trash2, Award, Users } from 'lucide-react';
+import { Settings, Plus, Edit2, Save, X, Trash2, Award, Users, FileType } from 'lucide-react';
 import { toast } from 'sonner';
 import { MilestoneConfig } from '../../types';
 
@@ -115,6 +115,7 @@ export function AdminMilestonesConfig() {
       description: '',
       gradingCriterionId: undefined,
       includeInCommitteeEval: false,
+      allowedFileType: undefined,
     };
     setConfigs((prev) => [...prev, newMilestone]);
     setEditingId(newId);
@@ -317,6 +318,35 @@ export function AdminMilestonesConfig() {
                     )}
                   </div>
 
+                  {/* File Type Restriction */}
+                  <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg space-y-2">
+                    <div className="flex items-center gap-2 mb-1">
+                      <FileType className="w-4 h-4 text-orange-600" />
+                      <Label className="text-orange-900 font-semibold">Allowed File Format</Label>
+                    </div>
+                    <p className="text-xs text-orange-700 mb-2">
+                      Restrict what file type students can upload. Choose a specific format or allow any.
+                    </p>
+                    <Select
+                      value={config.allowedFileType ?? 'any'}
+                      onValueChange={(val) =>
+                        updateConfigField(config.id, 'allowedFileType', val === 'any' ? undefined : val)
+                      }
+                    >
+                      <SelectTrigger className="bg-white">
+                        <SelectValue placeholder="Any format" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="any">Any format</SelectItem>
+                        <SelectItem value="pdf">PDF (.pdf)</SelectItem>
+                        <SelectItem value="docx">Word (.docx)</SelectItem>
+                        <SelectItem value="pptx">PowerPoint (.pptx)</SelectItem>
+                        <SelectItem value="xlsx">Excel (.xlsx)</SelectItem>
+                        <SelectItem value="zip">ZIP (.zip)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
                   <div className="space-y-4 p-4 bg-[var(--color-surface-alt)] rounded-lg">
                     <div className="flex items-center justify-between">
                       <div>
@@ -482,6 +512,10 @@ export function AdminMilestonesConfig() {
                         In Committee Eval
                       </div>
                     ) : null}
+                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-sm bg-white text-orange-700 border border-orange-400">
+                      <FileType className="w-3.5 h-3.5" />
+                      {config.allowedFileType ? `.${config.allowedFileType} only` : 'Any format'}
+                    </div>
                   </div>
                 </div>
               )}

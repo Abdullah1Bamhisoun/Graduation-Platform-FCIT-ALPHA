@@ -19,7 +19,7 @@ import { toast } from 'sonner';
 import type { Milestone, Submission } from '../../types';
 import { useLockStatus } from '../../hooks/useLockStatus';
 import { LockedBanner } from '../../components/ui/LockedBanner';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog';
+import { DocumentViewerWithAnnotations } from '../../components/DocumentViewerWithAnnotations';
 
 interface SubmissionComment {
   id: string;
@@ -88,8 +88,7 @@ export function StudentSubmissionDetail() {
   const [comments, setComments] = useState<SubmissionComment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [commentPosting, setCommentPosting] = useState(false);
-  const [viewerUrl, setViewerUrl] = useState<string | null>(null);
-  const [viewerFileName, setViewerFileName] = useState('');
+  const [viewerFile, setViewerFile] = useState<{ url: string; filePath: string; fileName: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!user) return null;
@@ -206,8 +205,7 @@ export function StudentSubmissionDetail() {
   const handleView = async (filePath: string, fileName?: string) => {
     try {
       const url = await getSignedUrl(filePath);
-      setViewerFileName(fileName ?? filePath.split('/').pop() ?? 'File');
-      setViewerUrl(url);
+      setViewerFile({ url, filePath, fileName: fileName ?? filePath.split('/').pop() ?? 'File' });
     } catch {
       toast.error('Failed to get file URL');
     }
@@ -243,7 +241,7 @@ export function StudentSubmissionDetail() {
         <Button
           variant="ghost"
           onClick={() => navigate('/student/milestones')}
-          className="mb-4"
+          className="mb-4 bg-[var(--color-surface-white)] border border-[var(--color-border)] hover:bg-[var(--color-surface-alt)]"
         >
           ← Back to Milestones
         </Button>
@@ -712,33 +710,18 @@ export function StudentSubmissionDetail() {
         </div>
       </div>
 
-      {/* Full-screen File Viewer */}
-      <Dialog open={!!viewerUrl} onOpenChange={(open) => { if (!open) setViewerUrl(null); }}>
-        <DialogContent className="!inset-0 !translate-x-0 !translate-y-0 !top-0 !left-0 !max-w-full !w-screen !h-screen !rounded-none flex flex-col p-0 gap-0">
-          <DialogHeader className="px-6 py-3 border-b border-gray-200 flex-shrink-0 flex flex-row items-center justify-between">
-            <DialogTitle className="text-base font-medium truncate">{viewerFileName}</DialogTitle>
-            <div className="flex items-center gap-2 ml-4 flex-shrink-0">
-              <a
-                href={viewerUrl ?? ''}
-                download={viewerFileName}
-                className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md border border-[var(--color-border)] hover:bg-[var(--color-surface-alt)] transition-colors"
-              >
-                <Download className="w-4 h-4" />
-                Download
-              </a>
-            </div>
-          </DialogHeader>
-          <div className="flex-1 overflow-hidden">
-            {viewerUrl && (
-              <iframe
-                src={viewerUrl}
-                className="w-full h-full border-0"
-                title={viewerFileName}
-              />
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Full-screen File Viewer with Annotations */}
+      {viewerFile && (
+        <DocumentViewerWithAnnotations
+          fileUrl={viewerFile.url}
+          filePath={viewerFile.filePath}
+          fileName={viewerFile.fileName}
+          onClose={() => setViewerFile(null)}
+          userId={user.id}
+          userName={user.name}
+          userRole={user.role}
+        />
+      )}
     </Layout>
   );
 }

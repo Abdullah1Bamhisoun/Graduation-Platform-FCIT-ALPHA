@@ -262,6 +262,22 @@ img, video, iframe, embed, object {
     border-color: var(--color-text-600) !important;
   }
 
+  /* Gradient color stops (-50 and -100 shades) → semi-transparent dark equivalents */
+  html.dark .from-blue-50   { --tw-gradient-from: rgba(59, 130, 246, 0.15) var(--tw-gradient-from-position) !important; }
+  html.dark .to-blue-50     { --tw-gradient-to: rgba(59, 130, 246, 0.15) var(--tw-gradient-to-position) !important; }
+  html.dark .from-purple-50 { --tw-gradient-from: rgba(147, 51, 234, 0.15) var(--tw-gradient-from-position) !important; }
+  html.dark .to-purple-50   { --tw-gradient-to: rgba(147, 51, 234, 0.15) var(--tw-gradient-to-position) !important; }
+  html.dark .from-green-50  { --tw-gradient-from: rgba(22, 163, 74, 0.15) var(--tw-gradient-from-position) !important; }
+  html.dark .to-green-50    { --tw-gradient-to: rgba(22, 163, 74, 0.15) var(--tw-gradient-to-position) !important; }
+  html.dark .from-amber-50  { --tw-gradient-from: rgba(245, 158, 11, 0.15) var(--tw-gradient-from-position) !important; }
+  html.dark .to-amber-50    { --tw-gradient-to: rgba(245, 158, 11, 0.15) var(--tw-gradient-to-position) !important; }
+  html.dark .from-red-50    { --tw-gradient-from: rgba(239, 68, 68, 0.15) var(--tw-gradient-from-position) !important; }
+  html.dark .to-red-50      { --tw-gradient-to: rgba(239, 68, 68, 0.15) var(--tw-gradient-to-position) !important; }
+  html.dark .from-yellow-50 { --tw-gradient-from: rgba(234, 179, 8, 0.15) var(--tw-gradient-from-position) !important; }
+  html.dark .to-yellow-50   { --tw-gradient-to: rgba(234, 179, 8, 0.15) var(--tw-gradient-to-position) !important; }
+  html.dark .from-indigo-50 { --tw-gradient-from: rgba(99, 102, 241, 0.15) var(--tw-gradient-from-position) !important; }
+  html.dark .to-indigo-50   { --tw-gradient-to: rgba(99, 102, 241, 0.15) var(--tw-gradient-to-position) !important; }
+
   /* Colored tint backgrounds (-50 and -100 shades) → semi-transparent dark equivalents */
   html.dark .bg-blue-50,
   html.dark .bg-blue-100 { background-color: rgba(59, 130, 246, 0.15) !important; }
@@ -302,18 +318,55 @@ img, video, iframe, embed, object {
   html.dark .border-indigo-200 { border-color: rgba(99, 102, 241, 0.35) !important; }
   html.dark .border-orange-200 { border-color: rgba(249, 115, 22, 0.35) !important; }
   html.dark .border-red-300    { border-color: rgba(239, 68, 68, 0.45) !important; }
+  html.dark .border-blue-300   { border-color: rgba(59, 130, 246, 0.45) !important; }
+  html.dark .border-purple-300 { border-color: rgba(147, 51, 234, 0.45) !important; }
 
   /* Colored text → lighter equivalents for dark backgrounds */
+  html.dark .text-blue-900,
   html.dark .text-blue-800,
-  html.dark .text-blue-700    { color: rgba(147, 197, 253, 1) !important; }
+  html.dark .text-blue-700,
+  html.dark .text-blue-600    { color: rgba(147, 197, 253, 1) !important; }
 
+  html.dark .text-purple-900,
+  html.dark .text-purple-800,
+  html.dark .text-purple-700,
+  html.dark .text-purple-600  { color: rgba(196, 132, 252, 1) !important; }
+
+  html.dark .text-green-900,
   html.dark .text-green-800,
   html.dark .text-green-700,
   html.dark .text-green-600   { color: rgba(134, 239, 172, 1) !important; }
 
+  html.dark .text-red-900,
+  html.dark .text-red-800,
   html.dark .text-red-700,
   html.dark .text-red-600,
   html.dark .text-red-500     { color: rgba(252, 165, 165, 1) !important; }
+
+  html.dark .text-yellow-900,
+  html.dark .text-yellow-800,
+  html.dark .text-yellow-700,
+  html.dark .text-yellow-600  { color: rgba(253, 224, 71, 1) !important; }
+
+  html.dark .text-amber-900,
+  html.dark .text-amber-800,
+  html.dark .text-amber-700,
+  html.dark .text-amber-600   { color: rgba(252, 211, 77, 1) !important; }
+
+  html.dark .text-orange-900,
+  html.dark .text-orange-800,
+  html.dark .text-orange-700,
+  html.dark .text-orange-600  { color: rgba(253, 186, 116, 1) !important; }
+
+  html.dark .text-indigo-900,
+  html.dark .text-indigo-800,
+  html.dark .text-indigo-700,
+  html.dark .text-indigo-600  { color: rgba(165, 180, 252, 1) !important; }
+
+  html.dark .text-pink-900,
+  html.dark .text-pink-800,
+  html.dark .text-pink-700,
+  html.dark .text-pink-600    { color: rgba(249, 168, 212, 1) !important; }
 
   * {
     @apply border-[var(--color-border)];

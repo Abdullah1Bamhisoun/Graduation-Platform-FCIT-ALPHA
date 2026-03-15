@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getSignedUrl } from '../../services/storage';
+import { DocumentViewerWithAnnotations } from '../../components/DocumentViewerWithAnnotations';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -146,10 +147,7 @@ export function SupervisorSubmissionReview() {
   const [processing, setProcessing] = useState(false);
 
   // File viewer
-  const [viewModalOpen, setViewModalOpen] = useState(false);
-  const [viewModalUrl, setViewModalUrl] = useState('');
-  const [viewModalName, setViewModalName] = useState('');
-  const [viewModalLoading, setViewModalLoading] = useState(false);
+  const [viewerFile, setViewerFile] = useState<{ url: string; filePath: string; fileName: string } | null>(null);
 
   // Feedback / draft
   const [feedback, setFeedback] = useState('');
@@ -215,23 +213,11 @@ export function SupervisorSubmissionReview() {
 
   // ── File actions ────────────────────────────────────────────────────────────
   const handleViewFile = async (filePath: string, fileName: string) => {
-    setViewModalName(fileName);
-    setViewModalUrl('');
-    setViewModalOpen(true);
-    setViewModalLoading(true);
     try {
       const url = await getSignedUrl(filePath);
-      const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
-      setViewModalUrl(
-        ext === 'pdf'
-          ? url
-          : `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`
-      );
+      setViewerFile({ url, filePath, fileName });
     } catch {
       toast.error('Failed to get file URL');
-      setViewModalOpen(false);
-    } finally {
-      setViewModalLoading(false);
     }
   };
 
@@ -351,7 +337,7 @@ export function SupervisorSubmissionReview() {
       <Button
         variant="ghost"
         onClick={() => navigate('/supervisor/groups?tab=chapter-submission')}
-        className="mb-4 gap-2"
+        className="mb-4 gap-2 bg-[var(--color-surface-white)] border border-[var(--color-border)] hover:bg-[var(--color-surface-alt)]"
       >
         <ChevronLeft className="w-4 h-4" />
         Back to Chapter Submissions
@@ -572,45 +558,17 @@ export function SupervisorSubmissionReview() {
         </div>
       </div>
 
-      {/* ── File viewer modal ── */}
-      {viewModalOpen && (
-        <>
-          <div
-            className="fixed inset-0 bg-black/60 z-40"
-            onClick={() => setViewModalOpen(false)}
-          />
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="bg-[var(--color-surface-white)] rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col">
-              <div className="px-6 py-4 border-b border-[var(--color-border)] flex items-center justify-between flex-shrink-0">
-                <div className="flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-[var(--color-primary-600)]" />
-                  <span className="text-[var(--color-text-900)] font-medium truncate max-w-md">
-                    {viewModalName}
-                  </span>
-                </div>
-                <button
-                  onClick={() => setViewModalOpen(false)}
-                  className="p-2 hover:bg-[var(--color-surface-alt)] rounded-lg transition-colors text-[var(--color-text-600)]"
-                >
-                  ✕
-                </button>
-              </div>
-              <div className="flex-1 overflow-hidden">
-                {viewModalLoading ? (
-                  <div className="flex items-center justify-center h-full">
-                    <Loader2 className="w-8 h-8 animate-spin text-[var(--color-text-400)]" />
-                  </div>
-                ) : (
-                  <iframe
-                    src={viewModalUrl}
-                    className="w-full h-full border-0"
-                    title={viewModalName}
-                  />
-                )}
-              </div>
-            </div>
-          </div>
-        </>
+      {/* ── File Viewer with Annotations ── */}
+      {viewerFile && user && (
+        <DocumentViewerWithAnnotations
+          fileUrl={viewerFile.url}
+          filePath={viewerFile.filePath}
+          fileName={viewerFile.fileName}
+          onClose={() => setViewerFile(null)}
+          userId={user.id}
+          userName={user.name}
+          userRole={user.role}
+        />
       )}
     </Layout>
   );

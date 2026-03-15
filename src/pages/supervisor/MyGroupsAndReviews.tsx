@@ -66,6 +66,7 @@ import {
 import { getSignedUrl } from '../../services/storage';
 import { toast } from 'sonner';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { DocumentViewerWithAnnotations } from '../../components/DocumentViewerWithAnnotations';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -324,10 +325,7 @@ export function SupervisorMyGroupsAndReviews() {
   const [ipProcessing, setIpProcessing] = useState(false);
 
   // File viewer modal
-  const [viewModalOpen, setViewModalOpen]       = useState(false);
-  const [viewModalUrl, setViewModalUrl]         = useState('');
-  const [viewModalName, setViewModalName]       = useState('');
-  const [viewModalLoading, setViewModalLoading] = useState(false);
+  const [viewerFile, setViewerFile] = useState<{ url: string; filePath: string; fileName: string } | null>(null);
 
   // Discussion dialog
   const [discussionTarget, setDiscussionTarget]     = useState<ChapterSubmission | null>(null);
@@ -474,23 +472,11 @@ export function SupervisorMyGroupsAndReviews() {
   // ── File View / Download ──────────────────────────────────────────────────
 
   const handleViewFile = async (filePath: string, fileName: string) => {
-    setViewModalName(fileName);
-    setViewModalUrl('');
-    setViewModalOpen(true);
-    setViewModalLoading(true);
     try {
       const url = await getSignedUrl(filePath);
-      const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
-      setViewModalUrl(
-        ext === 'pdf'
-          ? url
-          : `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`
-      );
+      setViewerFile({ url, filePath, fileName });
     } catch {
       toast.error('Failed to get file URL');
-      setViewModalOpen(false);
-    } finally {
-      setViewModalLoading(false);
     }
   };
 
@@ -587,17 +573,18 @@ export function SupervisorMyGroupsAndReviews() {
           <TabsList className="w-full justify-start rounded-none bg-transparent p-0 h-auto border-b border-[var(--color-border)]">
             <TabsTrigger
               value="my-groups"
-              className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-transparent px-6 py-3 gap-2"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-transparent px-3 sm:px-6 py-3 gap-1.5 text-xs sm:text-sm"
             >
-              <Users className="w-4 h-4" />
-              My Groups
+              <Users className="w-4 h-4 flex-shrink-0" />
+              <span>My Groups</span>
             </TabsTrigger>
             <TabsTrigger
               value="chapter-submission"
-              className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-transparent px-6 py-3 gap-2"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-transparent px-3 sm:px-6 py-3 gap-1.5 text-xs sm:text-sm"
             >
-              <BookOpen className="w-4 h-4" />
-              Chapter Submission
+              <BookOpen className="w-4 h-4 flex-shrink-0" />
+              <span className="sm:hidden">Submissions</span>
+              <span className="hidden sm:inline">Chapter Submission</span>
               {stats.pending > 0 && (
                 <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-yellow-500 text-white text-xs font-semibold">
                   {stats.pending}
@@ -606,10 +593,11 @@ export function SupervisorMyGroupsAndReviews() {
             </TabsTrigger>
             <TabsTrigger
               value="groups-grades"
-              className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-transparent px-6 py-3 gap-2"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-transparent px-3 sm:px-6 py-3 gap-1.5 text-xs sm:text-sm"
             >
-              <BarChart2 className="w-4 h-4" />
-              Groups Grades &amp; Evaluation
+              <BarChart2 className="w-4 h-4 flex-shrink-0" />
+              <span className="sm:hidden">Grades</span>
+              <span className="hidden sm:inline">Groups Grades &amp; Evaluation</span>
             </TabsTrigger>
           </TabsList>
         </div>
@@ -755,7 +743,7 @@ export function SupervisorMyGroupsAndReviews() {
           </p>
 
           {/* Group filter */}
-          <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6 mb-4">
+          <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-4 sm:p-6 mb-4">
             <div className="max-w-md">
               <Label htmlFor="group-filter" className="mb-2 block text-[var(--color-text-900)]">
                 Filter by Group
@@ -777,33 +765,36 @@ export function SupervisorMyGroupsAndReviews() {
           </div>
 
           {/* Two-column layout: submissions table + right sidebar */}
-          <div className="flex flex-col lg:flex-row gap-6 items-start">
+          <div className="flex flex-col lg:flex-row gap-6 lg:items-stretch">
 
             {/* ── Left: submissions table ── */}
-            <div className="flex-1 lg:max-w-[800px]">
+            <div className="flex-1 min-w-0 order-2 lg:order-1 w-full">
 
-              {/* Stats cards (same visual pattern as old grading summary cards) */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Clock className="w-4 h-4 text-yellow-600" />
-                    <span className="text-yellow-900 text-sm">Pending Review</span>
+              {/* Stats cards */}
+              <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2 sm:p-4">
+                  <div className="flex items-center gap-1 sm:gap-2 mb-1">
+                    <Clock className="w-3 h-3 sm:w-4 sm:h-4 text-yellow-600 flex-shrink-0" />
+                    <span className="text-yellow-900 text-xs sm:text-sm truncate">Pending</span>
                   </div>
-                  <p className="text-2xl text-yellow-900">{stats.pending}</p>
+                  <p className="text-xl sm:text-2xl text-yellow-900">{stats.pending}</p>
                 </div>
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <CheckCircle className="w-4 h-4 text-green-600" />
-                    <span className="text-green-900 text-sm">Approved</span>
+                <div className="bg-green-50 border border-green-200 rounded-lg p-2 sm:p-4">
+                  <div className="flex items-center gap-1 sm:gap-2 mb-1">
+                    <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4 text-green-600 flex-shrink-0" />
+                    <span className="text-green-900 text-xs sm:text-sm truncate">Approved</span>
                   </div>
-                  <p className="text-2xl text-green-900">{stats.approved}</p>
+                  <p className="text-xl sm:text-2xl text-green-900">{stats.approved}</p>
                 </div>
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <XCircle className="w-4 h-4 text-amber-600" />
-                    <span className="text-amber-900 text-sm">Changes Requested</span>
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 sm:p-4">
+                  <div className="flex items-center gap-1 sm:gap-2 mb-1">
+                    <XCircle className="w-3 h-3 sm:w-4 sm:h-4 text-amber-600 flex-shrink-0" />
+                    <span className="text-amber-900 text-xs sm:text-sm truncate">
+                      <span className="sm:hidden">Changed</span>
+                      <span className="hidden sm:inline">Changes Requested</span>
+                    </span>
                   </div>
-                  <p className="text-2xl text-amber-900">{stats.rejected}</p>
+                  <p className="text-xl sm:text-2xl text-amber-900">{stats.rejected}</p>
                 </div>
               </div>
 
@@ -831,25 +822,25 @@ export function SupervisorMyGroupsAndReviews() {
                     <table className="w-full">
                       <thead className="bg-[var(--color-surface-alt)]">
                         <tr>
-                          <th className="p-4 text-left text-[var(--color-text-900)] border-r border-[var(--color-border)]">
+                          <th className="p-4 text-left text-[var(--color-text-900)] text-sm border-r border-[var(--color-border)]">
                             Chapter Name
                           </th>
-                          <th className="p-4 text-left text-[var(--color-text-900)] border-r border-[var(--color-border)]">
+                          <th className="p-4 text-left text-[var(--color-text-900)] text-sm border-r border-[var(--color-border)]">
                             Group
                           </th>
-                          <th className="p-4 text-left text-[var(--color-text-900)] border-r border-[var(--color-border)]">
+                          <th className="p-4 text-left text-[var(--color-text-900)] text-sm border-r border-[var(--color-border)]">
                             Group ID
                           </th>
-                          <th className="p-4 text-center text-[var(--color-text-900)] border-r border-[var(--color-border)]">
+                          <th className="p-4 text-center text-[var(--color-text-900)] text-sm border-r border-[var(--color-border)]">
                             Submitted
                           </th>
-                          <th className="p-4 text-center text-[var(--color-text-900)] border-r border-[var(--color-border)]">
+                          <th className="p-4 text-center text-[var(--color-text-900)] text-sm border-r border-[var(--color-border)]">
                             Status
                           </th>
-                          <th className="p-4 text-center text-[var(--color-text-900)] border-r border-[var(--color-border)]">
+                          <th className="p-4 text-center text-[var(--color-text-900)] text-sm border-r border-[var(--color-border)]">
                             File
                           </th>
-                          <th className="p-4 text-center text-[var(--color-text-900)]">
+                          <th className="p-4 text-center text-[var(--color-text-900)] text-sm">
                             Actions
                           </th>
                         </tr>
@@ -931,7 +922,7 @@ export function SupervisorMyGroupsAndReviews() {
                               </td>
                               {/* ── Actions column ── */}
                               <td className="p-4 text-center">
-                                <div className="flex items-center justify-center gap-2 flex-wrap">
+                                <div className="flex flex-row items-center justify-center gap-2">
                                   {isPending && (
                                     <>
                                       <Button
@@ -980,87 +971,85 @@ export function SupervisorMyGroupsAndReviews() {
               </div>
             </div>
 
-            {/* ── Right sidebar (sticky) ── */}
-            <div className="w-full lg:w-[280px] flex-shrink-0">
-              <div className="sticky top-6 space-y-4">
+            {/* ── Right sidebar ── */}
+            <div className="w-full lg:w-[280px] flex-shrink-0 order-1 lg:order-2 lg:flex lg:flex-col">
 
-                {/* Submission summary card */}
-                <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] shadow-md p-5">
-                  <h3 className="text-[var(--color-text-900)] text-sm font-semibold mb-3">
-                    Review Summary
-                  </h3>
+                {/* Submission summary card — stretches full height */}
+                <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] shadow-md p-4 sm:p-5 flex-1 flex flex-col justify-between gap-4">
 
-                  <div className="text-center mb-4 p-4 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg border border-blue-200">
-                    <p className="text-[var(--color-text-600)] mb-1 text-sm">Total Submissions</p>
-                    <p className="text-4xl text-[var(--color-text-900)]">
-                      {filteredSubmissions.length}
-                    </p>
-                  </div>
+                  {/* Top section */}
+                  <div className="flex flex-col gap-4">
+                    <h3 className="text-[var(--color-text-900)] text-sm font-semibold">
+                      Review Summary
+                    </h3>
 
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="flex items-center gap-1.5 text-yellow-700">
-                        <Clock className="w-3.5 h-3.5" />
-                        Pending
-                      </span>
-                      <span className="font-semibold text-[var(--color-text-900)]">
-                        {stats.pending}
-                      </span>
+                    {/* Total — horizontal on mobile, centered on desktop */}
+                    <div className="flex lg:flex-col items-center lg:text-center p-3 sm:p-4 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg border border-blue-200 gap-3 lg:gap-0">
+                      <p className="text-[var(--color-text-600)] text-sm lg:mb-1">Total Submissions</p>
+                      <p className="text-3xl sm:text-4xl text-[var(--color-text-900)] font-bold">
+                        {filteredSubmissions.length}
+                      </p>
                     </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="flex items-center gap-1.5 text-green-700">
-                        <CheckCircle className="w-3.5 h-3.5" />
-                        Approved
-                      </span>
-                      <span className="font-semibold text-[var(--color-text-900)]">
-                        {stats.approved}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="flex items-center gap-1.5 text-amber-700">
-                        <XCircle className="w-3.5 h-3.5" />
-                        Changes Req.
-                      </span>
-                      <span className="font-semibold text-[var(--color-text-900)]">
-                        {stats.rejected}
-                      </span>
-                    </div>
-                  </div>
 
-                  {/* Completion bar */}
-                  {filteredSubmissions.length > 0 && (
-                    <div className="mt-4 pt-3 border-t border-[var(--color-border)]">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs text-[var(--color-text-600)]">Review progress</span>
-                        <span className="text-xs text-[var(--color-text-900)] font-semibold">
-                          {Math.round(((stats.approved + stats.rejected) / filteredSubmissions.length) * 100)}%
+                    {/* Breakdown */}
+                    <div className="flex lg:flex-col gap-2 lg:gap-2">
+                      <div className="flex flex-1 lg:flex-none items-center justify-between text-sm">
+                        <span className="flex items-center gap-1.5 text-yellow-700">
+                          <Clock className="w-3.5 h-3.5" />
+                          Pending
                         </span>
+                        <span className="font-semibold text-[var(--color-text-900)]">{stats.pending}</span>
                       </div>
-                      <div className="h-2 bg-[var(--color-surface-alt)] rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-gradient-to-r from-[var(--color-primary-600)] to-blue-500 transition-all duration-300"
-                          style={{
-                            width: `${((stats.approved + stats.rejected) / filteredSubmissions.length) * 100}%`,
-                          }}
-                        />
+                      <div className="flex flex-1 lg:flex-none items-center justify-between text-sm">
+                        <span className="flex items-center gap-1.5 text-green-700">
+                          <CheckCircle className="w-3.5 h-3.5" />
+                          Approved
+                        </span>
+                        <span className="font-semibold text-[var(--color-text-900)]">{stats.approved}</span>
+                      </div>
+                      <div className="flex flex-1 lg:flex-none items-center justify-between text-sm">
+                        <span className="flex items-center gap-1.5 text-amber-700">
+                          <XCircle className="w-3.5 h-3.5" />
+                          Changes Req.
+                        </span>
+                        <span className="font-semibold text-[var(--color-text-900)]">{stats.rejected}</span>
                       </div>
                     </div>
-                  )}
-                </div>
 
-                {/* Approval-only reminder */}
-                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-                  <div className="flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                    <p className="text-blue-800 text-xs">
-                      Supervisors review and approve chapter submissions only.
-                      Grading is managed exclusively by the Coordinator.
-                    </p>
+                    {/* Completion bar */}
+                    {filteredSubmissions.length > 0 && (
+                      <div className="pt-3 border-t border-[var(--color-border)]">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs text-[var(--color-text-600)]">Review progress</span>
+                          <span className="text-xs text-[var(--color-text-900)] font-semibold">
+                            {Math.round(((stats.approved + stats.rejected) / filteredSubmissions.length) * 100)}%
+                          </span>
+                        </div>
+                        <div className="h-2 bg-[var(--color-surface-alt)] rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-[var(--color-primary-600)] to-blue-500 transition-all duration-300"
+                            style={{
+                              width: `${((stats.approved + stats.rejected) / filteredSubmissions.length) * 100}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
+
+                  {/* Bottom: Approval-only reminder */}
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                      <p className="text-blue-800 text-xs">
+                        Supervisors review and approve chapter submissions only.
+                        Grading is managed exclusively by the Coordinator.
+                      </p>
+                    </div>
+                  </div>
+
                 </div>
 
-
-              </div>
             </div>
           </div>
         </TabsContent>
@@ -1601,31 +1590,18 @@ export function SupervisorMyGroupsAndReviews() {
         </DialogContent>
       </Dialog>
 
-      {/* ── File Viewer Modal — full screen ── */}
-      <Dialog open={viewModalOpen} onOpenChange={(open) => { if (!open) { setViewModalOpen(false); setViewModalUrl(''); } }}>
-        <DialogContent className="!inset-0 !translate-x-0 !translate-y-0 !top-0 !left-0 !max-w-full !w-screen !h-screen !rounded-none flex flex-col p-0 gap-0">
-          <DialogHeader className="px-6 py-3 border-b border-gray-200 flex-shrink-0 flex flex-row items-center justify-between">
-            <DialogTitle className="flex items-center gap-2 text-base">
-              <Eye className="w-4 h-4 text-blue-600" />
-              {viewModalName}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="flex-1 overflow-hidden">
-            {viewModalLoading ? (
-              <div className="flex items-center justify-center h-full gap-2 text-gray-500">
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Loading file...
-              </div>
-            ) : viewModalUrl ? (
-              <iframe
-                src={viewModalUrl}
-                className="w-full h-full border-0"
-                title={viewModalName}
-              />
-            ) : null}
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* ── File Viewer with Annotations ── */}
+      {viewerFile && user && (
+        <DocumentViewerWithAnnotations
+          fileUrl={viewerFile.url}
+          filePath={viewerFile.filePath}
+          fileName={viewerFile.fileName}
+          onClose={() => setViewerFile(null)}
+          userId={user.id}
+          userName={user.name}
+          userRole={user.role}
+        />
+      )}
 
       {/* ── Discussion Dialog ── */}
       <Dialog
