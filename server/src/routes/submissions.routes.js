@@ -65,6 +65,12 @@ router.patch(
   controller.updateSubmissionApproval
 );
 
+// POST /api/submissions — student creates a new submission (triggers supervisor email)
+router.post('/', authenticate, controller.createSubmission);
+
+// POST /api/submissions/:id/versions — student adds a new version (triggers supervisor email)
+router.post('/:id/versions', authenticate, controller.createSubmissionVersion);
+
 /**
  * Discussion comment routes — accessible by the submission's student or their supervisor.
  * GET  /api/submissions/:id/comments — list all comments

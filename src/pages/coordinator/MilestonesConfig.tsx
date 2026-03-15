@@ -4,7 +4,7 @@ import { useAuth } from '../../lib/AuthContext';
 import { useLockStatus } from '../../hooks/useLockStatus';
 import { LockedBanner } from '../../components/ui/LockedBanner';
 import { supabase } from '../../lib/supabase';
-import { BookOpen, RefreshCw, Eye, EyeOff } from 'lucide-react';
+import { BookOpen, RefreshCw, Eye, EyeOff, Users } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { toast } from 'sonner';
 
@@ -16,6 +16,7 @@ interface Milestone {
   dueDate: string;
   visible: boolean;
   allowLateSubmission: boolean;
+  includeInCommitteeEval: boolean;
 }
 
 export function CoordinatorMilestonesConfig() {
@@ -31,7 +32,7 @@ export function CoordinatorMilestonesConfig() {
     try {
       const { data, error } = await supabase
         .from('milestones')
-        .select('id, name, type, open_date, due_date, visible, allow_late_submission')
+        .select('id, name, type, open_date, due_date, visible, allow_late_submission, include_in_committee_eval')
         .eq('course_id', user.coordinatorCourseId)
         .order('due_date', { ascending: true });
 
@@ -45,6 +46,7 @@ export function CoordinatorMilestonesConfig() {
           dueDate: m.due_date,
           visible: m.visible,
           allowLateSubmission: m.allow_late_submission,
+          includeInCommitteeEval: m.include_in_committee_eval ?? false,
         }))
       );
     } catch (err) {
@@ -107,12 +109,17 @@ export function CoordinatorMilestonesConfig() {
                       <span>Opens: {new Date(m.openDate).toLocaleDateString()}</span>
                       <span>Due: {new Date(m.dueDate).toLocaleDateString()}</span>
                     </div>
-                    <div className="flex gap-2 mt-1.5">
+                    <div className="flex gap-2 mt-1.5 flex-wrap">
                       <span className="text-xs bg-[var(--color-surface-alt)] px-2 py-0.5 rounded-full capitalize text-[var(--color-text-600)]">
                         {m.type.replace('_', ' ')}
                       </span>
                       {m.allowLateSubmission && (
                         <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Late OK</span>
+                      )}
+                      {m.includeInCommitteeEval && (
+                        <span className="text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <Users className="w-3 h-3" />Committee Eval
+                        </span>
                       )}
                     </div>
                   </div>

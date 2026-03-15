@@ -104,7 +104,7 @@ async function getMyGrades(req, res) {
     // ── Step 4: Supervisor assessment for THIS student (read-only) ────────────
     const { data: supRow } = await supabaseAdmin
       .from('supervisor_assessments')
-      .select('score, max_score, graded_at, submission_status')
+      .select('score, max_score, graded_at, submission_status, comment')
       .eq('student_id', studentId)
       .eq('group_id', groupId)
       .maybeSingle();
@@ -116,18 +116,27 @@ async function getMyGrades(req, res) {
           maxScore:         Number(supRow.max_score ?? supervisorMaxScore),
           gradedAt:         supRow.graded_at ?? null,
           submissionStatus: supRow.submission_status ?? 'draft',
+          comment:          supRow.comment ?? null,
         }
       : null;
 
     // ── Step 5: Committee evaluation for THIS student (read-only) ─────────────
     const { data: commRows } = await supabaseAdmin
       .from('committee_evaluations')
-      .select('score, max_score')
-      .eq('student_id', studentId)
-      .eq('group_id', groupId);
+      .select('score, max_score, comment, evaluator_id')
+      .eq('group_id', groupId)
+      .in('submission_status', ['submitted', 'locked']);
 
     const committeeScore = commRows && commRows.length > 0
       ? commRows.reduce((s, r) => s + Number(r.score ?? 0), 0) / commRows.length
+      : null;
+
+    // Aggregate committee comments (non-empty ones)
+    const committeeComments = (commRows ?? [])
+      .map((r) => r.comment)
+      .filter((c) => c && c.trim().length > 0);
+    const committeeComment = committeeComments.length > 0
+      ? committeeComments.join('\n\n---\n\n')
       : null;
 
     // ── Step 6: Coordinator deliverable scores for this group (498) ───────────
@@ -173,7 +182,7 @@ async function getMyGrades(req, res) {
     // component_key is fetched from grading_components (evaluator_role='coordinator').
     const { data: coordAssessRows } = await supabaseAdmin
       .from('coordinator_assessments')
-      .select('normalized_score, max_score, submission_status')
+      .select('normalized_score, max_score, submission_status, comment')
       .eq('group_id', groupId)
       .eq('course_type', courseType)
       .limit(1);
@@ -181,6 +190,8 @@ async function getMyGrades(req, res) {
     const coordinatorScore = coordAssessRows?.[0]?.normalized_score != null
       ? Number(coordAssessRows[0].normalized_score)
       : null;
+
+    const coordinatorComment = coordAssessRows?.[0]?.comment ?? null;
 
     // ── Step 8b: Chapter submission approval counts ────────────────────────────
     const { data: submissions } = await supabaseAdmin
@@ -293,6 +304,47 @@ async function getMyGrades(req, res) {
       : score >= 80 ? 'B' : score >= 75 ? 'C+' : score >= 70 ? 'C'
       : score >= 65 ? 'D+' : score >= 60 ? 'D' : score > 0 ? 'F' : 'In Progress';
 
+    // ── Step 14: Previous course (CPIS-498) committee feedback ────────────────
+    // For CPIS-499 students: find their CPIS-498 group and pull committee comments.
+    let prevCourseComments = null;
+    if (courseType === '499') {
+      const { data: allMemberships } = await supabaseAdmin
+        .from('group_members')
+        .select('group_id')
+        .eq('student_id', studentId);
+
+      const allGroupIds = (allMemberships || []).map((m) => m.group_id).filter((id) => id !== groupId);
+
+      if (allGroupIds.length > 0) {
+        const { data: prevGroups } = await supabaseAdmin
+          .from('groups')
+          .select('id, course:courses!course_id(code)')
+          .in('id', allGroupIds);
+
+        const prev498GroupIds = (prevGroups || [])
+          .filter((g) => g.course?.code?.includes('498'))
+          .map((g) => g.id);
+
+        if (prev498GroupIds.length > 0) {
+          const { data: prevCommRows } = await supabaseAdmin
+            .from('committee_evaluations')
+            .select('comment, evaluated_at, evaluator:profiles!evaluator_id(name)')
+            .in('group_id', prev498GroupIds)
+            .in('submission_status', ['submitted', 'locked'])
+            .not('comment', 'is', null)
+            .neq('comment', '');
+
+          prevCourseComments = (prevCommRows || [])
+            .filter((r) => r.comment && r.comment.trim())
+            .map((r) => ({
+              comment:       r.comment,
+              evaluatorName: r.evaluator?.name ?? 'Committee Member',
+              evaluatedAt:   r.evaluated_at ?? null,
+            }));
+        }
+      }
+    }
+
     res.json({
       groupId:       group.id,
       groupNumber:   group.group_number,
@@ -312,8 +364,9 @@ async function getMyGrades(req, res) {
       components: assembledComponents,
       supervisorEvaluation: supervisorEval,
       committeeEvaluation: committeeScore != null
-        ? { score: committeeScore, maxScore: 40 }
+        ? { score: committeeScore, maxScore: 40, comment: committeeComment }
         : null,
+      coordinatorComment,
       approvalCounts,
       weeklyScore,
       weeklyMaxScore,
@@ -323,16 +376,18 @@ async function getMyGrades(req, res) {
       weeklyBreakdown,
       peerEvaluation: {
         receivedCount:   peerScores.length,
-        averageRaw:      peerAvgRaw,         // out of 5 stars
-        convertedScore:  peerConverted,      // converted to component marks
+        averageRaw:      peerAvgRaw,
+        convertedScore:  peerConverted,
         componentWeight: peerWeight,
-        hasSubmitted:    hasSubmittedPeer,   // has the student rated their peers?
+        hasSubmitted:    hasSubmittedPeer,
       },
       // Per-deliverable breakdown for 498 detail table (null for 499)
       deliverables:     courseType === '498' ? deliverableDetail : null,
       deliverablesTotal,
       totalScore,
       finalGrade: finalGradeLetterOf(totalScore),
+      // Previous CPIS-498 committee feedback (only populated for CPIS-499 students)
+      prevCourseComments,
     });
   } catch (error) {
     console.error('Error fetching student grades:', error);

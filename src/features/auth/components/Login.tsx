@@ -101,9 +101,9 @@ export function Login() {
                 <input type="checkbox" className="rounded border-[var(--color-border)]" />
                 <span className="text-[var(--color-text-600)]">Remember me</span>
               </label>
-              <a href="#" className="text-[var(--color-primary-600)] hover:underline">
+              <Link to="/forgot-password" className="text-[var(--color-primary-600)] hover:underline">
                 Forgot password?
-              </a>
+              </Link>
             </div>
 
             <Button

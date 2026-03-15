@@ -35,21 +35,22 @@ async function listMilestones(req, res) {
     if (error) throw error;
 
     res.json((data || []).map((m) => ({
-      id:                    m.id,
-      name:                  m.name,
-      type:                  m.type,
-      courseId:              m.course_id,
-      courseCode:            m.course?.code ?? '',
-      openDate:              m.open_date,
-      dueDate:               m.due_date,
-      visible:               m.visible ?? true,
-      allowLateSubmission:   m.allow_late_submission ?? false,
-      requireJustification:  m.require_justification ?? false,
-      description:           m.description ?? '',
-      gradingCriterionId:    m.grading_criterion?.id ?? null,
-      gradingCriterionKey:   m.grading_criterion?.criterion_key ?? null,
-      gradingCriterionName:  m.grading_criterion?.criterion_name ?? null,
-      gradingCriterionMax:   m.grading_criterion?.max_raw_score ?? null,
+      id:                       m.id,
+      name:                     m.name,
+      type:                     m.type,
+      courseId:                 m.course_id,
+      courseCode:               m.course?.code ?? '',
+      openDate:                 m.open_date,
+      dueDate:                  m.due_date,
+      visible:                  m.visible ?? true,
+      allowLateSubmission:      m.allow_late_submission ?? false,
+      requireJustification:     m.require_justification ?? false,
+      description:              m.description ?? '',
+      gradingCriterionId:       m.grading_criterion?.id ?? null,
+      gradingCriterionKey:      m.grading_criterion?.criterion_key ?? null,
+      gradingCriterionName:     m.grading_criterion?.criterion_name ?? null,
+      gradingCriterionMax:      m.grading_criterion?.max_raw_score ?? null,
+      includeInCommitteeEval:   m.include_in_committee_eval ?? false,
     })));
   } catch (error) {
     console.error('Error listing milestones:', error);
@@ -67,7 +68,7 @@ async function createMilestone(req, res) {
     const {
       name, type, courseId, openDate, dueDate,
       visible, allowLateSubmission, requireJustification, description,
-      gradingCriterionId,
+      gradingCriterionId, includeInCommitteeEval,
     } = req.body;
 
     if (!name || !courseId || !openDate || !dueDate) {
@@ -105,11 +106,12 @@ async function createMilestone(req, res) {
         course_id:             courseId,
         open_date:             openDate,
         due_date:              dueDate,
-        visible:               visible ?? true,
-        allow_late_submission: allowLateSubmission ?? false,
-        require_justification: requireJustification ?? false,
-        description:           description ?? null,
-        grading_criterion_id:  gradingCriterionId ?? null,
+        visible:                     visible ?? true,
+        allow_late_submission:       allowLateSubmission ?? false,
+        require_justification:       requireJustification ?? false,
+        description:                 description ?? null,
+        grading_criterion_id:        gradingCriterionId ?? null,
+        include_in_committee_eval:   includeInCommitteeEval ?? false,
       })
       .select('id')
       .single();
@@ -192,6 +194,7 @@ async function updateMilestone(req, res) {
     if (updates.description          !== undefined) dbUpdates.description           = updates.description;
     // Allow null to explicitly unlink a criterion
     if ('gradingCriterionId' in updates) dbUpdates.grading_criterion_id = updates.gradingCriterionId ?? null;
+    if ('includeInCommitteeEval' in updates) dbUpdates.include_in_committee_eval = updates.includeInCommitteeEval ?? false;
 
     const { error: uErr } = await supabaseAdmin
       .from('milestones')

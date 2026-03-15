@@ -13,7 +13,7 @@ import { Label } from '../../components/ui/label';
 import { Switch } from '../../components/ui/switch';
 import { Textarea } from '../../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { Settings, Plus, Edit2, Save, X, Trash2, Award } from 'lucide-react';
+import { Settings, Plus, Edit2, Save, X, Trash2, Award, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { MilestoneConfig } from '../../types';
 
@@ -114,6 +114,7 @@ export function AdminMilestonesConfig() {
       requireJustification: false,
       description: '',
       gradingCriterionId: undefined,
+      includeInCommitteeEval: false,
     };
     setConfigs((prev) => [...prev, newMilestone]);
     setEditingId(newId);
@@ -366,6 +367,22 @@ export function AdminMilestonesConfig() {
                         />
                       </div>
                     )}
+
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label htmlFor="includeInCommitteeEval" className="text-[var(--color-text-900)]">
+                          Include in Committee Evaluation
+                        </Label>
+                        <p className="text-[var(--color-text-600)] mt-1">
+                          Committee members will see this milestone's submission and can leave feedback
+                        </p>
+                      </div>
+                      <Switch
+                        id="includeInCommitteeEval"
+                        checked={config.includeInCommitteeEval ?? false}
+                        onCheckedChange={(checked) => updateConfigField(config.id, 'includeInCommitteeEval', checked)}
+                      />
+                    </div>
                   </div>
 
                   <div className="flex gap-3 pt-4">
@@ -459,6 +476,12 @@ export function AdminMilestonesConfig() {
                         No grade linked
                       </div>
                     )}
+                    {config.includeInCommitteeEval ? (
+                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-sm bg-white text-teal-700 border border-teal-400">
+                        <Users className="w-3.5 h-3.5" />
+                        In Committee Eval
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               )}

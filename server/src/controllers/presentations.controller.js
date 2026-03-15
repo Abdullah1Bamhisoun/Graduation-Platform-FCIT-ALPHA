@@ -1,4 +1,5 @@
 const { supabaseAdmin } = require('../config/supabase');
+const emailService = require('../services/email.service');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -409,6 +410,26 @@ async function assignSchedule(req, res) {
         .insert(notificationRows);
 
       if (notifErr) console.warn('[presentations] Failed to send student notifications:', notifErr);
+
+      // ── Fire-and-forget email to group members ─────────────────────────────
+      const memberIds = members.map((m) => m.student_id);
+      supabaseAdmin
+        .from('profiles')
+        .select('email')
+        .in('id', memberIds)
+        .then(({ data: memberProfiles }) => {
+          const memberEmails = (memberProfiles || []).map((p) => p.email).filter(Boolean);
+          if (memberEmails.length > 0) {
+            emailService.sendPresentationScheduled(memberEmails, {
+              projectName,
+              formattedDateTime: formatted,
+              location: location ?? null,
+              timeSlot,
+              day,
+            }).catch(console.error);
+          }
+        })
+        .catch((err) => console.error('[presentations] Failed to send presentation email:', err.message));
     }
 
     return res.json({ success: true });

@@ -14,6 +14,7 @@ import {
   Users,
   FileText,
   RefreshCw,
+  MessageSquare,
 } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import type { WeekStatus } from '../../types';
@@ -27,6 +28,12 @@ interface GradeComponentItem {
   evaluatorRole: string;
   score: number | null;
   maxScore: number;
+}
+
+interface PrevCourseComment {
+  comment: string;
+  evaluatorName: string;
+  evaluatedAt: string | null;
 }
 
 interface StudentMyGradesData {
@@ -47,8 +54,10 @@ interface StudentMyGradesData {
     maxScore: number;
     gradedAt: string | null;
     submissionStatus: string;
+    comment?: string | null;
   } | null;
-  committeeEvaluation: { score: number; maxScore: number } | null;
+  committeeEvaluation: { score: number; maxScore: number; comment?: string | null } | null;
+  coordinatorComment?: string | null;
   approvalCounts: { total: number; pending: number; approved: number; rejected: number };
   weeklyScore: number;
   weeklyMaxScore: number;
@@ -67,6 +76,7 @@ interface StudentMyGradesData {
   deliverablesTotal: number;
   totalScore: number;
   finalGrade: string;
+  prevCourseComments?: PrevCourseComment[] | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -121,6 +131,8 @@ export function StudentGradesOverview() {
   const [gradesData, setGradesData]         = useState<StudentMyGradesData | null | 'loading'>('loading');
   const [weekStatuses, setWeekStatuses]     = useState<WeekStatus[]>([]);
   const [delivExpanded, setDelivExpanded]   = useState(false);
+  const [cpis498Expanded, setCpis498Expanded] = useState(false);
+  const [cpis499Expanded, setCpis499Expanded] = useState(false);
   const [peerRatings, setPeerRatings]       = useState<Record<string, number>>({});
   const [peerSubmitting, setPeerSubmitting] = useState(false);
   const [peerSubmitError, setPeerSubmitError] = useState<string | null>(null);
@@ -685,6 +697,147 @@ export function StudentGradesOverview() {
               <span className="text-sm text-[var(--color-text-600)]">/ 100</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* ── Feedback Sections (CPIS-498 + CPIS-499) ────────────────────────── */}
+      <div className="mb-5 space-y-3">
+
+        {/* CPIS-498 Feedback — only shown for students in CPIS-499 */}
+        {g.courseType === '499' && (
+          <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setCpis498Expanded(v => !v)}
+              className="w-full flex items-center justify-between px-5 py-4 hover:bg-[var(--color-surface-alt)] transition-colors text-left"
+            >
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-purple-400 flex-shrink-0" />
+                <span className="font-semibold text-[var(--color-text-900)]">CPIS-498 Feedback</span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200">Read-only</span>
+                {g.prevCourseComments && g.prevCourseComments.length > 0 && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 border border-purple-200">
+                    {g.prevCourseComments.length} comment{g.prevCourseComments.length !== 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
+              {cpis498Expanded
+                ? <ChevronUp className="w-4 h-4 text-[var(--color-text-500)]" />
+                : <ChevronDown className="w-4 h-4 text-[var(--color-text-500)]" />}
+            </button>
+
+            {cpis498Expanded && (
+              <div className="border-t border-[var(--color-border)] p-5">
+                {!g.prevCourseComments || g.prevCourseComments.length === 0 ? (
+                  <p className="text-sm text-[var(--color-text-600)] italic">
+                    No CPIS-498 committee feedback found.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-xs text-[var(--color-text-600)] mb-3">
+                      Previous committee feedback from CPIS-498
+                    </p>
+                    {g.prevCourseComments.map((fb, idx) => (
+                      <div key={idx} className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-semibold text-purple-800">{fb.evaluatorName}</span>
+                          {fb.evaluatedAt && (
+                            <span className="text-xs text-purple-600">
+                              {new Date(fb.evaluatedAt).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-purple-900 leading-relaxed">{fb.comment}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* CPIS-499 (or current course) Feedback */}
+        <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setCpis499Expanded(v => !v)}
+            className="w-full flex items-center justify-between px-5 py-4 hover:bg-[var(--color-surface-alt)] transition-colors text-left"
+          >
+            <div className="flex items-center gap-2">
+              <MessageSquare className="w-4 h-4 text-blue-500 flex-shrink-0" />
+              <span className="font-semibold text-[var(--color-text-900)]">{g.courseCode} Feedback</span>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200">Read-only</span>
+            </div>
+            {cpis499Expanded
+              ? <ChevronUp className="w-4 h-4 text-[var(--color-text-500)]" />
+              : <ChevronDown className="w-4 h-4 text-[var(--color-text-500)]" />}
+          </button>
+
+          {cpis499Expanded && (
+            <div className="border-t border-[var(--color-border)] p-5">
+              {/* 3-column comment cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+
+                {/* Supervisor Comment */}
+                <div className="bg-[var(--color-surface-alt)] border border-[var(--color-border)] rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-2 h-2 rounded-full bg-blue-400" />
+                    <span className="text-xs font-semibold text-[var(--color-text-700)] uppercase tracking-wide">
+                      Supervisor Comment
+                    </span>
+                  </div>
+                  {g.supervisorEvaluation?.comment ? (
+                    <p className="text-sm text-[var(--color-text-800)] leading-relaxed">
+                      {g.supervisorEvaluation.comment}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-[var(--color-text-500)] italic">No comment added yet</p>
+                  )}
+                  {g.supervisorEvaluation?.gradedAt && (
+                    <p className="text-xs text-[var(--color-text-500)] mt-2">
+                      {new Date(g.supervisorEvaluation.gradedAt).toLocaleDateString()}
+                    </p>
+                  )}
+                </div>
+
+                {/* Committee Comment */}
+                <div className="bg-[var(--color-surface-alt)] border border-[var(--color-border)] rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-2 h-2 rounded-full bg-green-400" />
+                    <span className="text-xs font-semibold text-[var(--color-text-700)] uppercase tracking-wide">
+                      Committee Comment
+                    </span>
+                  </div>
+                  {g.committeeEvaluation?.comment ? (
+                    <p className="text-sm text-[var(--color-text-800)] leading-relaxed whitespace-pre-wrap">
+                      {g.committeeEvaluation.comment}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-[var(--color-text-500)] italic">No comment added yet</p>
+                  )}
+                </div>
+
+                {/* Coordinator Comment */}
+                <div className="bg-[var(--color-surface-alt)] border border-[var(--color-border)] rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-2 h-2 rounded-full bg-amber-400" />
+                    <span className="text-xs font-semibold text-[var(--color-text-700)] uppercase tracking-wide">
+                      Coordinator Comment
+                    </span>
+                  </div>
+                  {g.coordinatorComment ? (
+                    <p className="text-sm text-[var(--color-text-800)] leading-relaxed">
+                      {g.coordinatorComment}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-[var(--color-text-500)] italic">No comment added yet</p>
+                  )}
+                </div>
+
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

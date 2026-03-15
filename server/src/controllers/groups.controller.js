@@ -1,4 +1,5 @@
 const { supabaseAdmin } = require('../config/supabase');
+const emailService = require('../services/email.service');
 
 /**
  * GET /api/groups
@@ -963,6 +964,30 @@ async function submitSupervisorEvaluation(req, res) {
         }, { onConflict: 'student_id,group_id,course_id' });
     }
 
+    // ── Fire-and-forget email to each evaluated student (final submit only) ──
+    if (submissionStatus === 'submitted') {
+      const courseName = group.course?.code ?? '';
+      const studentIds = assessments.map((a) => a.studentId);
+      supabaseAdmin
+        .from('profiles')
+        .select('id, email')
+        .in('id', studentIds)
+        .then(({ data: profiles }) => {
+          const emailMap = Object.fromEntries((profiles || []).map((p) => [p.id, p.email]));
+          assessments.forEach(({ studentId, normalizedScore }) => {
+            const email = emailMap[studentId];
+            if (email) {
+              emailService.sendSupervisorEvaluation(email, {
+                courseName,
+                normalizedScore,
+                maxScore: totalMarks,
+              }).catch(console.error);
+            }
+          });
+        })
+        .catch((err) => console.error('[groups] Failed to send supervisor evaluation emails:', err.message));
+    }
+
     res.json({
       success: true,
       results: assessments.map(({ studentId, normalizedScore }) => ({
@@ -1270,7 +1295,7 @@ async function submitCoordinatorEvaluation(req, res) {
     // 1. Validate group exists and belongs to coordinator's course
     const { data: group, error: groupError } = await supabaseAdmin
       .from('groups')
-      .select('id, course_id')
+      .select('id, course_id, course:courses!course_id(code)')
       .eq('id', groupId)
       .single();
 
@@ -1366,6 +1391,30 @@ async function submitCoordinatorEvaluation(req, res) {
       }, { onConflict: 'group_id,coordinator_id,component_key' });
 
     if (upserAssessError) throw upserAssessError;
+
+    // ── Fire-and-forget email to group members (final submit only) ────────────
+    if (submissionStatus === 'submitted') {
+      const courseName = group.course?.code ?? courseType;
+      supabaseAdmin
+        .from('group_members')
+        .select('student_id')
+        .eq('group_id', groupId)
+        .then(({ data: memberRows }) => {
+          const studentIds = (memberRows || []).map((m) => m.student_id);
+          if (studentIds.length === 0) return;
+          return supabaseAdmin.from('profiles').select('email').in('id', studentIds)
+            .then(({ data: profiles }) => {
+              (profiles || []).filter((p) => p.email).forEach((p) => {
+                emailService.sendCoordinatorEvaluation(p.email, {
+                  courseName,
+                  normalizedScore,
+                  maxScore: componentWeight,
+                }).catch(console.error);
+              });
+            });
+        })
+        .catch((err) => console.error('[groups] Failed to send coordinator evaluation emails:', err.message));
+    }
 
     res.json({
       success: true,

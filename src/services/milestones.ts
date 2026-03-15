@@ -39,10 +39,11 @@ function mapApiMilestoneConfig(data: any): MilestoneConfig {
     allowLateSubmission:  data.allowLateSubmission ?? false,
     requireJustification: data.requireJustification ?? false,
     description:          data.description ?? '',
-    gradingCriterionId:   data.gradingCriterionId ?? undefined,
-    gradingCriterionKey:  data.gradingCriterionKey ?? undefined,
-    gradingCriterionName: data.gradingCriterionName ?? undefined,
-    gradingCriterionMax:  data.gradingCriterionMax ?? undefined,
+    gradingCriterionId:     data.gradingCriterionId ?? undefined,
+    gradingCriterionKey:    data.gradingCriterionKey ?? undefined,
+    gradingCriterionName:   data.gradingCriterionName ?? undefined,
+    gradingCriterionMax:    data.gradingCriterionMax ?? undefined,
+    includeInCommitteeEval: data.includeInCommitteeEval ?? false,
   };
 }
 
@@ -215,6 +216,7 @@ export async function createMilestone(config: Omit<MilestoneConfig, 'id'>): Prom
       requireJustification: config.requireJustification,
       description:          config.description ?? '',
       gradingCriterionId:   config.gradingCriterionId ?? null,
+      includeInCommitteeEval: config.includeInCommitteeEval ?? false,
     }),
   });
 
@@ -249,7 +251,8 @@ export async function updateMilestone(id: string, updates: Partial<MilestoneConf
       allowLateSubmission:  updates.allowLateSubmission,
       requireJustification: updates.requireJustification,
       description:          updates.description,
-      gradingCriterionId:   updates.gradingCriterionId ?? null,
+      gradingCriterionId:     updates.gradingCriterionId ?? null,
+      includeInCommitteeEval: updates.includeInCommitteeEval ?? false,
     }),
   });
 

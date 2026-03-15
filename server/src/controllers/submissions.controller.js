@@ -1,4 +1,5 @@
 const { supabaseAdmin } = require('../config/supabase');
+const emailService = require('../services/email.service');
 
 /**
  * Normalize a DB status value (underscore format) to the frontend format (hyphen format).
@@ -200,6 +201,37 @@ async function updateSubmissionApproval(req, res) {
       });
     } catch {
       /* non-fatal */
+    }
+
+    // ── Fire-and-forget email to students in the group ───────────────────────
+    try {
+      const [{ data: memberRows }, { data: subDetail }] = await Promise.all([
+        supabaseAdmin.from('group_members').select('student_id').eq('group_id', submission.group_id),
+        supabaseAdmin.from('submissions')
+          .select('milestone:milestones!milestone_id(name, course:courses!course_id(code))')
+          .eq('id', submissionId)
+          .single(),
+      ]);
+
+      const studentIds = (memberRows || []).map((m) => m.student_id);
+      if (studentIds.length > 0) {
+        const { data: studentProfiles } = await supabaseAdmin
+          .from('profiles')
+          .select('email')
+          .in('id', studentIds);
+
+        const emails = (studentProfiles || []).map((p) => p.email).filter(Boolean);
+        if (emails.length > 0) {
+          emailService.sendSubmissionDecision(emails, {
+            status: action === 'approve' ? 'Approved' : 'Changes Requested',
+            feedback: feedback ?? '',
+            milestoneName: subDetail?.milestone?.name ?? '',
+            courseName: subDetail?.milestone?.course?.code ?? '',
+          }).catch(console.error);
+        }
+      }
+    } catch (emailErr) {
+      console.error('[submissions] Failed to send decision email:', emailErr.message);
     }
 
     res.json({ success: true, newStatus });
@@ -505,10 +537,179 @@ async function getGroupMilestoneStatuses(req, res) {
   }
 }
 
+/**
+ * POST /api/submissions
+ *
+ * Student endpoint — creates a new submission record + first version.
+ * Runs server-side (supabaseAdmin) so we can fire the supervisor email notification.
+ *
+ * Body: { milestoneId, studentId, groupId, fileName, fileSize, filePath, notes? }
+ */
+async function createSubmission(req, res) {
+  try {
+    const { milestoneId, studentId, groupId, fileName, fileSize, filePath, notes } = req.body;
+
+    if (!milestoneId || !studentId || !groupId || !fileName || !fileSize || !filePath) {
+      return res.status(400).json({ error: 'milestoneId, studentId, groupId, fileName, fileSize, and filePath are required' });
+    }
+
+    // Verify the requester is a member of the group
+    const { data: membership } = await supabaseAdmin
+      .from('group_members')
+      .select('student_id')
+      .eq('group_id', groupId)
+      .eq('student_id', req.user.id)
+      .maybeSingle();
+
+    if (!membership) {
+      return res.status(403).json({ error: 'Access denied: you are not a member of this group' });
+    }
+
+    // Create the submission record
+    const { data: submission, error: sError } = await supabaseAdmin
+      .from('submissions')
+      .insert({ milestone_id: milestoneId, student_id: studentId, group_id: groupId, status: 'submitted', current_version: 1 })
+      .select('id')
+      .single();
+
+    if (sError) throw sError;
+
+    // Create the first version
+    const { error: vError } = await supabaseAdmin
+      .from('submission_versions')
+      .insert({ submission_id: submission.id, version: 1, file_name: fileName, file_size: fileSize, file_path: filePath, notes: notes ?? null });
+
+    if (vError) throw vError;
+
+    // ── Fire-and-forget email to supervisor ──────────────────────────────────
+    try {
+      const [{ data: group }, { data: milestone }] = await Promise.all([
+        supabaseAdmin.from('groups').select('supervisor_id').eq('id', groupId).single(),
+        supabaseAdmin.from('milestones').select('name, course:courses!course_id(code)').eq('id', milestoneId).single(),
+      ]);
+
+      if (group?.supervisor_id) {
+        const { data: supervisorProfile } = await supabaseAdmin
+          .from('profiles')
+          .select('email')
+          .eq('id', group.supervisor_id)
+          .single();
+
+        if (supervisorProfile?.email) {
+          emailService.sendSubmissionReceived(supervisorProfile.email, {
+            studentName: req.user.name || 'Student',
+            milestoneName: milestone?.name ?? '',
+            courseName: milestone?.course?.code ?? '',
+            submittedAt: new Date().toISOString(),
+          }).catch(console.error);
+        }
+      }
+    } catch (emailErr) {
+      console.error('[submissions] Failed to send submission email:', emailErr.message);
+    }
+
+    res.json({ success: true, submissionId: submission.id });
+  } catch (error) {
+    console.error('Error creating submission:', error);
+    res.status(500).json({ error: error?.message || 'Failed to create submission' });
+  }
+}
+
+/**
+ * POST /api/submissions/:id/versions
+ *
+ * Student endpoint — adds a new version to an existing submission.
+ * Runs server-side so we can fire the supervisor email notification.
+ *
+ * Body: { version, fileName, fileSize, filePath, notes? }
+ */
+async function createSubmissionVersion(req, res) {
+  try {
+    const { id: submissionId } = req.params;
+    const { version, fileName, fileSize, filePath, notes } = req.body;
+
+    if (!version || !fileName || !fileSize || !filePath) {
+      return res.status(400).json({ error: 'version, fileName, fileSize, and filePath are required' });
+    }
+
+    // Fetch the submission to verify ownership
+    const { data: submission, error: fetchErr } = await supabaseAdmin
+      .from('submissions')
+      .select('id, group_id, milestone_id, student_id')
+      .eq('id', submissionId)
+      .single();
+
+    if (fetchErr || !submission) {
+      return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    // Verify requester is a member of the group
+    const { data: membership } = await supabaseAdmin
+      .from('group_members')
+      .select('student_id')
+      .eq('group_id', submission.group_id)
+      .eq('student_id', req.user.id)
+      .maybeSingle();
+
+    if (!membership) {
+      return res.status(403).json({ error: 'Access denied: you are not a member of this group' });
+    }
+
+    // Insert the new version
+    const { error: vError } = await supabaseAdmin
+      .from('submission_versions')
+      .insert({ submission_id: submissionId, version, file_name: fileName, file_size: fileSize, file_path: filePath, notes: notes ?? null });
+
+    if (vError) throw vError;
+
+    // Update submission's current_version and reset status to 'submitted'
+    const { error: uError } = await supabaseAdmin
+      .from('submissions')
+      .update({ current_version: version, status: 'submitted' })
+      .eq('id', submissionId);
+
+    if (uError) throw uError;
+
+    // ── Fire-and-forget email to supervisor ──────────────────────────────────
+    try {
+      const [{ data: group }, { data: milestone }] = await Promise.all([
+        supabaseAdmin.from('groups').select('supervisor_id').eq('id', submission.group_id).single(),
+        supabaseAdmin.from('milestones').select('name, course:courses!course_id(code)').eq('id', submission.milestone_id).single(),
+      ]);
+
+      if (group?.supervisor_id) {
+        const { data: supervisorProfile } = await supabaseAdmin
+          .from('profiles')
+          .select('email')
+          .eq('id', group.supervisor_id)
+          .single();
+
+        if (supervisorProfile?.email) {
+          emailService.sendSubmissionReceived(supervisorProfile.email, {
+            studentName: req.user.name || 'Student',
+            milestoneName: milestone?.name ?? '',
+            courseName: milestone?.course?.code ?? '',
+            submittedAt: new Date().toISOString(),
+          }).catch(console.error);
+        }
+      }
+    } catch (emailErr) {
+      console.error('[submissions] Failed to send version email:', emailErr.message);
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error creating submission version:', error);
+    res.status(500).json({ error: error?.message || 'Failed to create submission version' });
+  }
+}
+
 module.exports = {
   getChapterSubmissionsForSupervisor,
   updateSubmissionApproval,
   getChapterSubmissionsForCoordinator,
   getGroupSubmission,
   getGroupMilestoneStatuses,
+  createSubmission,
+  createSubmissionVersion,
 };

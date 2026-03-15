@@ -1,4 +1,5 @@
 const { supabaseAdmin } = require('../config/supabase');
+const emailService = require('../services/email.service');
 
 /**
  * GET /api/announcements?role=student|supervisor|admin
@@ -72,6 +73,76 @@ async function createAnnouncement(req, res) {
       .single();
 
     if (error) throw error;
+
+    // ── Fire-and-forget course-scoped email blast ─────────────────────────────
+    const coordinatorCourseId = req.user.coordinatorCourseId ?? null;
+    const publishedAt = new Date().toISOString();
+
+    // Resolve email recipients per role, scoped to coordinator's course
+    (async () => {
+      try {
+        const recipientEmails = new Set();
+
+        if (targetRoles.includes('student') && coordinatorCourseId) {
+          const { data: groups } = await supabaseAdmin
+            .from('groups').select('id').eq('course_id', coordinatorCourseId);
+          const groupIds = (groups || []).map((g) => g.id);
+          if (groupIds.length > 0) {
+            const { data: members } = await supabaseAdmin
+              .from('group_members').select('student_id').in('group_id', groupIds);
+            const studentIds = (members || []).map((m) => m.student_id);
+            if (studentIds.length > 0) {
+              const { data: profiles } = await supabaseAdmin
+                .from('profiles').select('email').in('id', studentIds);
+              (profiles || []).forEach((p) => p.email && recipientEmails.add(p.email));
+            }
+          }
+        }
+
+        if (targetRoles.includes('supervisor') && coordinatorCourseId) {
+          const { data: groups } = await supabaseAdmin
+            .from('groups').select('supervisor_id')
+            .eq('course_id', coordinatorCourseId)
+            .not('supervisor_id', 'is', null);
+          const supIds = [...new Set((groups || []).map((g) => g.supervisor_id))];
+          if (supIds.length > 0) {
+            const { data: profiles } = await supabaseAdmin
+              .from('profiles').select('email').in('id', supIds);
+            (profiles || []).forEach((p) => p.email && recipientEmails.add(p.email));
+          }
+        }
+
+        if (targetRoles.includes('admin')) {
+          const { data: adminRoles } = await supabaseAdmin
+            .from('user_roles').select('user_id').eq('role', 'admin');
+          const adminIds = (adminRoles || []).map((r) => r.user_id);
+          if (adminIds.length > 0) {
+            const { data: profiles } = await supabaseAdmin
+              .from('profiles').select('email').in('id', adminIds);
+            (profiles || []).forEach((p) => p.email && recipientEmails.add(p.email));
+          }
+        }
+
+        if (recipientEmails.size === 0) return;
+
+        // Fetch course name for email subject
+        let courseName = '';
+        if (coordinatorCourseId) {
+          const { data: course } = await supabaseAdmin
+            .from('courses').select('code').eq('id', coordinatorCourseId).single();
+          courseName = course?.code ?? '';
+        }
+
+        await emailService.sendAnnouncement([...recipientEmails], {
+          title,
+          content,
+          courseName,
+          publishedAt,
+        });
+      } catch (emailErr) {
+        console.error('[announcements] Failed to send announcement emails:', emailErr.message);
+      }
+    })();
 
     res.json({ success: true, id: data.id });
   } catch (error) {

@@ -195,57 +195,58 @@ export async function createSubmission(submission: {
   filePath: string;
   notes?: string;
 }): Promise<void> {
-  // Create submission record
-  const { data, error } = await supabase
-    .from('submissions')
-    .insert({
-      milestone_id: submission.milestoneId,
-      student_id: submission.studentId,
-      group_id: submission.groupId,
-      status: 'submitted',
-      current_version: 1,
-    })
-    .select('id')
-    .single();
+  const session = await supabase.auth.getSession();
+  const token = session.data.session?.access_token;
 
-  if (error) throw error;
-
-  // Create first version
-  const { error: vError } = await supabase.from('submission_versions').insert({
-    submission_id: data.id,
-    version: 1,
-    file_name: submission.fileName,
-    file_size: submission.fileSize,
-    file_path: submission.filePath,
-    notes: submission.notes ?? null,
+  const res = await fetch('/api/submissions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token ?? ''}`,
+    },
+    body: JSON.stringify({
+      milestoneId: submission.milestoneId,
+      studentId: submission.studentId,
+      groupId: submission.groupId,
+      fileName: submission.fileName,
+      fileSize: submission.fileSize,
+      filePath: submission.filePath,
+      notes: submission.notes,
+    }),
   });
 
-  if (vError) throw vError;
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).error || 'Failed to create submission');
+  }
 }
 
 export async function createSubmissionVersion(
   submissionId: string,
   version: { version: number; fileName: string; fileSize: string; filePath: string; notes?: string }
 ): Promise<void> {
-  // Insert new version
-  const { error: vError } = await supabase.from('submission_versions').insert({
-    submission_id: submissionId,
-    version: version.version,
-    file_name: version.fileName,
-    file_size: version.fileSize,
-    file_path: version.filePath,
-    notes: version.notes ?? null,
+  const session = await supabase.auth.getSession();
+  const token = session.data.session?.access_token;
+
+  const res = await fetch(`/api/submissions/${submissionId}/versions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token ?? ''}`,
+    },
+    body: JSON.stringify({
+      version: version.version,
+      fileName: version.fileName,
+      fileSize: version.fileSize,
+      filePath: version.filePath,
+      notes: version.notes,
+    }),
   });
 
-  if (vError) throw vError;
-
-  // Update submission's current version and status
-  const { error: sError } = await supabase
-    .from('submissions')
-    .update({ current_version: version.version, status: 'submitted' })
-    .eq('id', submissionId);
-
-  if (sError) throw sError;
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).error || 'Failed to create submission version');
+  }
 }
 
 export async function submitFeedback(feedback: {

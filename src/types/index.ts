@@ -423,6 +423,8 @@ export interface MilestoneConfig {
   gradingCriterionKey?: string;
   gradingCriterionName?: string;
   gradingCriterionMax?: number;
+  /** When true, this milestone appears in Committee Evaluation for file review + feedback */
+  includeInCommitteeEval?: boolean;
 }
 
 // ─── Audit Log ────────────────────────────────────────────────────────────────
