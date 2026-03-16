@@ -1,6 +1,6 @@
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
-import { getAllAnnouncements, deleteAnnouncement } from '../../services/announcements';
+import { getAllAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement } from '../../services/announcements';
 import { Bell, Plus, Edit, Trash2, Calendar as CalendarIcon } from 'lucide-react';
 import { Card } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
@@ -71,7 +71,7 @@ export function AnnouncementsManager() {
     });
   };
 
-  const handleSaveAnnouncement = () => {
+  const handleSaveAnnouncement = async () => {
     if (!formData.title || !formData.content) {
       toast.error('Please fill in all required fields');
       return;
@@ -82,34 +82,34 @@ export function AnnouncementsManager() {
       return;
     }
 
-    if (editingId) {
-      // Update existing announcement
-      setAnnouncements(announcements.map(a =>
-        a.id === editingId
-          ? {
-              ...a,
-              title: formData.title,
-              content: formData.content,
-              targetRoles: formData.targetRoles,
-            }
-          : a
-      ));
-      toast.success('Announcement updated successfully');
-    } else {
-      // Create new announcement
-      const newAnnouncement = {
-        id: `ann${announcements.length + 1}`,
-        title: formData.title,
-        content: formData.content,
-        author: user.name,
-        publishedAt: new Date().toISOString(),
-        targetRoles: formData.targetRoles,
-      };
-      setAnnouncements([newAnnouncement, ...announcements]);
-      toast.success('Announcement published successfully');
+    try {
+      if (editingId) {
+        await updateAnnouncement(editingId, {
+          title: formData.title,
+          content: formData.content,
+          targetRoles: formData.targetRoles,
+        });
+        setAnnouncements(announcements.map(a =>
+          a.id === editingId
+            ? { ...a, title: formData.title, content: formData.content, targetRoles: formData.targetRoles }
+            : a
+        ));
+        toast.success('Announcement updated successfully');
+      } else {
+        await createAnnouncement({
+          title: formData.title,
+          content: formData.content,
+          authorId: user.id,
+          targetRoles: formData.targetRoles,
+        });
+        const fresh = await getAllAnnouncements();
+        setAnnouncements(fresh);
+        toast.success('Announcement published successfully');
+      }
+      handleCloseDialog();
+    } catch (error) {
+      toast.error('Failed to save announcement');
     }
-
-    handleCloseDialog();
   };
 
   const handleDeleteAnnouncement = async (id: string) => {

@@ -2,6 +2,101 @@ const { supabaseAdmin } = require('../config/supabase');
 const emailService = require('../services/email.service');
 
 /**
+ * Resolve recipient emails for an announcement blast.
+ *
+ * For students / supervisors: tries course-scoped group lookup first; falls
+ * back to ALL platform users of that role so announcements are never silently
+ * dropped when a coordinator has no groups set up yet.
+ *
+ * @param {string[]} targetRoles
+ * @param {string|null} coordinatorCourseId
+ * @returns {Promise<{ emails: string[], courseName: string }>}
+ */
+async function resolveRecipientEmails(targetRoles, coordinatorCourseId) {
+  const recipientEmails = new Set();
+
+  // ── Students ──────────────────────────────────────────────────────────────
+  if (targetRoles.includes('student')) {
+    let foundViaGroups = false;
+
+    if (coordinatorCourseId) {
+      const { data: groups } = await supabaseAdmin
+        .from('groups').select('id').eq('course_id', coordinatorCourseId);
+      const groupIds = (groups || []).map((g) => g.id);
+
+      if (groupIds.length > 0) {
+        const { data: members } = await supabaseAdmin
+          .from('group_members').select('student_id').in('group_id', groupIds);
+        const studentIds = (members || []).map((m) => m.student_id);
+
+        if (studentIds.length > 0) {
+          const { data: profiles } = await supabaseAdmin
+            .from('profiles').select('email').in('id', studentIds);
+          (profiles || []).forEach((p) => p.email && recipientEmails.add(p.email));
+          foundViaGroups = recipientEmails.size > 0;
+        }
+      }
+    }
+
+    // Fallback: no coordinatorCourseId OR no groups/members found yet →
+    // email ALL students on the platform so the announcement is never lost.
+    if (!foundViaGroups) {
+      const { data: profiles } = await supabaseAdmin
+        .from('profiles').select('email').eq('role', 'student');
+      (profiles || []).forEach((p) => p.email && recipientEmails.add(p.email));
+    }
+  }
+
+  // ── Supervisors ───────────────────────────────────────────────────────────
+  if (targetRoles.includes('supervisor')) {
+    let foundViaGroups = false;
+
+    if (coordinatorCourseId) {
+      const { data: groups } = await supabaseAdmin
+        .from('groups').select('supervisor_id')
+        .eq('course_id', coordinatorCourseId)
+        .not('supervisor_id', 'is', null);
+      const supIds = [...new Set((groups || []).map((g) => g.supervisor_id))];
+
+      if (supIds.length > 0) {
+        const { data: profiles } = await supabaseAdmin
+          .from('profiles').select('email').in('id', supIds);
+        (profiles || []).forEach((p) => p.email && recipientEmails.add(p.email));
+        foundViaGroups = true;
+      }
+    }
+
+    if (!foundViaGroups) {
+      const { data: profiles } = await supabaseAdmin
+        .from('profiles').select('email').eq('role', 'supervisor');
+      (profiles || []).forEach((p) => p.email && recipientEmails.add(p.email));
+    }
+  }
+
+  // ── Admins ────────────────────────────────────────────────────────────────
+  if (targetRoles.includes('admin')) {
+    const { data: adminRoles } = await supabaseAdmin
+      .from('user_roles').select('user_id').eq('role', 'admin');
+    const adminIds = (adminRoles || []).map((r) => r.user_id);
+    if (adminIds.length > 0) {
+      const { data: profiles } = await supabaseAdmin
+        .from('profiles').select('email').in('id', adminIds);
+      (profiles || []).forEach((p) => p.email && recipientEmails.add(p.email));
+    }
+  }
+
+  // ── Course name (for email subject) ──────────────────────────────────────
+  let courseName = '';
+  if (coordinatorCourseId) {
+    const { data: course } = await supabaseAdmin
+      .from('courses').select('code').eq('id', coordinatorCourseId).single();
+    courseName = course?.code ?? '';
+  }
+
+  return { emails: [...recipientEmails], courseName };
+}
+
+/**
  * GET /api/announcements?role=student|supervisor|admin
  * Authenticated — returns announcements targeting the given role
  */
@@ -74,71 +169,15 @@ async function createAnnouncement(req, res) {
 
     if (error) throw error;
 
-    // ── Fire-and-forget course-scoped email blast ─────────────────────────────
+    // ── Fire-and-forget email blast ───────────────────────────────────────────
     const coordinatorCourseId = req.user.coordinatorCourseId ?? null;
     const publishedAt = new Date().toISOString();
 
-    // Resolve email recipients per role, scoped to coordinator's course
     (async () => {
       try {
-        const recipientEmails = new Set();
-
-        if (targetRoles.includes('student') && coordinatorCourseId) {
-          const { data: groups } = await supabaseAdmin
-            .from('groups').select('id').eq('course_id', coordinatorCourseId);
-          const groupIds = (groups || []).map((g) => g.id);
-          if (groupIds.length > 0) {
-            const { data: members } = await supabaseAdmin
-              .from('group_members').select('student_id').in('group_id', groupIds);
-            const studentIds = (members || []).map((m) => m.student_id);
-            if (studentIds.length > 0) {
-              const { data: profiles } = await supabaseAdmin
-                .from('profiles').select('email').in('id', studentIds);
-              (profiles || []).forEach((p) => p.email && recipientEmails.add(p.email));
-            }
-          }
-        }
-
-        if (targetRoles.includes('supervisor') && coordinatorCourseId) {
-          const { data: groups } = await supabaseAdmin
-            .from('groups').select('supervisor_id')
-            .eq('course_id', coordinatorCourseId)
-            .not('supervisor_id', 'is', null);
-          const supIds = [...new Set((groups || []).map((g) => g.supervisor_id))];
-          if (supIds.length > 0) {
-            const { data: profiles } = await supabaseAdmin
-              .from('profiles').select('email').in('id', supIds);
-            (profiles || []).forEach((p) => p.email && recipientEmails.add(p.email));
-          }
-        }
-
-        if (targetRoles.includes('admin')) {
-          const { data: adminRoles } = await supabaseAdmin
-            .from('user_roles').select('user_id').eq('role', 'admin');
-          const adminIds = (adminRoles || []).map((r) => r.user_id);
-          if (adminIds.length > 0) {
-            const { data: profiles } = await supabaseAdmin
-              .from('profiles').select('email').in('id', adminIds);
-            (profiles || []).forEach((p) => p.email && recipientEmails.add(p.email));
-          }
-        }
-
-        if (recipientEmails.size === 0) return;
-
-        // Fetch course name for email subject
-        let courseName = '';
-        if (coordinatorCourseId) {
-          const { data: course } = await supabaseAdmin
-            .from('courses').select('code').eq('id', coordinatorCourseId).single();
-          courseName = course?.code ?? '';
-        }
-
-        await emailService.sendAnnouncement([...recipientEmails], {
-          title,
-          content,
-          courseName,
-          publishedAt,
-        });
+        const { emails, courseName } = await resolveRecipientEmails(targetRoles, coordinatorCourseId);
+        if (emails.length === 0) return;
+        await emailService.sendAnnouncement(emails, { title, content, courseName, publishedAt });
       } catch (emailErr) {
         console.error('[announcements] Failed to send announcement emails:', emailErr.message);
       }
@@ -173,6 +212,40 @@ async function updateAnnouncement(req, res) {
 
     if (error) throw error;
     res.json({ success: true });
+
+    // ── Fire-and-forget email blast on update ─────────────────────────────────
+    const coordinatorCourseId = req.user.coordinatorCourseId ?? null;
+    const publishedAt = new Date().toISOString();
+
+    (async () => {
+      try {
+        let effectiveRoles = targetRoles;
+        let effectiveTitle = title;
+        let effectiveContent = content;
+
+        if (!effectiveRoles || !effectiveTitle || !effectiveContent) {
+          const { data: existing } = await supabaseAdmin
+            .from('announcements')
+            .select('title, content, target_roles')
+            .eq('id', id)
+            .single();
+          effectiveRoles = effectiveRoles ?? existing?.target_roles ?? [];
+          effectiveTitle = effectiveTitle ?? existing?.title ?? '';
+          effectiveContent = effectiveContent ?? existing?.content ?? '';
+        }
+
+        const { emails, courseName } = await resolveRecipientEmails(effectiveRoles, coordinatorCourseId);
+        if (emails.length === 0) return;
+        await emailService.sendAnnouncement(emails, {
+          title: effectiveTitle,
+          content: effectiveContent,
+          courseName,
+          publishedAt,
+        });
+      } catch (emailErr) {
+        console.error('[announcements] Failed to send update emails:', emailErr.message);
+      }
+    })();
   } catch (error) {
     console.error('Error updating announcement:', error);
     res.status(500).json({ error: 'Failed to update announcement' });
