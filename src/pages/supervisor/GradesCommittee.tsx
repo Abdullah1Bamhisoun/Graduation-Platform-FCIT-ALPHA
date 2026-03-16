@@ -16,7 +16,6 @@ import { DocumentViewerWithAnnotations } from '../../components/DocumentViewerWi
 import { getGroupsForEvaluation } from '../../services/groups';
 import { getRubricCriteria } from '../../services/grading-rubric';
 import {
-  getGroupFiles,
   getPreviousCommitteeFeedback,
   getRoleBadge,
   getCommitteeEvalSubmissions,
@@ -343,10 +342,6 @@ export function SupervisorGradesCommittee() {
   // Committee criteria — loaded from Grade Scheme Editor (Examination Committee)
   const [committeeCriteria, setCommitteeCriteria] = useState<CommitteeCriterion[]>([]);
 
-  // Committee files (submitted to committee) for the selected group
-  const [committeeFiles, setCommitteeFiles] = useState<GroupFile[]>([]);
-  const [loadingFiles, setLoadingFiles] = useState(false);
-
   // Milestone submissions flagged for committee evaluation
   const [committeeEvalSubmissions, setCommitteeEvalSubmissions] = useState<CommitteeEvalSubmission[]>([]);
   const [loadingEvalSubmissions, setLoadingEvalSubmissions] = useState(false);
@@ -372,12 +367,6 @@ export function SupervisorGradesCommittee() {
         description5: c.description5,
       })));
     });
-
-    // Load committee files
-    setLoadingFiles(true);
-    getGroupFiles(selectedGroupForGrading.id, { committeeOnly: true, activeRole: 'supervisor' })
-      .then(setCommitteeFiles)
-      .finally(() => setLoadingFiles(false));
 
     // Load milestone submissions flagged for committee eval
     setLoadingEvalSubmissions(true);
@@ -442,7 +431,6 @@ export function SupervisorGradesCommittee() {
     setIsGrading(false);
     setSelectedGroupForGrading(null);
     setOpenCriterionId(null);
-    setCommitteeFiles([]);
     setPrevFeedback(null);
     setShowPrevFeedback(false);
   };
