@@ -52,6 +52,7 @@ async function listMilestones(req, res) {
       gradingCriterionName:     m.grading_criterion?.criterion_name ?? null,
       gradingCriterionMax:      m.grading_criterion?.max_raw_score ?? null,
       includeInCommitteeEval:   m.include_in_committee_eval ?? false,
+      allowedFileType:          m.allowed_file_type ?? undefined,
     })));
   } catch (error) {
     console.error('Error listing milestones:', error);
@@ -69,7 +70,7 @@ async function createMilestone(req, res) {
     const {
       name, type, courseId, openDate, dueDate,
       visible, allowLateSubmission, requireJustification, description,
-      gradingCriterionId, includeInCommitteeEval,
+      gradingCriterionId, includeInCommitteeEval, allowedFileType,
     } = req.body;
 
     if (!name || !courseId || !openDate || !dueDate) {
@@ -113,6 +114,7 @@ async function createMilestone(req, res) {
         description:                 description ?? null,
         grading_criterion_id:        gradingCriterionId ?? null,
         include_in_committee_eval:   includeInCommitteeEval ?? false,
+        allowed_file_type:           allowedFileType ?? null,
       })
       .select('id')
       .single();
@@ -226,6 +228,7 @@ async function updateMilestone(req, res) {
     // Allow null to explicitly unlink a criterion
     if ('gradingCriterionId' in updates) dbUpdates.grading_criterion_id = updates.gradingCriterionId ?? null;
     if ('includeInCommitteeEval' in updates) dbUpdates.include_in_committee_eval = updates.includeInCommitteeEval ?? false;
+    if ('allowedFileType' in updates) dbUpdates.allowed_file_type = updates.allowedFileType ?? null;
 
     const { error: uErr } = await supabaseAdmin
       .from('milestones')
