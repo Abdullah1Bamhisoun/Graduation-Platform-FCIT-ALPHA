@@ -704,6 +704,100 @@ async function createSubmissionVersion(req, res) {
   }
 }
 
+/**
+ * GET /api/submissions/committee-eval?groupId=X
+ *
+ * Returns milestone submissions for committee evaluation.
+ * Fetches all milestones with include_in_committee_eval=true for the group's course,
+ * then finds the group's submission (if any) for each and returns the latest file version.
+ * Accessible by supervisors, committee members, and coordinators.
+ */
+async function getCommitteeEvalSubmissions(req, res) {
+  try {
+    const { groupId } = req.query;
+    if (!groupId) {
+      return res.status(400).json({ error: 'groupId is required' });
+    }
+
+    // Resolve the group's course_id
+    const { data: group, error: gError } = await supabaseAdmin
+      .from('groups')
+      .select('id, course_id')
+      .eq('id', groupId)
+      .single();
+
+    if (gError || !group) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+
+    if (!group.course_id) {
+      return res.json([]);
+    }
+
+    // Fetch milestones flagged for committee eval in this course
+    const { data: milestones, error: mError } = await supabaseAdmin
+      .from('milestones')
+      .select('id, name, due_date')
+      .eq('course_id', group.course_id)
+      .eq('include_in_committee_eval', true)
+      .order('due_date');
+
+    if (mError) throw mError;
+    if (!milestones || milestones.length === 0) return res.json([]);
+
+    const milestoneIds = milestones.map((m) => m.id);
+
+    // Fetch submissions for this group for those milestones
+    const { data: submissions, error: sError } = await supabaseAdmin
+      .from('submissions')
+      .select(`
+        id, milestone_id, student_id, status, current_version, updated_at, created_at,
+        student:profiles!student_id(id, name),
+        versions:submission_versions!submission_id(version, file_name, file_size, file_path, uploaded_at, notes)
+      `)
+      .eq('group_id', groupId)
+      .in('milestone_id', milestoneIds);
+
+    if (sError) throw sError;
+
+    const submissionByMilestone = Object.fromEntries(
+      (submissions || []).map((s) => [s.milestone_id, s])
+    );
+
+    const result = milestones.map((m) => {
+      const sub = submissionByMilestone[m.id] ?? null;
+      let latestVersion = null;
+      if (sub && sub.versions && sub.versions.length > 0) {
+        latestVersion = sub.versions.reduce((a, b) => (a.version > b.version ? a : b));
+      }
+      return {
+        milestoneId: m.id,
+        milestoneName: m.name,
+        dueDate: m.due_date,
+        submissionId: sub?.id ?? null,
+        status: sub ? normalizeStatus(sub.status) : null,
+        submitterName: sub?.student?.name ?? null,
+        submittedAt: sub ? (sub.updated_at ?? sub.created_at) : null,
+        latestVersion: latestVersion
+          ? {
+              version: latestVersion.version,
+              fileName: latestVersion.file_name,
+              fileSize: latestVersion.file_size,
+              filePath: latestVersion.file_path,
+              uploadedAt: latestVersion.uploaded_at,
+              notes: latestVersion.notes ?? null,
+            }
+          : null,
+      };
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error fetching committee eval submissions:', error);
+    res.status(500).json({ error: 'Failed to fetch committee eval submissions' });
+  }
+}
+
 module.exports = {
   getChapterSubmissionsForSupervisor,
   updateSubmissionApproval,
@@ -712,4 +806,5 @@ module.exports = {
   getGroupMilestoneStatuses,
   createSubmission,
   createSubmissionVersion,
+  getCommitteeEvalSubmissions,
 };

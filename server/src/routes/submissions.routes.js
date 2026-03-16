@@ -50,6 +50,9 @@ router.get(
 router.get('/group-submission', authenticate, controller.getGroupSubmission);
 router.get('/group-milestone-statuses', authenticate, controller.getGroupMilestoneStatuses);
 
+// Committee eval: milestone submissions flagged for committee review
+router.get('/committee-eval', authenticate, controller.getCommitteeEvalSubmissions);
+
 router.get(
   '/coordinator/chapter-submissions',
   authenticate,

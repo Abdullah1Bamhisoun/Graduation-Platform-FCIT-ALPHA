@@ -114,15 +114,6 @@ export function Login() {
               {isLoading ? 'Signing in...' : 'Sign In'}
             </Button>
 
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full"
-              disabled
-            >
-              Single Sign-On (SSO) - Coming Soon
-            </Button>
-
             <p className="text-center text-[var(--color-text-600)]">
               Don't have an account?{' '}
               <Link to="/register" className="text-[var(--color-primary-600)] hover:underline font-medium">

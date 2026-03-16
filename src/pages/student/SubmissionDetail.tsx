@@ -235,6 +235,7 @@ export function StudentSubmissionDetail() {
   const uploadsBlocked = isLocked || (isPastDeadline && !milestone.allowLateSubmission);
 
   return (
+    <>
     <Layout user={user} pageTitle={milestone.name}>
       {isLocked && <LockedBanner />}
       <div className="mb-6">
@@ -710,18 +711,18 @@ export function StudentSubmissionDetail() {
         </div>
       </div>
 
-      {/* Full-screen File Viewer with Annotations */}
-      {viewerFile && (
-        <DocumentViewerWithAnnotations
-          fileUrl={viewerFile.url}
-          filePath={viewerFile.filePath}
-          fileName={viewerFile.fileName}
-          onClose={() => setViewerFile(null)}
-          userId={user.id}
-          userName={user.name}
-          userRole={user.role}
-        />
-      )}
     </Layout>
+    {viewerFile && (
+      <DocumentViewerWithAnnotations
+        fileUrl={viewerFile.url}
+        filePath={viewerFile.filePath}
+        fileName={viewerFile.fileName}
+        onClose={() => setViewerFile(null)}
+        userId={user.id}
+        userName={user.name}
+        userRole={user.activeRole}
+      />
+    )}
+    </>
   );
 }

@@ -12,8 +12,19 @@ import {
   DialogTitle,
 } from '../../components/ui/dialog';
 import { useAuth } from '../../lib/AuthContext';
+import { DocumentViewerWithAnnotations } from '../../components/DocumentViewerWithAnnotations';
 import { getGroupsForEvaluation } from '../../services/groups';
 import { getRubricCriteria } from '../../services/grading-rubric';
+import {
+  getGroupFiles,
+  getPreviousCommitteeFeedback,
+  getRoleBadge,
+  getCommitteeEvalSubmissions,
+  type GroupFile,
+  type PreviousCommitteeFeedback,
+  type CommitteeEvalSubmission,
+} from '../../services/groupFiles';
+import { getSignedUrl } from '../../services/storage';
 import {
   Search,
   FileText,
@@ -24,6 +35,10 @@ import {
   CheckCircle,
   ArrowLeft,
   ChevronDown,
+  Download,
+  Eye,
+  Paperclip,
+  History,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -39,6 +54,7 @@ interface AssignedGroup {
   status: 'not-scheduled' | 'scheduled' | 'completed';
   /** Server-computed: evaluation is unlocked when presentation time has passed. */
   evaluationActive: boolean;
+  students: { id: string; name: string }[];
 }
 
 interface CommitteeCriterion {
@@ -66,6 +82,211 @@ const getScoreColor = (score: number | null): string => {
   return colors[score] ?? '#d1d5db';
 };
 
+function formatFileSize(bytes: number | null): string {
+  if (!bytes) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+}
+
+/** RoleBadge component — shows coloured pill for uploader role. */
+function RoleBadge({ role }: { role: string }) {
+  const badge = getRoleBadge(role);
+  return (
+    <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${badge.className}`}>
+      {badge.label}
+    </span>
+  );
+}
+
+/** A single file row with Download and View buttons. */
+function FileRow({
+  file,
+  isPreviousCommittee = false,
+  onView,
+}: {
+  file: GroupFile;
+  isPreviousCommittee?: boolean;
+  onView?: (fileUrl: string, filePath: string, fileName: string) => void;
+}) {
+  const handleDownload = async () => {
+    try {
+      const url = await getSignedUrl(file.filePath);
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = file.fileName;
+      a.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      toast.error('Failed to download file');
+    }
+  };
+
+  const handleView = async () => {
+    try {
+      const url = await getSignedUrl(file.filePath);
+      onView ? onView(url, file.filePath, file.fileName) : window.open(url, '_blank');
+    } catch {
+      toast.error('Failed to open file');
+    }
+  };
+
+  return (
+    <div className="flex items-start justify-between gap-4 p-4 border border-[var(--color-border)] rounded-lg bg-white hover:bg-gray-50 transition-colors">
+      <div className="flex items-start gap-3 min-w-0">
+        <FileText className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <span className="font-medium text-[var(--color-text-900)] truncate">
+              {file.fileName}
+            </span>
+            {file.versionNumber > 1 && (
+              <span className="px-1.5 py-0.5 text-xs rounded bg-gray-100 text-gray-600 border border-gray-200">
+                v{file.versionNumber}
+              </span>
+            )}
+            <RoleBadge role={isPreviousCommittee ? 'committee' : file.uploaderRole} />
+            {isPreviousCommittee && (
+              <span className="px-2 py-0.5 text-xs rounded-full font-medium bg-amber-100 text-amber-700 border border-amber-200">
+                Previous Committee
+              </span>
+            )}
+            {file.courseNumber && (
+              <span className="px-2 py-0.5 text-xs rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                {file.courseNumber}
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-[var(--color-text-600)]">
+            Uploaded by {file.uploaderName}
+            {file.fileSize ? ` · ${formatFileSize(file.fileSize)}` : ''}
+            {' · '}{formatDate(file.uploadedAt)}
+          </p>
+          {file.notes && (
+            <p className="text-sm text-[var(--color-text-500)] italic mt-1">{file.notes}</p>
+          )}
+        </div>
+      </div>
+      <div className="flex gap-2 flex-shrink-0">
+        <Button variant="outline" size="sm" onClick={handleView}>
+          <Eye className="w-3.5 h-3.5 mr-1.5" />
+          View
+        </Button>
+        <Button variant="outline" size="sm" onClick={handleDownload}>
+          <Download className="w-3.5 h-3.5 mr-1.5" />
+          Download
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** A single row for a committee-eval milestone submission. */
+function MilestoneSubmissionRow({
+  entry,
+  onView,
+}: {
+  entry: CommitteeEvalSubmission;
+  onView?: (fileUrl: string, filePath: string, fileName: string) => void;
+}) {
+  const handleDownload = async () => {
+    if (!entry.latestVersion?.filePath) return;
+    try {
+      const url = await getSignedUrl(entry.latestVersion.filePath);
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = entry.latestVersion.fileName;
+      a.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      toast.error('Failed to download file');
+    }
+  };
+
+  const handleView = async () => {
+    if (!entry.latestVersion?.filePath) return;
+    try {
+      const url = await getSignedUrl(entry.latestVersion.filePath);
+      onView ? onView(url, entry.latestVersion.filePath, entry.latestVersion.fileName) : window.open(url, '_blank');
+    } catch {
+      toast.error('Failed to open file');
+    }
+  };
+
+  const statusColors: Record<string, string> = {
+    'approved': 'bg-green-100 text-green-700 border-green-200',
+    'submitted': 'bg-blue-100 text-blue-700 border-blue-200',
+    'under-review': 'bg-yellow-100 text-yellow-700 border-yellow-200',
+    'changes-requested': 'bg-red-100 text-red-700 border-red-200',
+  };
+
+  return (
+    <div className="flex items-start justify-between gap-4 p-4 border border-[var(--color-border)] rounded-lg bg-white hover:bg-gray-50 transition-colors">
+      <div className="flex items-start gap-3 min-w-0">
+        <FileText className="w-5 h-5 text-indigo-500 flex-shrink-0 mt-0.5" />
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <span className="font-medium text-[var(--color-text-900)] truncate">
+              {entry.latestVersion?.fileName ?? entry.milestoneName}
+            </span>
+            {entry.latestVersion && entry.latestVersion.version > 1 && (
+              <span className="px-1.5 py-0.5 text-xs rounded bg-gray-100 text-gray-600 border border-gray-200">
+                v{entry.latestVersion.version}
+              </span>
+            )}
+            <span className="px-2 py-0.5 text-xs rounded-full font-medium bg-indigo-100 text-indigo-700 border border-indigo-200">
+              {entry.milestoneName}
+            </span>
+            {entry.status && (
+              <span className={`px-2 py-0.5 text-xs rounded-full font-medium border ${statusColors[entry.status] ?? 'bg-gray-100 text-gray-700 border-gray-200'}`}>
+                {entry.status.replace(/-/g, ' ')}
+              </span>
+            )}
+          </div>
+          {entry.latestVersion ? (
+            <p className="text-sm text-[var(--color-text-600)]">
+              Submitted by {entry.submitterName ?? 'Student'}
+              {entry.latestVersion.fileSize ? ` · ${formatFileSize(entry.latestVersion.fileSize)}` : ''}
+              {entry.submittedAt ? ` · ${formatDate(entry.submittedAt)}` : ''}
+            </p>
+          ) : (
+            <p className="text-sm text-[var(--color-text-400)] italic">No submission yet</p>
+          )}
+          {entry.latestVersion?.notes && (
+            <p className="text-sm text-[var(--color-text-500)] italic mt-1">{entry.latestVersion.notes}</p>
+          )}
+        </div>
+      </div>
+      {entry.latestVersion && (
+        <div className="flex gap-2 flex-shrink-0">
+          <Button variant="outline" size="sm" onClick={handleView}>
+            <Eye className="w-3.5 h-3.5 mr-1.5" />
+            View
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleDownload}>
+            <Download className="w-3.5 h-3.5 mr-1.5" />
+            Download
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SupervisorGradesCommittee() {
   const { user } = useAuth();
 
@@ -73,6 +294,16 @@ export function SupervisorGradesCommittee() {
   const [selectedGroupForGrading, setSelectedGroupForGrading] = useState<AssignedGroup | null>(null);
   const [assignedGroups, setAssignedGroups] = useState<AssignedGroup[]>([]);
   const [assignmentMode, setAssignmentMode] = useState(false);
+
+  // Inline file viewer state
+  const [viewerState, setViewerState] = useState<{
+    fileUrl: string;
+    filePath: string;
+    fileName: string;
+  } | null>(null);
+
+  const openViewer = (fileUrl: string, filePath: string, fileName: string) =>
+    setViewerState({ fileUrl, filePath, fileName });
 
   useEffect(() => {
     if (!user) return;
@@ -87,6 +318,7 @@ export function SupervisorGradesCommittee() {
         milestone: 'Presentation' as const,
         status: 'not-scheduled' as const,
         evaluationActive: g.evaluationActive,
+        students: g.students ?? [],
       })));
     });
   }, [user?.id]);
@@ -111,6 +343,19 @@ export function SupervisorGradesCommittee() {
   // Committee criteria — loaded from Grade Scheme Editor (Examination Committee)
   const [committeeCriteria, setCommitteeCriteria] = useState<CommitteeCriterion[]>([]);
 
+  // Committee files (submitted to committee) for the selected group
+  const [committeeFiles, setCommitteeFiles] = useState<GroupFile[]>([]);
+  const [loadingFiles, setLoadingFiles] = useState(false);
+
+  // Milestone submissions flagged for committee evaluation
+  const [committeeEvalSubmissions, setCommitteeEvalSubmissions] = useState<CommitteeEvalSubmission[]>([]);
+  const [loadingEvalSubmissions, setLoadingEvalSubmissions] = useState(false);
+
+  // Previous committee feedback (CPIS-498 → CPIS-499)
+  const [prevFeedback, setPrevFeedback] = useState<PreviousCommitteeFeedback | null>(null);
+  const [loadingPrevFeedback, setLoadingPrevFeedback] = useState(false);
+  const [showPrevFeedback, setShowPrevFeedback] = useState(false);
+
   useEffect(() => {
     if (!selectedGroupForGrading) return;
     const courseType = selectedGroupForGrading.course === 'CPIS-499' ? '499' : '498';
@@ -127,7 +372,30 @@ export function SupervisorGradesCommittee() {
         description5: c.description5,
       })));
     });
+
+    // Load committee files
+    setLoadingFiles(true);
+    getGroupFiles(selectedGroupForGrading.id, { committeeOnly: true, activeRole: 'supervisor' })
+      .then(setCommitteeFiles)
+      .finally(() => setLoadingFiles(false));
+
+    // Load milestone submissions flagged for committee eval
+    setLoadingEvalSubmissions(true);
+    getCommitteeEvalSubmissions(selectedGroupForGrading.id, 'supervisor')
+      .then(setCommitteeEvalSubmissions)
+      .finally(() => setLoadingEvalSubmissions(false));
+
+    // Load previous committee feedback for CPIS-499 groups
+    if (selectedGroupForGrading.course === 'CPIS-499') {
+      setLoadingPrevFeedback(true);
+      getPreviousCommitteeFeedback(selectedGroupForGrading.id, 'supervisor')
+        .then(setPrevFeedback)
+        .finally(() => setLoadingPrevFeedback(false));
+    } else {
+      setPrevFeedback(null);
+    }
   }, [selectedGroupForGrading?.id]);
+
   const [committeeComments, setCommitteeComments] = useState('');
 
   // Filter groups
@@ -174,6 +442,9 @@ export function SupervisorGradesCommittee() {
     setIsGrading(false);
     setSelectedGroupForGrading(null);
     setOpenCriterionId(null);
+    setCommitteeFiles([]);
+    setPrevFeedback(null);
+    setShowPrevFeedback(false);
   };
 
   // Calculate committee total
@@ -231,6 +502,20 @@ export function SupervisorGradesCommittee() {
 
   if (!user) return null;
 
+  if (viewerState) {
+    return (
+      <DocumentViewerWithAnnotations
+        fileUrl={viewerState.fileUrl}
+        filePath={viewerState.filePath}
+        fileName={viewerState.fileName}
+        onClose={() => setViewerState(null)}
+        userId={user.id}
+        userName={user.name}
+        userRole={user.activeRole}
+      />
+    );
+  }
+
   // ─── Grading / Evaluation View ────────────────────────────────────────────
   if (isGrading && selectedGroupForGrading) {
     const isReadOnly = isIP || gradingStatus === 'submitted';
@@ -238,6 +523,11 @@ export function SupervisorGradesCommittee() {
     const percentage = committeeCriteria.length > 0
       ? Math.round((total / 40) * 100)
       : 0;
+
+    const hasPrevFeedback =
+      prevFeedback !== null &&
+      prevFeedback.previousGroup !== null &&
+      (prevFeedback.scores.length > 0 || prevFeedback.comments.length > 0 || prevFeedback.files.length > 0);
 
     return (
       <Layout user={user} pageTitle="Evaluate & Grade">
@@ -259,7 +549,11 @@ export function SupervisorGradesCommittee() {
                   <h1 className="text-[var(--color-text-900)]">
                     {selectedGroupForGrading.projectName}
                   </h1>
-                  <span className="px-3 py-1 text-sm rounded-full bg-blue-100 text-blue-700 border border-blue-200">
+                  <span className={`px-3 py-1 text-sm rounded-full ${
+                    selectedGroupForGrading.course === 'CPIS-498'
+                      ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                      : 'bg-purple-100 text-purple-700 border border-purple-200'
+                  }`}>
                     {selectedGroupForGrading.course === 'CPIS-498' ? '498' : '499'}
                   </span>
                   <span className={`px-3 py-1 text-sm rounded-full ${
@@ -275,6 +569,11 @@ export function SupervisorGradesCommittee() {
                     </span>
                   )}
                 </div>
+                {selectedGroupForGrading.students.length > 0 && (
+                  <p className="text-sm text-[var(--color-text-500)] mt-0.5">
+                    {selectedGroupForGrading.students.map((s) => s.name).join(' · ')}
+                  </p>
+                )}
                 <p className="text-sm text-[var(--color-text-600)]">{selectedGroupForGrading.groupCode ?? selectedGroupForGrading.id}</p>
               </div>
 
@@ -308,8 +607,10 @@ export function SupervisorGradesCommittee() {
         {/* Main Evaluation Area — accordion left, summary right */}
         <div className="flex flex-col lg:flex-row gap-6 items-start">
 
-          {/* ── Left: Accordion criteria list (70%) ── */}
-          <div className="w-full lg:flex-[7] min-w-0">
+          {/* ── Left: Accordion criteria list + files + prev feedback (70%) ── */}
+          <div className="w-full lg:flex-[7] min-w-0 space-y-6">
+
+            {/* ── Committee Evaluation Matrix ── */}
             <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6 lg:p-8">
               <div className="mb-6">
                 <h3 className="text-[var(--color-text-900)] mb-2">Committee Evaluation Matrix</h3>
@@ -457,11 +758,16 @@ export function SupervisorGradesCommittee() {
                 </div>
               )}
 
-              {/* Comments */}
+              {/* Committee Comments */}
               <div className="mt-6 pt-6 border-t border-[var(--color-border)]">
-                <Label htmlFor="committee-comments" className="mb-2 block text-[var(--color-text-900)]">
-                  Comments for Committee Evaluation
-                </Label>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="px-2 py-0.5 text-xs rounded-full font-medium bg-purple-100 text-purple-700 border border-purple-200">
+                    Committee Feedback
+                  </span>
+                  <Label htmlFor="committee-comments" className="text-[var(--color-text-900)]">
+                    Comments for Committee Evaluation
+                  </Label>
+                </div>
                 <Textarea
                   id="committee-comments"
                   value={committeeComments}
@@ -470,8 +776,12 @@ export function SupervisorGradesCommittee() {
                   className="min-h-[150px]"
                   disabled={isReadOnly}
                 />
+                <p className="text-xs text-[var(--color-text-400)] mt-1">
+                  Visible to: Committee members, Coordinator, Supervisor, and Students of this group.
+                </p>
               </div>
             </div>
+
           </div>
 
           {/* ── Right: Live Summary Panel (30%) ── */}
@@ -539,7 +849,143 @@ export function SupervisorGradesCommittee() {
                   />
                 </div>
               </div>
+
             </div>
+
+            {/* ── Milestone Submissions for Committee Evaluation ── */}
+            {(loadingEvalSubmissions || committeeEvalSubmissions.length > 0) && (
+              <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5 mt-4">
+                <div className="flex items-center gap-3 mb-4">
+                  <Paperclip className="w-5 h-5 text-indigo-600" />
+                  <h3 className="text-[var(--color-text-900)]">Milestone Submissions</h3>
+                  <span className="px-2 py-0.5 text-xs rounded-full font-medium bg-indigo-100 text-indigo-700 border border-indigo-200">
+                    Committee Eval
+                  </span>
+                </div>
+                <p className="text-sm text-[var(--color-text-600)] mb-4">
+                  Student submissions for milestones included in committee evaluation.
+                </p>
+                {loadingEvalSubmissions ? (
+                  <div className="text-sm text-[var(--color-text-400)] py-4 text-center">
+                    Loading milestone submissions…
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {committeeEvalSubmissions.map((entry) => (
+                      <MilestoneSubmissionRow key={entry.milestoneId} entry={entry} onView={openViewer} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Previous Committee Feedback (CPIS-498 → CPIS-499) ── */}
+            {selectedGroupForGrading.course === 'CPIS-499' && (
+              <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5 mt-4">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <History className="w-5 h-5 text-amber-600" />
+                    <h3 className="text-[var(--color-text-900)]">Previous Committee Feedback</h3>
+                    <span className="px-2 py-0.5 text-xs rounded-full font-medium bg-amber-100 text-amber-700 border border-amber-200">
+                      CPIS-498
+                    </span>
+                  </div>
+                  {hasPrevFeedback && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowPrevFeedback(!showPrevFeedback)}
+                    >
+                      <ChevronDown className={`w-4 h-4 mr-1 transition-transform ${showPrevFeedback ? 'rotate-180' : ''}`} />
+                      {showPrevFeedback ? 'Hide' : 'Show'}
+                    </Button>
+                  )}
+                </div>
+
+                {loadingPrevFeedback ? (
+                  <div className="text-sm text-[var(--color-text-400)] py-4 text-center">Loading previous feedback…</div>
+                ) : !hasPrevFeedback ? (
+                  <div className="text-sm text-[var(--color-text-400)] py-6 text-center border border-dashed border-[var(--color-border)] rounded-lg">
+                    No previous committee feedback found from CPIS-498.
+                  </div>
+                ) : showPrevFeedback && prevFeedback ? (
+                  <div className="space-y-5">
+                    <p className="text-xs text-[var(--color-text-400)]">
+                      Read-only view of previous committee evaluation from CPIS-498.
+                      You can add new comments and upload revised files above.
+                    </p>
+
+                    {prevFeedback.scores.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-semibold text-[var(--color-text-900)] mb-2">
+                          Previous Committee Scores
+                        </h4>
+                        <div className="space-y-1">
+                          {prevFeedback.scores.map((s) => (
+                            <div
+                              key={`${s.evaluatorId}-${s.criterionKey}`}
+                              className="flex justify-between items-center py-1.5 px-3 bg-gray-50 rounded-lg text-sm"
+                            >
+                              <span className="text-[var(--color-text-700)]">{s.criterionKey}</span>
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className="w-2 h-2 rounded-full"
+                                  style={{ backgroundColor: getScoreColor(s.score) }}
+                                />
+                                <span className="font-medium text-[var(--color-text-900)] tabular-nums">
+                                  {s.score} / 5
+                                </span>
+                                <span className="text-xs text-[var(--color-text-400)]">
+                                  by {s.evaluatorName}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {prevFeedback.comments.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-semibold text-[var(--color-text-900)] mb-2">
+                          Previous Committee Comments
+                        </h4>
+                        <div className="space-y-2">
+                          {prevFeedback.comments.map((c) => (
+                            <div
+                              key={c.id}
+                              className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm"
+                            >
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="font-medium text-amber-900">{c.evaluatorName}</span>
+                                <span className="px-1.5 py-0.5 text-xs rounded bg-amber-100 text-amber-700 border border-amber-200">
+                                  Previous Committee
+                                </span>
+                                <span className="text-xs text-amber-600">{formatDate(c.createdAt)}</span>
+                              </div>
+                              <p className="text-amber-800">{c.comment}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {prevFeedback.files.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-semibold text-[var(--color-text-900)] mb-2">
+                          Files from Previous Committee (CPIS-498)
+                        </h4>
+                        <div className="space-y-2">
+                          {prevFeedback.files.map((f) => (
+                            <FileRow key={f.id} file={f} isPreviousCommittee onView={openViewer} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
 
@@ -627,7 +1073,6 @@ export function SupervisorGradesCommittee() {
     );
   }
 
-  // ─── Main Committee Evaluation View (group list) ──────────────────────────
   return (
     <Layout user={user} pageTitle="Committee Evaluation">
       <div className="mb-6">
@@ -673,17 +1118,17 @@ export function SupervisorGradesCommittee() {
                           : 'bg-gray-100 text-gray-600 border-gray-200'
                       }`}
                     >
-                      498
+                      CPIS-498
                     </button>
                     <button
                       onClick={() => toggleCourse('499')}
                       className={`px-3 py-1 text-sm rounded-full border transition-colors ${
                         selectedCourses.includes('499')
-                          ? 'bg-blue-100 text-blue-700 border-blue-200'
+                          ? 'bg-purple-100 text-purple-700 border-purple-200'
                           : 'bg-gray-100 text-gray-600 border-gray-200'
                       }`}
                     >
-                      499
+                      CPIS-499
                     </button>
                   </div>
 
@@ -754,7 +1199,7 @@ export function SupervisorGradesCommittee() {
                           <td className="py-4 px-6">
                             <div>
                               <p className="text-[var(--color-text-900)]">{group.projectName}</p>
-                              <p className="text-sm text-[var(--color-text-600)]">{group.groupId}</p>
+                              <p className="text-sm text-[var(--color-text-600)]">{group.groupCode ?? group.groupId}</p>
                             </div>
                           </td>
                           <td className="py-4 px-6">
@@ -763,7 +1208,7 @@ export function SupervisorGradesCommittee() {
                                 ? 'bg-blue-100 text-blue-700 border border-blue-200'
                                 : 'bg-purple-100 text-purple-700 border border-purple-200'
                             }`}>
-                              {group.course === 'CPIS-498' ? '498' : '499'}
+                              {group.course === 'CPIS-498' ? 'CPIS-498' : 'CPIS-499'}
                             </span>
                           </td>
                           <td className="py-4 px-6 text-[var(--color-text-900)]">

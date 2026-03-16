@@ -31,6 +31,7 @@ function mapGroup(g, scheduleMap) {
     courseCode: g.course?.code ?? '',
     scheduledAt,
     evaluationActive,
+    students: (g.members || []).map((m) => ({ id: m.student?.id ?? '', name: m.student?.name ?? '' })).filter((s) => s.id),
   };
 }
 
@@ -60,7 +61,7 @@ async function fetchScheduleMap(groupIds) {
 }
 
 const GROUP_SELECT =
-  'id, group_code, group_number, project_name, course_number, course_id, course:courses!course_id(code)';
+  'id, group_code, group_number, project_name, course_number, course_id, course:courses!course_id(code), members:group_members(student:profiles!student_id(id, name))';
 
 async function getGroupsForEvaluation(req, res) {
   try {

@@ -331,6 +331,20 @@ export function SupervisorSubmissionReview() {
   const isActionable =
     submission.status === 'submitted' || submission.status === 'under-review';
 
+  if (viewerFile) {
+    return (
+      <DocumentViewerWithAnnotations
+        fileUrl={viewerFile.url}
+        filePath={viewerFile.filePath}
+        fileName={viewerFile.fileName}
+        onClose={() => setViewerFile(null)}
+        userId={user.id}
+        userName={user.name}
+        userRole={user.activeRole}
+      />
+    );
+  }
+
   return (
     <Layout user={user} pageTitle="Review Submission">
       {/* Back button */}
@@ -558,18 +572,6 @@ export function SupervisorSubmissionReview() {
         </div>
       </div>
 
-      {/* ── File Viewer with Annotations ── */}
-      {viewerFile && user && (
-        <DocumentViewerWithAnnotations
-          fileUrl={viewerFile.url}
-          filePath={viewerFile.filePath}
-          fileName={viewerFile.fileName}
-          onClose={() => setViewerFile(null)}
-          userId={user.id}
-          userName={user.name}
-          userRole={user.role}
-        />
-      )}
     </Layout>
   );
 }

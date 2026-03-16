@@ -318,7 +318,7 @@ function MilestoneSubmissionCard({
           onClose={() => setViewerFile(null)}
           userId={user.id}
           userName={user.name}
-          userRole={user.role}
+          userRole={user.activeRole}
         />
       )}
     </div>

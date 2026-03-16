@@ -25,6 +25,7 @@ const presentationsRoutes = require('./routes/presentations.routes');
 const gradingRoutes = require('./routes/grading.routes');
 const studentsRoutes = require('./routes/students.routes');
 const highlightsRoutes = require('./routes/highlights.routes');
+const groupFilesRoutes = require('./routes/groupFiles.routes');
 
 const app = express();
 
@@ -55,6 +56,7 @@ app.use('/api/presentations', presentationsRoutes);
 app.use('/api/grading', gradingRoutes);
 app.use('/api/students', studentsRoutes);
 app.use('/api/highlights', highlightsRoutes);
+app.use('/api/groups', groupFilesRoutes);
 
 // Error handling
 app.use(errorHandler);

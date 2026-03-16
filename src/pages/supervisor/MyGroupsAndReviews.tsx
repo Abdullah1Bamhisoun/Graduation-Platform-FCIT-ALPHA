@@ -565,6 +565,18 @@ export function SupervisorMyGroupsAndReviews() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
+    <>
+    {viewerFile && (
+      <DocumentViewerWithAnnotations
+        fileUrl={viewerFile.url}
+        filePath={viewerFile.filePath}
+        fileName={viewerFile.fileName}
+        onClose={() => setViewerFile(null)}
+        userId={user.id}
+        userName={user.name}
+        userRole={user.activeRole}
+      />
+    )}
     <Layout user={user} pageTitle="My Groups">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
 
@@ -1590,19 +1602,6 @@ export function SupervisorMyGroupsAndReviews() {
         </DialogContent>
       </Dialog>
 
-      {/* ── File Viewer with Annotations ── */}
-      {viewerFile && user && (
-        <DocumentViewerWithAnnotations
-          fileUrl={viewerFile.url}
-          filePath={viewerFile.filePath}
-          fileName={viewerFile.fileName}
-          onClose={() => setViewerFile(null)}
-          userId={user.id}
-          userName={user.name}
-          userRole={user.role}
-        />
-      )}
-
       {/* ── Discussion Dialog ── */}
       <Dialog
         open={!!discussionTarget}
@@ -1715,5 +1714,6 @@ export function SupervisorMyGroupsAndReviews() {
         </DialogContent>
       </Dialog>
     </Layout>
+    </>
   );
 }

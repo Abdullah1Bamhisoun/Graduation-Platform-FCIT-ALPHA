@@ -304,6 +304,7 @@ export interface EvaluationGroup {
    * Evaluation form must remain locked until this is true.
    */
   evaluationActive: boolean;
+  students: { id: string; name: string }[];
 }
 
 export interface EvaluationGroupsResult {
