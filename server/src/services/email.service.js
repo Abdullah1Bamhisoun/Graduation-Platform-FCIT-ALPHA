@@ -52,6 +52,10 @@ function layout(bodyContent) {
           <!-- Header -->
           <tr>
             <td style="background:#1a6b4a;padding:28px 32px;text-align:center;">
+              <img src="https://bmpnorvnjqzldrinfrop.supabase.co/storage/v1/object/public/assets/GPP_Logo.png"
+                   alt="FCIT Graduation Project Platform"
+                   width="80" height="80"
+                   style="display:block;margin:0 auto 14px;border-radius:50%;object-fit:cover;" />
               <p style="margin:0;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:0.5px;">
                 FCIT Graduation Project Platform
               </p>
