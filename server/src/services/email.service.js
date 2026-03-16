@@ -1,5 +1,5 @@
 const nodemailer = require('nodemailer');
-const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM } = require('../config/env');
+const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM, APP_URL } = require('../config/env');
 
 // ─── Transport ─────────────────────────────────────────────────────────────────
 
@@ -246,6 +246,8 @@ function sendAnnouncement(recipientEmails, data) {
     dateStyle: 'medium', timeStyle: 'short',
   });
 
+  const announcementsUrl = APP_URL ? `${APP_URL}/announcements` : '';
+
   const body = `
     ${heading('New Announcement')}
     ${infoTable([
@@ -256,6 +258,7 @@ function sendAnnouncement(recipientEmails, data) {
       <p style="margin:0 0 10px;font-size:16px;font-weight:700;color:#111827;">${title}</p>
       <p style="margin:0;font-size:14px;color:#374151;line-height:1.7;white-space:pre-line;">${content}</p>
     </div>
+    ${announcementsUrl ? ctaButton('Read Announcement', announcementsUrl) : ''}
   `;
 
   const subject = courseName
