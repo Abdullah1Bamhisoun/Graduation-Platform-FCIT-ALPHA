@@ -36,7 +36,7 @@ async function sendEmail(to, subject, html) {
 
 // ─── Shared HTML Layout ────────────────────────────────────────────────────────
 
-function layout(bodyContent) {
+function layout(bodyContent, sectionLabel = 'Notification') {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -45,43 +45,56 @@ function layout(bodyContent) {
   <title>FCIT Graduation Platform</title>
 </head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 16px;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:40px 16px;">
     <tr>
       <td align="center">
-        <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+        <table width="580" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,0.10);">
+
           <!-- Header -->
           <tr>
-            <td style="background:#1a6b4a;padding:28px 32px;text-align:center;">
+            <td style="background:#ffffff;padding:36px 32px;text-align:center;border-bottom:3px solid #1a6b4a;">
               <img src="https://bmpnorvnjqzldrinfrop.supabase.co/storage/v1/object/public/assets/GPP_Logo.png"
                    alt="FCIT Graduation Project Platform"
-                   width="80" height="80"
-                   style="display:block;margin:0 auto 14px;border-radius:50%;object-fit:cover;" />
-              <p style="margin:0;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:0.5px;">
+                   width="160"
+                   style="display:block;margin:0 auto 14px;" />
+              <p style="margin:0;font-size:22px;font-weight:700;color:#1a6b4a;letter-spacing:0.5px;">
                 FCIT Graduation Project Platform
               </p>
-              <p style="margin:6px 0 0;font-size:13px;color:#a7d7c0;">
+              <p style="margin:6px 0 0;font-size:13px;color:#6b7280;letter-spacing:0.3px;">
                 King Abdulaziz University
               </p>
             </td>
           </tr>
+
+          <!-- Accent bar -->
+          <tr>
+            <td style="background:#f0faf5;padding:14px 32px;border-bottom:1px solid #e5e7eb;">
+              <p style="margin:0;font-size:12px;color:#6b7280;text-align:center;letter-spacing:0.5px;text-transform:uppercase;">
+                ${sectionLabel}
+              </p>
+            </td>
+          </tr>
+
           <!-- Body -->
           <tr>
-            <td style="padding:32px;">
+            <td style="padding:44px 40px 36px;">
               ${bodyContent}
             </td>
           </tr>
+
           <!-- Footer -->
           <tr>
-            <td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:20px 32px;text-align:center;">
-              <p style="margin:0;font-size:12px;color:#9ca3af;">
-                This is an automated notification from the FCIT Graduation Project Platform.
+            <td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:22px 32px;text-align:center;">
+              <p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.6;">
+                This is an automated notification from the FCIT Graduation Project Platform.<br/>
                 Please do not reply to this email.
               </p>
-              <p style="margin:8px 0 0;font-size:12px;color:#9ca3af;">
+              <p style="margin:10px 0 0;font-size:12px;color:#d1d5db;">
                 King Abdulaziz University — Faculty of Computing and Information Technology
               </p>
             </td>
           </tr>
+
         </table>
       </td>
     </tr>
@@ -91,11 +104,11 @@ function layout(bodyContent) {
 }
 
 function heading(text) {
-  return `<h2 style="margin:0 0 20px;font-size:22px;color:#111827;">${text}</h2>`;
+  return `<h2 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#111827;text-align:center;">${text}</h2>`;
 }
 
 function paragraph(text) {
-  return `<p style="margin:0 0 14px;font-size:15px;color:#374151;line-height:1.6;">${text}</p>`;
+  return `<p style="margin:0 0 24px;font-size:15px;color:#4b5563;line-height:1.7;text-align:center;">${text}</p>`;
 }
 
 function infoTable(rows) {
@@ -114,8 +127,8 @@ function infoTable(rows) {
 }
 
 function ctaButton(label, href) {
-  return `<div style="text-align:center;margin:24px 0 8px;">
-    <a href="${href}" style="display:inline-block;padding:12px 28px;background:#1a6b4a;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;border-radius:6px;">
+  return `<div style="text-align:center;margin:0 0 36px;">
+    <a href="${href}" style="display:inline-block;padding:14px 44px;background:#1a6b4a;color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;border-radius:8px;letter-spacing:0.3px;box-shadow:0 4px 12px rgba(26,107,74,0.35);">
       ${label}
     </a>
   </div>`;
@@ -154,7 +167,7 @@ function sendSubmissionReceived(supervisorEmail, data) {
     ${appUrl ? ctaButton('View Submission', appUrl) : ''}
   `;
 
-  return sendEmail(supervisorEmail, `[${courseName}] New Submission: ${milestoneName}`, layout(body));
+  return sendEmail(supervisorEmail, `[${courseName}] New Submission: ${milestoneName}`, layout(body, 'New Submission'));
 }
 
 /**
@@ -187,7 +200,7 @@ function sendSubmissionDecision(studentEmails, data) {
 
   return Promise.allSettled(
     studentEmails.filter(Boolean).map((email) =>
-      sendEmail(email, `[${courseName}] Submission ${status}: ${milestoneName}`, layout(body))
+      sendEmail(email, `[${courseName}] Submission ${status}: ${milestoneName}`, layout(body, 'Submission Update'))
     )
   );
 }
@@ -212,7 +225,7 @@ function sendSupervisorEvaluation(studentEmail, data) {
     ${appUrl ? ctaButton('View My Grades', appUrl) : ''}
   `;
 
-  return sendEmail(studentEmail, `[${courseName}] Supervisor Evaluation Submitted`, layout(body));
+  return sendEmail(studentEmail, `[${courseName}] Supervisor Evaluation Submitted`, layout(body, 'Evaluation'));
 }
 
 /**
@@ -235,7 +248,7 @@ function sendCoordinatorEvaluation(studentEmail, data) {
     ${appUrl ? ctaButton('View My Grades', appUrl) : ''}
   `;
 
-  return sendEmail(studentEmail, `[${courseName}] Coordinator Evaluation Submitted`, layout(body));
+  return sendEmail(studentEmail, `[${courseName}] Coordinator Evaluation Submitted`, layout(body, 'Evaluation'));
 }
 
 /**
@@ -271,7 +284,7 @@ function sendAnnouncement(recipientEmails, data) {
 
   return Promise.allSettled(
     recipientEmails.filter(Boolean).map((email) =>
-      sendEmail(email, subject, layout(body))
+      sendEmail(email, subject, layout(body, 'Announcement'))
     )
   );
 }
@@ -305,7 +318,7 @@ function sendPresentationScheduled(studentEmails, data) {
 
   return Promise.allSettled(
     studentEmails.filter(Boolean).map((email) =>
-      sendEmail(email, subject, layout(body))
+      sendEmail(email, subject, layout(body, 'Presentation Scheduled'))
     )
   );
 }
@@ -345,7 +358,7 @@ function sendCommitteeSchedule(memberEmail, data) {
     ${paragraph('Please ensure you are available at the scheduled times. Log in to the platform for full details.')}
   `;
 
-  return sendEmail(memberEmail, 'Your Presentation Committee Schedule', layout(body));
+  return sendEmail(memberEmail, 'Your Presentation Committee Schedule', layout(body, 'Committee Schedule'));
 }
 
 /**
@@ -375,7 +388,7 @@ function sendMilestoneCreated(studentEmails, data) {
 
   return Promise.allSettled(
     studentEmails.filter(Boolean).map((email) =>
-      sendEmail(email, `[${courseName}] New Milestone: ${milestoneName}`, layout(body))
+      sendEmail(email, `[${courseName}] New Milestone: ${milestoneName}`, layout(body, 'New Milestone'))
     )
   );
 }
@@ -404,7 +417,7 @@ function sendWeekOpened(studentEmails, data) {
 
   return Promise.allSettled(
     studentEmails.filter(Boolean).map((email) =>
-      sendEmail(email, `[${courseName}] Week ${weekNumber} Report Now Open`, layout(body))
+      sendEmail(email, `[${courseName}] Week ${weekNumber} Report Now Open`, layout(body, 'Weekly Report'))
     )
   );
 }
