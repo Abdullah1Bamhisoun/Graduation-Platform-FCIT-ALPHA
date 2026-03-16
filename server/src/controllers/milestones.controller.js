@@ -1,4 +1,5 @@
 const { supabaseAdmin } = require('../config/supabase');
+const emailService = require('../services/email.service');
 
 /**
  * GET /api/milestones
@@ -146,6 +147,36 @@ async function createMilestone(req, res) {
       // Best-effort — do not fail the whole request if announcement creation fails
       console.warn('Auto-announcement creation failed (non-fatal):', aErr.message);
     }
+
+    // Send email to students in this course (best-effort, non-blocking)
+    ;(async () => {
+      try {
+        const { data: groups } = await supabaseAdmin
+          .from('groups').select('id').eq('course_id', courseId);
+        const groupIds = (groups || []).map((g) => g.id);
+        if (groupIds.length === 0) return;
+
+        const { data: members } = await supabaseAdmin
+          .from('group_members').select('student_id').in('group_id', groupIds);
+        const studentIds = (members || []).map((m) => m.student_id);
+        if (studentIds.length === 0) return;
+
+        const { data: profiles } = await supabaseAdmin
+          .from('profiles').select('email').in('id', studentIds);
+        const emails = (profiles || []).map((p) => p.email).filter(Boolean);
+        if (emails.length === 0) return;
+
+        await emailService.sendMilestoneCreated(emails, {
+          milestoneName: name,
+          courseName: course.name,
+          openDate,
+          dueDate,
+          description: description || '',
+        });
+      } catch (e) {
+        console.error('[milestones] Failed to send milestone emails:', e);
+      }
+    })();
 
     res.status(201).json({ success: true, id: milestone.id });
   } catch (error) {

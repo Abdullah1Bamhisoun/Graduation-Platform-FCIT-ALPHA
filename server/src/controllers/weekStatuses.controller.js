@@ -1,4 +1,5 @@
 const { supabaseAdmin } = require('../config/supabase');
+const emailService = require('../services/email.service');
 
 /**
  * Seed closed rows for a course type if the table is empty for it.
@@ -96,6 +97,42 @@ async function openWeek(req, res) {
     }
 
     res.json({ success: true });
+
+    // Send email to students in this course type (best-effort, non-blocking)
+    ;(async () => {
+      try {
+        const { data: weekRow } = await supabaseAdmin
+          .from('week_statuses').select('week_number, course_type').eq('id', id).single();
+        if (!weekRow) return;
+
+        const { data: courses } = await supabaseAdmin
+          .from('courses').select('id').ilike('code', `%${weekRow.course_type}%`);
+        const courseIds = (courses || []).map((c) => c.id);
+        if (courseIds.length === 0) return;
+
+        const { data: groups } = await supabaseAdmin
+          .from('groups').select('id').in('course_id', courseIds);
+        const groupIds = (groups || []).map((g) => g.id);
+        if (groupIds.length === 0) return;
+
+        const { data: members } = await supabaseAdmin
+          .from('group_members').select('student_id').in('group_id', groupIds);
+        const studentIds = (members || []).map((m) => m.student_id);
+        if (studentIds.length === 0) return;
+
+        const { data: profiles } = await supabaseAdmin
+          .from('profiles').select('email').in('id', studentIds);
+        const emails = (profiles || []).map((p) => p.email).filter(Boolean);
+        if (emails.length === 0) return;
+
+        await emailService.sendWeekOpened(emails, {
+          weekNumber: weekRow.week_number,
+          courseType: weekRow.course_type,
+        });
+      } catch (e) {
+        console.error('[weekStatuses] Failed to send week-opened emails:', e);
+      }
+    })();
   } catch (err) {
     console.error('Error opening week:', err);
     res.status(500).json({ error: err.message || 'Failed to open week' });

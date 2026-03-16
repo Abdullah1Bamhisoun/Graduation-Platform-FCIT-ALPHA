@@ -303,6 +303,105 @@ function sendPresentationScheduled(studentEmails, data) {
   );
 }
 
+/**
+ * 7. Committee assignment notification → one committee member
+ *    Shows ALL presentations they are assigned to.
+ *
+ * @param {string} memberEmail
+ * @param {{ memberName: string, assignments: Array<{ projectName: string, groupCode: string, formattedDateTime: string, day: string, timeSlot: string, location: string|null }> }} data
+ */
+function sendCommitteeSchedule(memberEmail, data) {
+  const { memberName, assignments } = data;
+
+  const rows = assignments.map((a, i) => {
+    const loc = a.location ? ` — ${a.location}` : '';
+    return `<tr style="background:${i % 2 === 0 ? '#ffffff' : '#f9fafb'};">
+      <td style="padding:10px 14px;font-size:14px;color:#111827;border-bottom:1px solid #f3f4f6;">${a.projectName} (${a.groupCode})</td>
+      <td style="padding:10px 14px;font-size:14px;color:#374151;border-bottom:1px solid #f3f4f6;">${a.formattedDateTime}${loc}</td>
+    </tr>`;
+  }).join('');
+
+  const table = `<table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:6px;margin:0 0 20px;border-collapse:collapse;">
+    <thead>
+      <tr style="background:#f3f4f6;">
+        <th style="padding:10px 14px;font-size:13px;color:#6b7280;text-align:left;border-bottom:1px solid #e5e7eb;">Project</th>
+        <th style="padding:10px 14px;font-size:13px;color:#6b7280;text-align:left;border-bottom:1px solid #e5e7eb;">Date & Time</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+
+  const body = `
+    ${heading('Your Presentation Committee Schedule')}
+    ${paragraph(`Dear <strong>${memberName}</strong>, you have been assigned as a committee member for the following presentation(s):`)}
+    ${table}
+    ${paragraph('Please ensure you are available at the scheduled times. Log in to the platform for full details.')}
+  `;
+
+  return sendEmail(memberEmail, 'Your Presentation Committee Schedule', layout(body));
+}
+
+/**
+ * 8. New milestone created → students in the course
+ *
+ * @param {string[]} studentEmails
+ * @param {{ milestoneName: string, courseName: string, openDate: string, dueDate: string, description?: string, appUrl?: string }} data
+ */
+function sendMilestoneCreated(studentEmails, data) {
+  const { milestoneName, courseName, openDate, dueDate, description, appUrl = '' } = data;
+  const fmt = (d) => new Date(d).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+  const body = `
+    ${heading('New Milestone Added')}
+    ${paragraph(`A new milestone has been added for <strong>${courseName}</strong>.`)}
+    ${infoTable([
+      ['Milestone', milestoneName],
+      ['Course',    courseName],
+      ['Opens',     fmt(openDate)],
+      ['Due',       fmt(dueDate)],
+    ])}
+    ${description ? `<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:18px;margin:0 0 20px;">
+      <p style="margin:0;font-size:14px;color:#374151;line-height:1.7;white-space:pre-line;">${description}</p>
+    </div>` : ''}
+    ${appUrl ? ctaButton('View Milestone', appUrl) : ''}
+  `;
+
+  return Promise.allSettled(
+    studentEmails.filter(Boolean).map((email) =>
+      sendEmail(email, `[${courseName}] New Milestone: ${milestoneName}`, layout(body))
+    )
+  );
+}
+
+/**
+ * 8. Weekly report week opened → students in the course
+ *
+ * @param {string[]} studentEmails
+ * @param {{ weekNumber: number, courseType: string, appUrl?: string }} data
+ */
+function sendWeekOpened(studentEmails, data) {
+  const { weekNumber, courseType, appUrl = '' } = data;
+  const courseName = `SE ${courseType}`;
+
+  const body = `
+    ${heading(`Week ${weekNumber} Report Now Open`)}
+    ${paragraph(`Week <strong>${weekNumber}</strong> is now open for weekly report submissions in <strong>${courseName}</strong>.`)}
+    ${infoTable([
+      ['Course', courseName],
+      ['Week',   `Week ${weekNumber}`],
+      ['Status', 'Open for Submissions'],
+    ])}
+    ${paragraph('Please submit your weekly report before the week is closed.')}
+    ${appUrl ? ctaButton('Submit Weekly Report', appUrl) : ''}
+  `;
+
+  return Promise.allSettled(
+    studentEmails.filter(Boolean).map((email) =>
+      sendEmail(email, `[${courseName}] Week ${weekNumber} Report Now Open`, layout(body))
+    )
+  );
+}
+
 // ─── Exports ───────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -313,4 +412,7 @@ module.exports = {
   sendCoordinatorEvaluation,
   sendAnnouncement,
   sendPresentationScheduled,
+  sendCommitteeSchedule,
+  sendMilestoneCreated,
+  sendWeekOpened,
 };

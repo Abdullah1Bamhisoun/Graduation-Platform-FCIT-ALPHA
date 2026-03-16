@@ -433,6 +433,64 @@ async function assignSchedule(req, res) {
     }
 
     return res.json({ success: true });
+
+    // ── Fire-and-forget committee emails ───────────────────────────────────
+    // For each committee member, fetch ALL presentations they are assigned to
+    // and send a consolidated schedule email.
+    if (committeeMembers && committeeMembers.length > 0) {
+      ;(async () => {
+        try {
+          // Look up committee member emails by name
+          const { data: memberProfiles } = await supabaseAdmin
+            .from('profiles')
+            .select('name, email')
+            .in('name', committeeMembers);
+
+          if (!memberProfiles || memberProfiles.length === 0) return;
+
+          // Fetch all presentation schedules to find each member's full list
+          const { data: allSchedules } = await supabaseAdmin
+            .from('presentation_schedules')
+            .select('group_id, committee_members, scheduled_at, day, time_slot, location');
+
+          const { data: allGroups } = await supabaseAdmin
+            .from('groups')
+            .select('id, project_name, group_code');
+
+          const groupMap = new Map((allGroups || []).map((g) => [g.id, g]));
+
+          for (const profile of memberProfiles) {
+            if (!profile.email) continue;
+
+            const mySchedules = (allSchedules || []).filter(
+              (s) => Array.isArray(s.committee_members) && s.committee_members.includes(profile.name)
+            );
+
+            if (mySchedules.length === 0) continue;
+
+            const assignments = mySchedules.map((s) => {
+              const grp = groupMap.get(s.group_id);
+              const dt = s.scheduled_at ? formatPresentationDateTime(new Date(s.scheduled_at)) : `${s.day} – ${s.time_slot}`;
+              return {
+                projectName: grp?.project_name ?? 'Unknown Project',
+                groupCode: grp?.group_code ?? '',
+                formattedDateTime: dt,
+                day: s.day,
+                timeSlot: s.time_slot,
+                location: s.location ?? null,
+              };
+            });
+
+            emailService.sendCommitteeSchedule(profile.email, {
+              memberName: profile.name,
+              assignments,
+            }).catch(console.error);
+          }
+        } catch (e) {
+          console.error('[presentations] Failed to send committee emails:', e);
+        }
+      })();
+    }
   } catch (error) {
     console.error('Error assigning presentation schedule:', error);
     res.status(500).json({
