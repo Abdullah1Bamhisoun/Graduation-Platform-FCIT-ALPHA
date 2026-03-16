@@ -96,15 +96,19 @@ async function openWeek(req, res) {
       throw err1;
     }
 
+    console.log('[weekStatuses] week opened id:', id, '— starting email pipeline');
+
+    // Fetch data needed for email before responding
+    const { data: weekRow } = await supabaseAdmin
+      .from('week_statuses').select('week_number, course_type').eq('id', id).single();
+
     res.json({ success: true });
+
+    if (!weekRow) { console.warn('[weekStatuses] weekRow not found for id:', id); return; }
 
     // Send email to students in this course type (best-effort, non-blocking)
     ;(async () => {
       try {
-        const { data: weekRow } = await supabaseAdmin
-          .from('week_statuses').select('week_number, course_type').eq('id', id).single();
-        if (!weekRow) { console.warn('[weekStatuses] weekRow not found for id:', id); return; }
-
         const { data: courses } = await supabaseAdmin
           .from('courses').select('id').ilike('code', `%${weekRow.course_type}%`);
         const courseIds = (courses || []).map((c) => c.id);
