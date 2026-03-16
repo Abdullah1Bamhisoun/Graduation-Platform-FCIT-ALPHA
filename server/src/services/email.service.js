@@ -3,6 +3,8 @@ const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM } = require('../c
 
 // ─── Transport ─────────────────────────────────────────────────────────────────
 
+console.log('[email] SMTP_HOST:', SMTP_HOST, '| SMTP_USER:', SMTP_USER, '| SMTP_PASS set:', !!SMTP_PASS);
+
 const transporter = nodemailer.createTransport({
   host: SMTP_HOST || 'smtp.gmail.com',
   port: SMTP_PORT || 587,
