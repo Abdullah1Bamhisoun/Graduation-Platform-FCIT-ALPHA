@@ -103,32 +103,37 @@ async function openWeek(req, res) {
       try {
         const { data: weekRow } = await supabaseAdmin
           .from('week_statuses').select('week_number, course_type').eq('id', id).single();
-        if (!weekRow) return;
+        if (!weekRow) { console.warn('[weekStatuses] weekRow not found for id:', id); return; }
 
         const { data: courses } = await supabaseAdmin
           .from('courses').select('id').ilike('code', `%${weekRow.course_type}%`);
         const courseIds = (courses || []).map((c) => c.id);
+        console.log('[weekStatuses] courseIds:', courseIds);
         if (courseIds.length === 0) return;
 
         const { data: groups } = await supabaseAdmin
           .from('groups').select('id').in('course_id', courseIds);
         const groupIds = (groups || []).map((g) => g.id);
+        console.log('[weekStatuses] groupIds:', groupIds);
         if (groupIds.length === 0) return;
 
         const { data: members } = await supabaseAdmin
           .from('group_members').select('student_id').in('group_id', groupIds);
         const studentIds = (members || []).map((m) => m.student_id);
+        console.log('[weekStatuses] studentIds:', studentIds);
         if (studentIds.length === 0) return;
 
         const { data: profiles } = await supabaseAdmin
           .from('profiles').select('email').in('id', studentIds);
         const emails = (profiles || []).map((p) => p.email).filter(Boolean);
+        console.log('[weekStatuses] emails:', emails);
         if (emails.length === 0) return;
 
         await emailService.sendWeekOpened(emails, {
           weekNumber: weekRow.week_number,
           courseType: weekRow.course_type,
         });
+        console.log('[weekStatuses] sendWeekOpened done for week', weekRow.week_number);
       } catch (e) {
         console.error('[weekStatuses] Failed to send week-opened emails:', e);
       }
