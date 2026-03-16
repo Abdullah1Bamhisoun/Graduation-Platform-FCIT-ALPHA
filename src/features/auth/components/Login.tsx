@@ -137,10 +137,9 @@ export function Login() {
       {/* Right Panel - Platform Info (hidden on mobile) */}
       <div className="hidden lg:flex w-1/2 bg-gradient-to-br from-[var(--color-primary-600)] to-[var(--color-primary-700)] p-12 items-center justify-center text-white">
         <div className="max-w-md">
-          <h2 className="text-white mb-6">FCIT Graduation Project Platform (GPPFCIT)</h2>
+          <h2 className="text-white mb-6">Graduation Project Platform</h2>
           <p className="mb-8 text-white/90">
-            The FCIT Graduation Project Platform is designed for students, supervisors, and coordinators
-            at the Faculty of Computing and Information Technology (FCIT) to manage graduation projects efficiently.
+            A comprehensive platform for managing graduation projects at FCIT, King Abdulaziz University.
           </p>
           <ul className="space-y-4">
             <li className="flex items-start gap-3">
