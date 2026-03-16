@@ -168,7 +168,7 @@ async function createMilestone(req, res) {
 
         await emailService.sendMilestoneCreated(emails, {
           milestoneName: name,
-          courseName: course.name,
+          courseName: course.code,
           openDate,
           dueDate,
           description: description || '',
