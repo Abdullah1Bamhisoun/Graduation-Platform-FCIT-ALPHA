@@ -180,14 +180,14 @@ export function AdminMilestonesConfig() {
   return (
     <Layout user={user} pageTitle="Chapter Configuration">
       {isLocked && <LockedBanner />}
-      <div className="mb-6 flex items-center justify-between">
-        <p className="text-[var(--color-text-600)]">
+      <div className="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <p className="text-sm text-[var(--color-text-600)]">
           Configure milestone timelines and submission policies
         </p>
         <Button
           variant="primary"
           onClick={handleAddMilestone}
-          className="gap-2"
+          className="w-full sm:w-auto gap-2"
           disabled={isLocked || (isCoordinator && !isAdmin && !coordinatorCourseId)}
         >
           <Plus className="w-4 h-4" />
@@ -348,12 +348,12 @@ export function AdminMilestonesConfig() {
                   </div>
 
                   <div className="space-y-4 p-4 bg-[var(--color-surface-alt)] rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <div>
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="min-w-0">
                         <Label htmlFor="visible" className="text-[var(--color-text-900)]">
                           Visible to Students
                         </Label>
-                        <p className="text-[var(--color-text-600)] mt-1">
+                        <p className="text-xs text-[var(--color-text-600)] mt-0.5">
                           Make this milestone visible in student dashboards
                         </p>
                       </div>
@@ -361,15 +361,16 @@ export function AdminMilestonesConfig() {
                         id="visible"
                         checked={config.visible}
                         onCheckedChange={(checked) => updateConfigField(config.id, 'visible', checked)}
+                        className="shrink-0"
                       />
                     </div>
 
-                    <div className="flex items-center justify-between">
-                      <div>
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="min-w-0">
                         <Label htmlFor="allowLate" className="text-[var(--color-text-900)]">
                           Allow Late Submissions
                         </Label>
-                        <p className="text-[var(--color-text-600)] mt-1">
+                        <p className="text-xs text-[var(--color-text-600)] mt-0.5">
                           Permit submissions after the deadline
                         </p>
                       </div>
@@ -377,16 +378,17 @@ export function AdminMilestonesConfig() {
                         id="allowLate"
                         checked={config.allowLateSubmission}
                         onCheckedChange={(checked) => updateConfigField(config.id, 'allowLateSubmission', checked)}
+                        className="shrink-0"
                       />
                     </div>
 
                     {config.allowLateSubmission && (
-                      <div className="flex items-center justify-between pl-6 border-l-2 border-[var(--color-border)]">
-                        <div>
+                      <div className="flex items-center justify-between gap-4 pl-4 border-l-2 border-[var(--color-border)]">
+                        <div className="min-w-0">
                           <Label htmlFor="requireJustification" className="text-[var(--color-text-900)]">
                             Require Justification
                           </Label>
-                          <p className="text-[var(--color-text-600)] mt-1">
+                          <p className="text-xs text-[var(--color-text-600)] mt-0.5">
                             Students must provide a reason for late submission
                           </p>
                         </div>
@@ -394,16 +396,17 @@ export function AdminMilestonesConfig() {
                           id="requireJustification"
                           checked={config.requireJustification}
                           onCheckedChange={(checked) => updateConfigField(config.id, 'requireJustification', checked)}
+                          className="shrink-0"
                         />
                       </div>
                     )}
 
-                    <div className="flex items-center justify-between">
-                      <div>
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="min-w-0">
                         <Label htmlFor="includeInCommitteeEval" className="text-[var(--color-text-900)]">
                           Include in Committee Evaluation
                         </Label>
-                        <p className="text-[var(--color-text-600)] mt-1">
+                        <p className="text-xs text-[var(--color-text-600)] mt-0.5">
                           Committee members will see this milestone's submission and can leave feedback
                         </p>
                       </div>
@@ -411,15 +414,16 @@ export function AdminMilestonesConfig() {
                         id="includeInCommitteeEval"
                         checked={config.includeInCommitteeEval ?? false}
                         onCheckedChange={(checked) => updateConfigField(config.id, 'includeInCommitteeEval', checked)}
+                        className="shrink-0"
                       />
                     </div>
                   </div>
 
-                  <div className="flex gap-3 pt-4">
+                  <div className="grid grid-cols-2 sm:flex sm:flex-row gap-3 pt-4">
                     <Button
                       variant="outline"
                       onClick={() => handleCancel(config.id)}
-                      className="gap-2"
+                      className="justify-center gap-2"
                       disabled={saving}
                     >
                       <X className="w-4 h-4" />
@@ -428,7 +432,7 @@ export function AdminMilestonesConfig() {
                     <Button
                       variant="primary"
                       onClick={() => handleSave(config)}
-                      className="gap-2"
+                      className="justify-center gap-2"
                       disabled={isLocked || saving}
                     >
                       <Save className="w-4 h-4" />
@@ -439,23 +443,26 @@ export function AdminMilestonesConfig() {
               ) : (
                 /* View Mode */
                 <div>
-                  <div className="flex items-start justify-between mb-4">
-                    <div>
-                      <h2 className="text-[var(--color-text-900)] mb-1">{config.name}</h2>
+                  {/* Desktop: title left + buttons right | Mobile: title top + 2×2 grid bottom */}
+                  <div className="flex flex-col sm:flex-row sm:items-start gap-3 mb-4">
+                    <div className="flex-1 min-w-0">
+                      <h2 className="text-[var(--color-text-900)] line-clamp-2 mb-1">{config.name}</h2>
                       {config.description && (
-                        <p className="text-[var(--color-text-600)] mb-2">{config.description}</p>
+                        <p className="text-[var(--color-text-600)] line-clamp-2 mb-2">{config.description}</p>
                       )}
                       <p className="text-[var(--color-text-600)]">
                         Opens: {new Date(config.openDate).toLocaleDateString()} •{' '}
                         Closes: {new Date(config.closeDate).toLocaleDateString()}
                       </p>
                     </div>
-                    <div className="flex gap-2">
+
+                    {/* Buttons: 2×2 on mobile, compact row on desktop */}
+                    <div className={`grid gap-2 sm:flex sm:flex-row sm:shrink-0 border-t border-gray-200 dark:border-gray-700 pt-3 sm:border-t-0 sm:pt-0 ${!config.id.startsWith('new-') ? 'grid-cols-2' : 'grid-cols-1'}`}>
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => setEditingId(config.id)}
-                        className="gap-2"
+                        className="justify-center gap-2"
                         disabled={isLocked}
                       >
                         <Edit2 className="w-4 h-4" />
@@ -466,7 +473,7 @@ export function AdminMilestonesConfig() {
                           variant="outline"
                           size="sm"
                           onClick={() => handleDelete(config)}
-                          className="gap-2 text-red-600 hover:text-red-700 hover:border-red-400"
+                          className="justify-center gap-2 text-red-600 hover:text-red-700 hover:border-red-400"
                           disabled={isLocked || deleting === config.id}
                         >
                           <Trash2 className="w-4 h-4" />
@@ -476,7 +483,7 @@ export function AdminMilestonesConfig() {
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap gap-4 mt-4">
+                  <div className="flex flex-wrap gap-2 mt-2">
                     <div className={`px-3 py-1 rounded-full text-sm ${
                       config.visible
                         ? 'bg-white text-green-700 border border-green-500'

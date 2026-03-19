@@ -542,9 +542,9 @@ export function AdminExportsAudit() {
             title="Activity Log"
             icon={Activity}
             actions={
-              <div className="flex gap-2 items-center">
+              <div className="flex flex-wrap gap-2 items-center justify-end">
                 <select
-                  className="px-3 py-1.5 text-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-white)]"
+                  className="px-2 py-1.5 text-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-white)]"
                   value={filterAction}
                   onChange={e => setFilterAction(e.target.value)}
                 >
@@ -554,8 +554,8 @@ export function AdminExportsAudit() {
                   <option>Published</option>
                   <option>Updated</option>
                 </select>
-                <Input type="date" className="w-36 h-8 text-sm" />
-                <Input type="date" className="w-36 h-8 text-sm" />
+                <Input type="date" className="hidden sm:block w-32 h-8 text-sm" />
+                <Input type="date" className="hidden sm:block w-32 h-8 text-sm" />
               </div>
             }
           >

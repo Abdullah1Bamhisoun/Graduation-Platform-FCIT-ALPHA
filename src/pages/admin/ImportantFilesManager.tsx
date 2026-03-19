@@ -92,10 +92,10 @@ export function ImportantFilesManager() {
 
   const getFileIcon = (type: string) => {
     switch (type) {
-      case 'pdf':  return <FileText className="w-8 h-8 text-red-500" />;
-      case 'zip':  return <File className="w-8 h-8 text-blue-500" />;
-      case 'doc':  return <FileText className="w-8 h-8 text-blue-600" />;
-      default:     return <File className="w-8 h-8 text-gray-500" />;
+      case 'pdf':  return <FileText className="w-5 h-5 text-red-500" />;
+      case 'zip':  return <File className="w-5 h-5 text-blue-500" />;
+      case 'doc':  return <FileText className="w-5 h-5 text-blue-600" />;
+      default:     return <File className="w-5 h-5 text-gray-500" />;
     }
   };
 
@@ -257,15 +257,15 @@ export function ImportantFilesManager() {
   return (
     <Layout user={user} pageTitle="Important Files Manager">
       {isLocked && <LockedBanner />}
-      <div className="mb-6 flex items-center justify-between">
-        <p className="text-[var(--color-text-600)]">
+      <div className="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <p className="text-sm text-[var(--color-text-600)]">
           {isCoordinator
             ? 'Manage essential documents and resources for your course'
             : 'Manage essential documents, templates, and resources for graduation projects'}
         </p>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
-            <Button variant="primary" onClick={() => handleOpenDialog()} disabled={isLocked}>
+            <Button variant="primary" onClick={() => handleOpenDialog()} disabled={isLocked} className="w-full sm:w-auto">
               <Plus className="w-4 h-4 mr-2" />
               Add File
             </Button>
@@ -379,69 +379,79 @@ export function ImportantFilesManager() {
         </Dialog>
       </div>
 
-      <div className="grid gap-4">
+      <div className="grid gap-3 max-w-full overflow-hidden">
         {loading ? (
-          <Card className="p-12">
-            <div className="text-center text-[var(--color-text-600)]">Loading files...</div>
+          <Card className="p-10">
+            <div className="text-center text-sm text-[var(--color-text-600)]">Loading files...</div>
           </Card>
         ) : files.length > 0 ? (
           files.map((file) => (
-            <Card key={file.id} className="p-6">
-              <div className="flex items-start gap-4">
-                <div className="p-3 bg-[var(--color-surface-alt)] rounded-lg">
-                  {getFileIcon(file.type)}
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-2">
-                    <h2 className="text-[var(--color-text-900)]">{file.name}</h2>
-                    {file.courseCode ? (
-                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
-                        {file.courseCode}
-                      </span>
-                    ) : (
-                      !isCoordinator && (
-                        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
-                          All Courses
-                        </span>
-                      )
+            <Card key={file.id} className="p-4 max-w-full overflow-hidden">
+              {/* Desktop: info left + buttons right | Mobile: info top + 2×2 grid bottom */}
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+
+                {/* Info section */}
+                <div className="flex items-start gap-3 flex-1 min-w-0 overflow-hidden">
+                  <div className="w-10 h-10 bg-[var(--color-surface-alt)] rounded-lg flex items-center justify-center shrink-0">
+                    {getFileIcon(file.type)}
+                  </div>
+                  <div className="flex-1 min-w-0 overflow-hidden">
+                    <h2 className="text-sm font-semibold text-[var(--color-text-900)] line-clamp-2 mb-1 leading-snug">
+                      {file.name}
+                    </h2>
+                    {file.description && (
+                      <p className="text-xs text-[var(--color-text-600)] line-clamp-1 mb-1.5">{file.description}</p>
                     )}
-                  </div>
-                  <p className="text-[var(--color-text-600)] mb-4">{file.description}</p>
-                  <div className="flex items-center gap-4 text-[var(--color-text-600)]">
-                    <span className="uppercase">{file.type}</span>
-                    {file.size && <><span>•</span><span>{file.size}</span></>}
-                    <span>•</span>
-                    <span>
-                      Added {new Date(file.uploadedAt).toLocaleDateString('en-US', {
-                        month: 'short', day: 'numeric', year: 'numeric',
-                      })}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-400">
+                      {file.courseCode ? (
+                        <span className="font-medium px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 whitespace-nowrap">
+                          {file.courseCode}
+                        </span>
+                      ) : (
+                        !isCoordinator && (
+                          <span className="font-medium px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 whitespace-nowrap">
+                            All Courses
+                          </span>
+                        )
+                      )}
+                      <span className="uppercase font-medium">{file.type}</span>
+                      {file.size && <><span>•</span><span>{file.size}</span></>}
+                      <span>•</span>
+                      <span className="whitespace-nowrap">
+                        {new Date(file.uploadedAt).toLocaleDateString('en-US', {
+                          month: 'short', day: 'numeric', year: 'numeric',
+                        })}
+                      </span>
+                    </div>
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => handleViewFile(file)} disabled={!file.fileUrl}>
-                    <Eye className="w-4 h-4 mr-1" /> View
+
+                {/* Buttons: 2×2 grid on mobile, compact row on desktop */}
+                <div className="grid grid-cols-2 sm:flex sm:flex-row gap-2 sm:shrink-0 border-t border-gray-200 dark:border-gray-700 pt-2 sm:border-t-0 sm:pt-0">
+                  <Button variant="outline" size="sm" onClick={() => handleViewFile(file)} disabled={!file.fileUrl} className="justify-center">
+                    <Eye className="w-3.5 h-3.5 mr-1.5" /> View
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => handleDownload(file)} disabled={!file.fileUrl}>
-                    <Download className="w-4 h-4 mr-1" /> Download
+                  <Button variant="outline" size="sm" onClick={() => handleDownload(file)} disabled={!file.fileUrl} className="justify-center">
+                    <Download className="w-3.5 h-3.5 mr-1.5" /> Download
                   </Button>
-                  <Button size="sm" onClick={() => handleOpenDialog(file.id)} disabled={isLocked} className="!bg-yellow-500 hover:!bg-yellow-600 !text-white !border-yellow-500">
-                    <Edit className="w-4 h-4 mr-1" /> Edit
+                  <Button size="sm" onClick={() => handleOpenDialog(file.id)} disabled={isLocked} className="justify-center !bg-yellow-500 hover:!bg-yellow-600 !text-white !border-yellow-500">
+                    <Edit className="w-3.5 h-3.5 mr-1.5" /> Edit
                   </Button>
-                  <Button size="sm" onClick={() => handleDeleteFile(file.id)} disabled={isLocked} className="!bg-red-600 hover:!bg-red-700 !text-white !border-red-600">
-                    <Trash2 className="w-4 h-4 mr-1" /> Delete
+                  <Button size="sm" onClick={() => handleDeleteFile(file.id)} disabled={isLocked} className="justify-center !bg-red-600 hover:!bg-red-700 !text-white !border-red-600">
+                    <Trash2 className="w-3.5 h-3.5 mr-1.5" /> Delete
                   </Button>
                 </div>
+
               </div>
             </Card>
           ))
         ) : (
-          <Card className="p-12">
+          <Card className="p-10">
             <div className="text-center">
-              <File className="w-16 h-16 mx-auto mb-4 text-[var(--color-text-400)]" />
-              <h3 className="text-[var(--color-text-900)] mb-2">No files available</h3>
-              <p className="text-[var(--color-text-600)] mb-4">Add your first file to the repository.</p>
-              <Button variant="primary" onClick={() => handleOpenDialog()}>
+              <File className="w-12 h-12 mx-auto mb-3 text-[var(--color-text-400)]" />
+              <h3 className="text-sm font-semibold text-[var(--color-text-900)] mb-2">No files available</h3>
+              <p className="text-xs text-[var(--color-text-600)] mb-4">Add your first file to the repository.</p>
+              <Button variant="primary" className="w-full sm:w-auto" onClick={() => handleOpenDialog()}>
                 <Plus className="w-4 h-4 mr-2" />
                 Add File
               </Button>

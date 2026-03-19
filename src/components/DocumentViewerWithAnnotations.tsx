@@ -166,13 +166,15 @@ export function DocumentViewerWithAnnotations({
   const [replyText, setReplyText] = useState('');
   const [submittingReply, setSubmittingReply] = useState(false);
 
+  // Mobile sidebar toggle
+  const [showSidebar, setShowSidebar] = useState(false);
+
   // ── Responsive page width ──────────────────────────────────────────────────
   useEffect(() => {
     function measure() {
       if (pdfContainerRef.current) {
-        // Leave ~340px for sidebar, 32px horizontal padding
         const w = pdfContainerRef.current.offsetWidth - 32;
-        setPageWidth(Math.max(400, Math.min(w, 900)));
+        setPageWidth(Math.max(280, Math.min(w, 900)));
       }
     }
     measure();
@@ -358,37 +360,50 @@ export function DocumentViewerWithAnnotations({
     <div className="fixed inset-0 z-50 flex flex-col bg-white">
 
       {/* ── Header ── */}
-      <div className="h-14 flex-shrink-0 border-b border-gray-200 flex items-center px-4 gap-3 bg-white shadow-sm">
+      <div className="h-14 flex-shrink-0 border-b border-gray-200 flex items-center px-3 sm:px-4 gap-2 sm:gap-3 bg-white shadow-sm">
         <button
           onClick={onClose}
-          className="p-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-600"
+          className="p-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-600 flex-shrink-0"
           aria-label="Close"
         >
           <X className="w-5 h-5" />
         </button>
-        <FileText className="w-5 h-5 text-blue-600 flex-shrink-0" />
-        <span className="font-medium text-gray-900 truncate flex-1">{fileName}</span>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <FileText className="w-5 h-5 text-blue-600 flex-shrink-0 hidden sm:block" />
+        <span className="font-medium text-gray-900 truncate flex-1 text-sm sm:text-base">{fileName}</span>
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
           {isPdf && (
             <span className="hidden sm:inline-flex items-center gap-1 text-xs text-gray-500 bg-gray-100 rounded-full px-2.5 py-1">
               <HighlighterIcon className="w-3.5 h-3.5" />
               Select text to highlight
             </span>
           )}
+          {/* Mobile: Comments toggle button with badge */}
+          <button
+            className="sm:hidden relative p-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-600"
+            onClick={() => setShowSidebar(v => !v)}
+            aria-label="Toggle comments"
+          >
+            <MessageSquare className="w-5 h-5" />
+            {highlights.length > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-blue-600 rounded-full text-white text-[10px] flex items-center justify-center font-bold">
+                {highlights.length}
+              </span>
+            )}
+          </button>
           <Button variant="outline" size="sm" onClick={handleDownload} className="gap-1.5">
             <Download className="w-4 h-4" />
-            Download
+            <span className="hidden sm:inline">Download</span>
           </Button>
         </div>
       </div>
 
       {/* ── Body ── */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden relative">
 
-        {/* ── Document area ── */}
+        {/* ── Document area — full width on mobile ── */}
         <div
           ref={pdfContainerRef}
-          className="flex-1 overflow-auto bg-gray-100 p-4 select-text"
+          className="flex-1 overflow-auto bg-gray-100 p-2 sm:p-4 select-text"
           onMouseUp={handleMouseUp}
         >
           {isPdf ? (
@@ -497,29 +512,56 @@ export function DocumentViewerWithAnnotations({
         </div>
 
         {/* ── Sidebar ── */}
-        <div className="w-80 flex-shrink-0 border-l border-gray-200 bg-white flex flex-col overflow-hidden">
-          {activeHighlight ? (
-            /* Thread view */
-            <CommentThread
-              highlight={activeHighlight}
-              userId={userId}
-              replyText={replyText}
-              submittingReply={submittingReply}
-              onReplyChange={setReplyText}
-              onReplySubmit={handleSubmitReply}
-              onDeleteHighlight={() => handleDeleteHighlight(activeHighlight)}
-              onDeleteComment={(c) => handleDeleteComment(activeHighlight, c)}
-              onBack={() => setActiveHighlight(null)}
-            />
-          ) : (
-            /* Highlights list */
-            <HighlightsList
-              highlights={highlights}
-              loading={loadingHighlights}
-              onSelect={setActiveHighlight}
+        {/* Desktop: static side panel | Mobile: full-screen overlay */}
+        <>
+          {/* Mobile backdrop */}
+          {showSidebar && (
+            <div
+              className="sm:hidden fixed inset-0 bg-black/40 z-30"
+              onClick={() => setShowSidebar(false)}
             />
           )}
-        </div>
+          <div className={`
+            flex-col overflow-hidden border-l border-gray-200 bg-white
+            sm:flex sm:w-80 sm:flex-shrink-0 sm:relative sm:z-auto
+            ${showSidebar
+              ? 'flex fixed inset-y-0 right-0 w-[85vw] max-w-sm z-40 shadow-2xl'
+              : 'hidden sm:flex'
+            }
+          `}>
+            {/* Mobile close button */}
+            <div className="sm:hidden flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white flex-shrink-0">
+              <span className="text-sm font-semibold text-gray-900">Comments & Highlights</span>
+              <button
+                onClick={() => setShowSidebar(false)}
+                className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {activeHighlight ? (
+              /* Thread view */
+              <CommentThread
+                highlight={activeHighlight}
+                userId={userId}
+                replyText={replyText}
+                submittingReply={submittingReply}
+                onReplyChange={setReplyText}
+                onReplySubmit={handleSubmitReply}
+                onDeleteHighlight={() => handleDeleteHighlight(activeHighlight)}
+                onDeleteComment={(c) => handleDeleteComment(activeHighlight, c)}
+                onBack={() => setActiveHighlight(null)}
+              />
+            ) : (
+              /* Highlights list */
+              <HighlightsList
+                highlights={highlights}
+                loading={loadingHighlights}
+                onSelect={setActiveHighlight}
+              />
+            )}
+          </div>
+        </>
       </div>
 
       {/* ── Floating toolbar (text selected) ── */}

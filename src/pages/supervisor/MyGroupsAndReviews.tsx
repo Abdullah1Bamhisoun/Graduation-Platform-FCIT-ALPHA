@@ -1111,7 +1111,7 @@ export function SupervisorMyGroupsAndReviews() {
                   >
                     {/* ── Group header (clickable to expand) ── */}
                     <div
-                      className="px-6 py-4 flex items-center gap-4 cursor-pointer hover:bg-[var(--color-surface-alt)] transition-colors"
+                      className="px-4 sm:px-6 py-3 sm:py-4 cursor-pointer hover:bg-[var(--color-surface-alt)] transition-colors"
                       onClick={() =>
                         setExpandedGroups((prev) => {
                           const next = new Set(prev);
@@ -1121,64 +1121,91 @@ export function SupervisorMyGroupsAndReviews() {
                         })
                       }
                     >
-                      {/* Group badge */}
-                      <span className="inline-flex items-center px-3 py-1 rounded-lg bg-[var(--color-primary-100)] text-[var(--color-primary-700)] text-sm font-semibold flex-shrink-0">
-                        Group {group.groupNumber}
-                      </span>
+                      {/* Row 1: Group badge + name + chevron */}
+                      <div className="flex items-center gap-3">
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-[var(--color-primary-100)] text-[var(--color-primary-700)] text-sm font-semibold flex-shrink-0">
+                          Group {group.groupNumber}
+                        </span>
 
-                      {/* Project name + group code + course */}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[var(--color-text-900)] font-medium truncate">
-                          {group.projectName}
-                        </p>
-                        {group.groupCode && (
-                          <p className="text-[var(--color-text-400)] text-xs font-mono">{group.groupCode}</p>
-                        )}
-                        <p className="text-[var(--color-text-500)] text-xs">{group.courseCode}</p>
+                        {/* Project name + codes */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[var(--color-text-900)] font-medium truncate text-sm">
+                            {group.projectName}
+                          </p>
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
+                            {group.groupCode && (
+                              <span className="text-[var(--color-text-400)] text-xs font-mono">{group.groupCode}</span>
+                            )}
+                            <span className="text-[var(--color-text-500)] text-xs">{group.courseCode}</span>
+                          </div>
+                        </div>
+
+                        {/* Desktop: IP badge + button + score all in row 1 */}
+                        <div className="hidden sm:flex items-center gap-3 flex-shrink-0">
+                          {isIP && (
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-orange-100 text-orange-700 border border-orange-300 text-xs font-semibold">
+                              <AlertTriangle className="w-3 h-3 mr-1" />
+                              In Progress
+                            </span>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className={isIP
+                              ? 'border-gray-400 text-gray-700 hover:bg-gray-50'
+                              : 'border-amber-300 text-amber-700 hover:bg-amber-50'
+                            }
+                            onClick={(e) => { e.stopPropagation(); setIpTarget(group); setIpReason(''); }}
+                          >
+                            <AlertTriangle className="w-3 h-3 mr-1" />
+                            {isIP ? 'Remove IP' : 'Mark as IP'}
+                          </Button>
+                          {totalComponentMax > 0 && (
+                            <div className="text-right">
+                              <p className="text-[var(--color-text-900)] font-semibold text-sm">
+                                {totalComponentScore.toFixed(1)} / {totalComponentMax}
+                              </p>
+                              <p className="text-[var(--color-text-500)] text-xs">Total Score</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Chevron */}
+                        {isExpanded
+                          ? <ChevronUp className="w-5 h-5 text-[var(--color-text-400)] flex-shrink-0" />
+                          : <ChevronDown className="w-5 h-5 text-[var(--color-text-400)] flex-shrink-0" />
+                        }
                       </div>
 
-                      {/* IP badge */}
-                      {isIP && (
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-orange-100 text-orange-700 border border-orange-300 text-xs font-semibold flex-shrink-0">
+                      {/* Row 2 (mobile only): IP badge + button + score */}
+                      <div className="sm:hidden flex items-center gap-2 mt-2.5" onClick={(e) => e.stopPropagation()}>
+                        {isIP && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-300 text-xs font-semibold flex-shrink-0">
+                            <AlertTriangle className="w-3 h-3 mr-1" />
+                            IP
+                          </span>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className={`text-xs h-7 ${isIP
+                            ? 'border-gray-400 text-gray-700 hover:bg-gray-50'
+                            : 'border-amber-300 text-amber-700 hover:bg-amber-50'
+                          }`}
+                          onClick={(e) => { e.stopPropagation(); setIpTarget(group); setIpReason(''); }}
+                        >
                           <AlertTriangle className="w-3 h-3 mr-1" />
-                          In Progress
-                        </span>
-                      )}
-
-                      {/* Mark as IP / Remove IP button */}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className={
-                          isIP
-                            ? 'flex-shrink-0 border-gray-400 text-gray-700 hover:bg-gray-50'
-                            : 'flex-shrink-0 border-amber-300 text-amber-700 hover:bg-amber-50'
-                        }
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setIpTarget(group);
-                          setIpReason('');
-                        }}
-                      >
-                        <AlertTriangle className="w-3 h-3 mr-1" />
-                        {isIP ? 'Remove IP' : 'Mark as IP'}
-                      </Button>
-
-                      {/* Score summary */}
-                      {totalComponentMax > 0 && (
-                        <div className="text-right flex-shrink-0">
-                          <p className="text-[var(--color-text-900)] font-semibold text-sm">
-                            {totalComponentScore.toFixed(1)} / {totalComponentMax}
-                          </p>
-                          <p className="text-[var(--color-text-500)] text-xs">Total Score</p>
-                        </div>
-                      )}
-
-                      {/* Expand/collapse chevron */}
-                      {isExpanded
-                        ? <ChevronUp className="w-5 h-5 text-[var(--color-text-400)] flex-shrink-0" />
-                        : <ChevronDown className="w-5 h-5 text-[var(--color-text-400)] flex-shrink-0" />
-                      }
+                          {isIP ? 'Remove IP' : 'Mark as IP'}
+                        </Button>
+                        {totalComponentMax > 0 && (
+                          <div className="ml-auto text-right">
+                            <p className="text-[var(--color-text-900)] font-semibold text-sm">
+                              {totalComponentScore.toFixed(1)} / {totalComponentMax}
+                            </p>
+                            <p className="text-[var(--color-text-500)] text-xs">Total Score</p>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     {/* ── Expanded detail panel ── */}

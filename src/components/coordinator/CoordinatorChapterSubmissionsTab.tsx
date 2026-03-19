@@ -255,52 +255,52 @@ export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGrade
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <Card className="p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-gray-600 uppercase tracking-wide">Total Submissions</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Card className="p-3 sm:p-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-xs text-gray-600 uppercase tracking-wide leading-tight">Total Submissions</p>
+              <p className="text-xl sm:text-2xl font-bold text-gray-900">{stats.total}</p>
             </div>
-            <FileText className="w-8 h-8 text-gray-400" />
+            <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-gray-400 shrink-0" />
           </div>
         </Card>
 
-        <Card className="p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-yellow-600 uppercase tracking-wide">Pending Review</p>
-              <p className="text-2xl font-bold text-yellow-700">{stats.pending}</p>
+        <Card className="p-3 sm:p-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-xs text-yellow-600 uppercase tracking-wide leading-tight">Pending Review</p>
+              <p className="text-xl sm:text-2xl font-bold text-yellow-700">{stats.pending}</p>
             </div>
-            <Clock className="w-8 h-8 text-yellow-400" />
+            <Clock className="w-6 h-6 sm:w-8 sm:h-8 text-yellow-400 shrink-0" />
           </div>
         </Card>
 
-        <Card className="p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-green-600 uppercase tracking-wide">Approved</p>
-              <p className="text-2xl font-bold text-green-700">{stats.approved}</p>
+        <Card className="p-3 sm:p-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-xs text-green-600 uppercase tracking-wide leading-tight">Approved</p>
+              <p className="text-xl sm:text-2xl font-bold text-green-700">{stats.approved}</p>
             </div>
-            <CheckCircle className="w-8 h-8 text-green-400" />
+            <CheckCircle className="w-6 h-6 sm:w-8 sm:h-8 text-green-400 shrink-0" />
           </div>
         </Card>
 
-        <Card className="p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-red-600 uppercase tracking-wide">Changes Requested</p>
-              <p className="text-2xl font-bold text-red-700">{stats.rejected}</p>
+        <Card className="p-3 sm:p-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-xs text-red-600 uppercase tracking-wide leading-tight">Changes Requested</p>
+              <p className="text-xl sm:text-2xl font-bold text-red-700">{stats.rejected}</p>
             </div>
-            <AlertCircle className="w-8 h-8 text-red-400" />
+            <AlertCircle className="w-6 h-6 sm:w-8 sm:h-8 text-red-400 shrink-0" />
           </div>
         </Card>
       </div>
 
       {/* Group Filter */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
         <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Filter by Group:</label>
         <Select value={selectedGroupFilter} onValueChange={setSelectedGroupFilter}>
           <SelectTrigger className="w-full sm:w-64">
@@ -318,8 +318,8 @@ export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGrade
       </div>
 
       {/* Submissions Table */}
-      <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
+      <Card className="overflow-hidden max-w-full">
+        <div className="overflow-x-auto w-full">
           <div className="min-w-[700px]">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
