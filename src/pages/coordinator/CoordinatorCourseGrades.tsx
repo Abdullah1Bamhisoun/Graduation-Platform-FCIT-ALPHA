@@ -71,13 +71,13 @@ export function CoordinatorCourseGrades() {
           <TabsList className="grid w-full grid-cols-2 mb-6 h-auto min-h-[2.75rem] border border-[var(--color-border)] rounded-lg bg-[var(--color-surface-alt)] p-1">
             <TabsTrigger
               value="chapter-submissions"
-              className="rounded-md font-semibold text-xs sm:text-sm py-2 leading-tight data-[state=active]:bg-[var(--color-surface-white)] data-[state=active]:border data-[state=active]:border-[var(--color-border)] data-[state=active]:shadow-sm"
+              className="rounded-md font-semibold text-xs sm:text-sm py-2 leading-tight data-[state=active]:bg-green-600 data-[state=active]:text-white data-[state=active]:border data-[state=active]:border-green-600 data-[state=active]:shadow-sm"
             >
               Chapter Submissions
             </TabsTrigger>
             <TabsTrigger
               value="groups-evaluation"
-              className="rounded-md font-semibold text-xs sm:text-sm py-2 leading-tight data-[state=active]:bg-[var(--color-surface-white)] data-[state=active]:border data-[state=active]:border-[var(--color-border)] data-[state=active]:shadow-sm"
+              className="rounded-md font-semibold text-xs sm:text-sm py-2 leading-tight data-[state=active]:bg-green-600 data-[state=active]:text-white data-[state=active]:border data-[state=active]:border-green-600 data-[state=active]:shadow-sm"
             >
               <span className="sm:hidden">Grades & Eval</span>
               <span className="hidden sm:inline">Groups Grades & Evaluation</span>

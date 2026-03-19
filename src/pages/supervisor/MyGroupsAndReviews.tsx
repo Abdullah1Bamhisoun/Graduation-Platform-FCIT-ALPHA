@@ -259,7 +259,7 @@ function getStatusColor(status: string): string {
     case 'under-review':
       return 'text-yellow-600 bg-yellow-50 border-yellow-200';
     case 'changes-requested':
-      return 'text-amber-600 bg-amber-50 border-amber-200';
+      return 'text-red-600 bg-red-50 border-red-200';
     case 'draft':
       return 'text-gray-600 bg-gray-50 border-gray-200';
     default:
@@ -581,18 +581,18 @@ export function SupervisorMyGroupsAndReviews() {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
 
         {/* ── Top-level tab bar ── */}
-        <div className="mb-4 bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] overflow-hidden">
-          <TabsList className="w-full justify-start rounded-none bg-transparent p-0 h-auto border-b border-[var(--color-border)]">
+        <div className="mb-4">
+          <TabsList className="w-full justify-start bg-[var(--color-surface-white)] border border-[var(--color-border)] rounded-xl p-1.5 h-auto gap-1">
             <TabsTrigger
               value="my-groups"
-              className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-transparent px-3 sm:px-6 py-3 gap-1.5 text-xs sm:text-sm"
+              className="rounded-lg px-3 sm:px-5 py-2 gap-1.5 text-xs sm:text-sm data-[state=active]:bg-green-600 data-[state=active]:text-white data-[state=active]:shadow-sm"
             >
               <Users className="w-4 h-4 flex-shrink-0" />
               <span>My Groups</span>
             </TabsTrigger>
             <TabsTrigger
               value="chapter-submission"
-              className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-transparent px-3 sm:px-6 py-3 gap-1.5 text-xs sm:text-sm"
+              className="rounded-lg px-3 sm:px-5 py-2 gap-1.5 text-xs sm:text-sm data-[state=active]:bg-green-600 data-[state=active]:text-white data-[state=active]:shadow-sm"
             >
               <BookOpen className="w-4 h-4 flex-shrink-0" />
               <span className="sm:hidden">Submissions</span>
@@ -605,7 +605,7 @@ export function SupervisorMyGroupsAndReviews() {
             </TabsTrigger>
             <TabsTrigger
               value="groups-grades"
-              className="rounded-none border-b-2 border-transparent data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-transparent px-3 sm:px-6 py-3 gap-1.5 text-xs sm:text-sm"
+              className="rounded-lg px-3 sm:px-5 py-2 gap-1.5 text-xs sm:text-sm data-[state=active]:bg-green-600 data-[state=active]:text-white data-[state=active]:shadow-sm"
             >
               <BarChart2 className="w-4 h-4 flex-shrink-0" />
               <span className="sm:hidden">Grades</span>
@@ -653,74 +653,81 @@ export function SupervisorMyGroupsAndReviews() {
                 </div>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-[var(--color-surface-alt)]">
-                    <tr>
-                      <th className="p-4 text-left text-[var(--color-text-900)] border-r border-[var(--color-border)]">
-                        Group
-                      </th>
-                      <th className="p-4 text-left text-[var(--color-text-900)] border-r border-[var(--color-border)]">
-                        Group ID
-                      </th>
-                      <th className="p-4 text-left text-[var(--color-text-900)] border-r border-[var(--color-border)]">
-                        Project Title
-                      </th>
-                      <th className="p-4 text-left text-[var(--color-text-900)] border-r border-[var(--color-border)]">
-                        Students
-                      </th>
-                      <th className="p-4 text-center text-[var(--color-text-900)] border-r border-[var(--color-border)]">
-                        Course
-                      </th>
-                      <th className="p-4 text-center text-[var(--color-text-900)]">
-                        Status
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[var(--color-border)]">
-                    {groups.map((group) => (
-                      <tr
-                        key={group.id}
-                        className="hover:bg-[var(--color-surface-alt)] transition-colors"
-                      >
-                        <td className="p-4 border-r border-[var(--color-border)]">
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-[var(--color-primary-100)] text-[var(--color-primary-700)] text-sm font-semibold">
-                            Group {group.groupNumber}
+              <>
+                {/* Mobile: card list */}
+                <div className="sm:hidden divide-y divide-[var(--color-border)]">
+                  {groups.map((group) => (
+                    <div key={group.id} className="p-4 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-[var(--color-primary-100)] text-[var(--color-primary-700)] text-sm font-semibold">
+                          Group {group.groupNumber}
+                        </span>
+                        <StatusBadge status={group.status as any} />
+                      </div>
+                      <p className="text-[var(--color-text-900)] text-sm font-medium">{group.projectTitle}</p>
+                      <div className="flex flex-wrap gap-1">
+                        {group.students.map((s) => (
+                          <span key={s.id} className="text-[var(--color-text-700)] text-xs bg-[var(--color-surface-alt)] px-2 py-0.5 rounded border border-[var(--color-border)]">
+                            {s.name}
                           </span>
-                        </td>
-                        <td className="p-4 border-r border-[var(--color-border)]">
-                          <span className="font-mono text-xs text-[var(--color-text-500)] select-all">
-                            {group.groupCode}
-                          </span>
-                        </td>
-                        <td className="p-4 border-r border-[var(--color-border)]">
-                          <span className="text-[var(--color-text-900)]">
-                            {group.projectTitle}
-                          </span>
-                        </td>
-                        <td className="p-4 border-r border-[var(--color-border)]">
-                          <div className="flex flex-wrap gap-1">
-                            {group.students.map((s) => (
-                              <span
-                                key={s.id}
-                                className="text-[var(--color-text-700)] text-sm bg-[var(--color-surface-alt)] px-2 py-0.5 rounded"
-                              >
-                                {s.name}
-                              </span>
-                            ))}
-                          </div>
-                        </td>
-                        <td className="p-4 text-center border-r border-[var(--color-border)]">
-                          <span className="text-[var(--color-text-700)] text-sm">{group.course}</span>
-                        </td>
-                        <td className="p-4 text-center">
-                          <StatusBadge status={group.status as any} />
-                        </td>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-[var(--color-text-500)]">
+                        <span>{group.course}</span>
+                        <span className="font-mono select-all">{group.groupCode}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop: full table */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-[var(--color-surface-alt)]">
+                      <tr>
+                        <th className="p-4 text-left text-[var(--color-text-900)] border-r border-[var(--color-border)]">Group</th>
+                        <th className="p-4 text-left text-[var(--color-text-900)] border-r border-[var(--color-border)]">Group ID</th>
+                        <th className="p-4 text-left text-[var(--color-text-900)] border-r border-[var(--color-border)]">Project Title</th>
+                        <th className="p-4 text-left text-[var(--color-text-900)] border-r border-[var(--color-border)]">Students</th>
+                        <th className="p-4 text-center text-[var(--color-text-900)] border-r border-[var(--color-border)]">Course</th>
+                        <th className="p-4 text-center text-[var(--color-text-900)]">Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-[var(--color-border)]">
+                      {groups.map((group) => (
+                        <tr key={group.id} className="hover:bg-[var(--color-surface-alt)] transition-colors">
+                          <td className="p-4 border-r border-[var(--color-border)]">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-[var(--color-primary-100)] text-[var(--color-primary-700)] text-sm font-semibold">
+                              Group {group.groupNumber}
+                            </span>
+                          </td>
+                          <td className="p-4 border-r border-[var(--color-border)]">
+                            <span className="font-mono text-xs text-[var(--color-text-500)] select-all">{group.groupCode}</span>
+                          </td>
+                          <td className="p-4 border-r border-[var(--color-border)]">
+                            <span className="text-[var(--color-text-900)]">{group.projectTitle}</span>
+                          </td>
+                          <td className="p-4 border-r border-[var(--color-border)]">
+                            <div className="flex flex-wrap gap-1">
+                              {group.students.map((s) => (
+                                <span key={s.id} className="text-[var(--color-text-700)] text-sm bg-[var(--color-surface-alt)] px-2 py-0.5 rounded">
+                                  {s.name}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="p-4 text-center border-r border-[var(--color-border)]">
+                            <span className="text-[var(--color-text-700)] text-sm">{group.course}</span>
+                          </td>
+                          <td className="p-4 text-center">
+                            <StatusBadge status={group.status as any} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
 
@@ -783,30 +790,27 @@ export function SupervisorMyGroupsAndReviews() {
             <div className="flex-1 min-w-0 order-2 lg:order-1 w-full">
 
               {/* Stats cards */}
-              <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2 sm:p-4">
-                  <div className="flex items-center gap-1 sm:gap-2 mb-1">
-                    <Clock className="w-3 h-3 sm:w-4 sm:h-4 text-yellow-600 flex-shrink-0" />
-                    <span className="text-yellow-900 text-xs sm:text-sm truncate">Pending</span>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3 mb-4">
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 sm:p-4">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-600 flex-shrink-0" />
+                    <span className="text-yellow-900 text-xs sm:text-sm font-medium">Pending</span>
                   </div>
-                  <p className="text-xl sm:text-2xl text-yellow-900">{stats.pending}</p>
+                  <p className="text-2xl sm:text-2xl font-bold text-yellow-900">{stats.pending}</p>
                 </div>
-                <div className="bg-green-50 border border-green-200 rounded-lg p-2 sm:p-4">
-                  <div className="flex items-center gap-1 sm:gap-2 mb-1">
-                    <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4 text-green-600 flex-shrink-0" />
-                    <span className="text-green-900 text-xs sm:text-sm truncate">Approved</span>
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3 sm:p-4">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <CheckCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-green-600 flex-shrink-0" />
+                    <span className="text-green-900 text-xs sm:text-sm font-medium">Approved</span>
                   </div>
-                  <p className="text-xl sm:text-2xl text-green-900">{stats.approved}</p>
+                  <p className="text-2xl sm:text-2xl font-bold text-green-900">{stats.approved}</p>
                 </div>
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 sm:p-4">
-                  <div className="flex items-center gap-1 sm:gap-2 mb-1">
-                    <XCircle className="w-3 h-3 sm:w-4 sm:h-4 text-amber-600 flex-shrink-0" />
-                    <span className="text-amber-900 text-xs sm:text-sm truncate">
-                      <span className="sm:hidden">Changed</span>
-                      <span className="hidden sm:inline">Changes Requested</span>
-                    </span>
+                <div className="col-span-2 sm:col-span-1 bg-red-50 border border-red-200 rounded-lg p-3 sm:p-4">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <XCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-red-600 flex-shrink-0" />
+                    <span className="text-red-900 text-xs sm:text-sm font-medium">Changes Requested</span>
                   </div>
-                  <p className="text-xl sm:text-2xl text-amber-900">{stats.rejected}</p>
+                  <p className="text-2xl sm:text-2xl font-bold text-red-900">{stats.rejected}</p>
                 </div>
               </div>
 
@@ -830,155 +834,146 @@ export function SupervisorMyGroupsAndReviews() {
                     </div>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-[var(--color-surface-alt)]">
-                        <tr>
-                          <th className="p-4 text-left text-[var(--color-text-900)] text-sm border-r border-[var(--color-border)]">
-                            Chapter Name
-                          </th>
-                          <th className="p-4 text-left text-[var(--color-text-900)] text-sm border-r border-[var(--color-border)]">
-                            Group
-                          </th>
-                          <th className="p-4 text-left text-[var(--color-text-900)] text-sm border-r border-[var(--color-border)]">
-                            Group ID
-                          </th>
-                          <th className="p-4 text-center text-[var(--color-text-900)] text-sm border-r border-[var(--color-border)]">
-                            Submitted
-                          </th>
-                          <th className="p-4 text-center text-[var(--color-text-900)] text-sm border-r border-[var(--color-border)]">
-                            Status
-                          </th>
-                          <th className="p-4 text-center text-[var(--color-text-900)] text-sm border-r border-[var(--color-border)]">
-                            File
-                          </th>
-                          <th className="p-4 text-center text-[var(--color-text-900)] text-sm">
-                            Actions
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[var(--color-border)]">
-                        {filteredSubmissions.map((sub) => {
-                          const isPending =
-                            sub.status === 'submitted' || sub.status === 'under-review';
-                          return (
-                            <tr
-                              key={sub.id}
-                              className="hover:bg-[var(--color-surface-alt)] transition-colors"
-                            >
-                              <td className="p-4 border-r border-[var(--color-border)]">
-                                <span className="text-[var(--color-text-900)]">
+                  <>
+                    {/* Mobile: card list */}
+                    <div className="sm:hidden divide-y divide-[var(--color-border)]">
+                      {filteredSubmissions.map((sub) => {
+                        const isPending = sub.status === 'submitted' || sub.status === 'under-review';
+                        const latestVersion = sub.versions[sub.versions.length - 1];
+                        const filePath = latestVersion?.file_path ?? null;
+                        const fileName = latestVersion?.file_name ?? 'file';
+                        return (
+                          <div key={sub.id} className="p-4 space-y-3">
+                            {/* Row 1: chapter name + version + status */}
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <span className="text-[var(--color-text-900)] font-medium text-sm">
                                   {sub.milestoneName}
-                                </span>
-                                {sub.currentVersion > 1 && (
-                                  <span className="ml-2 text-xs text-[var(--color-text-500)]">
-                                    v{sub.currentVersion}
-                                  </span>
-                                )}
-                              </td>
-                              <td className="p-4 border-r border-[var(--color-border)]">
-                                <div className="text-[var(--color-text-900)] text-sm">
-                                  Group {sub.groupNumber}
-                                </div>
-                                <div className="text-[var(--color-text-600)] text-xs truncate max-w-[140px]">
-                                  {sub.projectName}
-                                </div>
-                              </td>
-                              <td className="p-4 border-r border-[var(--color-border)]">
-                                <span className="font-mono text-xs text-[var(--color-text-500)] select-all">
-                                  {groups.find((g) => g.id === sub.groupId)?.groupCode ?? sub.groupId}
-                                </span>
-                              </td>
-                              <td className="p-4 text-center border-r border-[var(--color-border)]">
-                                <span className="text-[var(--color-text-600)] text-sm">
-                                  {formatDate(sub.submittedAt)}
-                                </span>
-                              </td>
-                              <td className="p-4 text-center border-r border-[var(--color-border)]">
-                                <span
-                                  className={`inline-flex items-center px-3 py-1 rounded-full border text-sm ${getStatusColor(sub.status)}`}
-                                >
-                                  {getStatusText(sub.status)}
-                                </span>
-                              </td>
-                              {/* ── File column ── */}
-                              <td className="p-4 text-center border-r border-[var(--color-border)]">
-                                {(() => {
-                                  const latestVersion = sub.versions[sub.versions.length - 1];
-                                  const filePath = latestVersion?.file_path ?? null;
-                                  const fileName = latestVersion?.file_name ?? 'file';
-                                  if (!filePath) return <span className="text-[var(--color-text-400)] text-sm">—</span>;
-                                  return (
-                                    <div className="flex items-center justify-center gap-2">
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="gap-1"
-                                        onClick={() => handleViewFile(filePath, fileName)}
-                                      >
-                                        <Eye className="w-3 h-3" />
-                                        View
-                                      </Button>
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="gap-1"
-                                        onClick={() => handleDownloadFile(filePath, fileName)}
-                                      >
-                                        <Download className="w-3 h-3" />
-                                        Download
-                                      </Button>
-                                    </div>
-                                  );
-                                })()}
-                              </td>
-                              {/* ── Actions column ── */}
-                              <td className="p-4 text-center">
-                                <div className="flex flex-row items-center justify-center gap-2">
-                                  {isPending && (
-                                    <>
-                                      <Button
-                                        size="sm"
-                                        className="gap-1 !bg-green-600 hover:!bg-green-700 text-white border-green-600"
-                                        onClick={() => {
-                                          setApproveTarget(sub);
-                                          setApproveComment('');
-                                        }}
-                                      >
-                                        <CheckCircle className="w-3 h-3" />
-                                        Approve
-                                      </Button>
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="gap-1 !text-red-600 border-red-300 hover:!bg-red-50"
-                                        onClick={() => {
-                                          setRejectTarget(sub);
-                                          setRejectFeedback('');
-                                        }}
-                                      >
-                                        <XCircle className="w-3 h-3" />
-                                        Reject
-                                      </Button>
-                                    </>
+                                  {sub.currentVersion > 1 && (
+                                    <span className="ml-1.5 text-xs text-[var(--color-text-500)]">v{sub.currentVersion}</span>
                                   )}
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="gap-1 text-purple-600 border-purple-300 hover:bg-purple-50"
-                                    onClick={() => navigate(`/supervisor/review/${sub.id}`)}
-                                  >
-                                    <ClipboardList className="w-3 h-3" />
-                                    Review
-                                  </Button>
+                                </span>
+                                <div className="text-xs text-[var(--color-text-600)] mt-0.5">
+                                  Group {sub.groupNumber} · {formatDate(sub.submittedAt)}
                                 </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                              </div>
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-xs flex-shrink-0 ${getStatusColor(sub.status)}`}>
+                                {getStatusText(sub.status)}
+                              </span>
+                            </div>
+                            {/* Row 2: file + actions */}
+                            <div className="flex flex-wrap gap-2">
+                              {filePath && (
+                                <>
+                                  <Button size="sm" variant="outline" className="gap-1 h-8 text-xs" onClick={() => handleViewFile(filePath, fileName)}>
+                                    <Eye className="w-3 h-3" /> View
+                                  </Button>
+                                  <Button size="sm" variant="outline" className="gap-1 h-8 text-xs" onClick={() => handleDownloadFile(filePath, fileName)}>
+                                    <Download className="w-3 h-3" /> Download
+                                  </Button>
+                                </>
+                              )}
+                              {isPending && (
+                                <>
+                                  <Button size="sm" className="gap-1 h-8 text-xs !bg-green-600 hover:!bg-green-700 text-white" onClick={() => { setApproveTarget(sub); setApproveComment(''); }}>
+                                    <CheckCircle className="w-3 h-3" /> Approve
+                                  </Button>
+                                  <Button size="sm" variant="outline" className="gap-1 h-8 text-xs !text-red-600 border-red-300 hover:!bg-red-50" onClick={() => { setRejectTarget(sub); setRejectFeedback(''); }}>
+                                    <XCircle className="w-3 h-3" /> Reject
+                                  </Button>
+                                </>
+                              )}
+                              <Button size="sm" variant="outline" className="gap-1 h-8 text-xs text-purple-600 border-purple-300 hover:bg-purple-50" onClick={() => navigate(`/supervisor/review/${sub.id}`)}>
+                                <ClipboardList className="w-3 h-3" /> Review
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Desktop: full table */}
+                    <div className="hidden sm:block overflow-x-auto">
+                      <table className="w-full min-w-[700px]">
+                        <thead className="bg-[var(--color-surface-alt)]">
+                          <tr>
+                            <th className="p-4 text-left text-[var(--color-text-900)] text-sm border-r border-[var(--color-border)]">Chapter Name</th>
+                            <th className="p-4 text-left text-[var(--color-text-900)] text-sm border-r border-[var(--color-border)]">Group</th>
+                            <th className="p-4 text-left text-[var(--color-text-900)] text-sm border-r border-[var(--color-border)]">Group ID</th>
+                            <th className="p-4 text-center text-[var(--color-text-900)] text-sm border-r border-[var(--color-border)]">Submitted</th>
+                            <th className="p-4 text-center text-[var(--color-text-900)] text-sm border-r border-[var(--color-border)]">Status</th>
+                            <th className="p-4 text-center text-[var(--color-text-900)] text-sm border-r border-[var(--color-border)]">File</th>
+                            <th className="p-4 text-center text-[var(--color-text-900)] text-sm">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[var(--color-border)]">
+                          {filteredSubmissions.map((sub) => {
+                            const isPending = sub.status === 'submitted' || sub.status === 'under-review';
+                            return (
+                              <tr key={sub.id} className="hover:bg-[var(--color-surface-alt)] transition-colors">
+                                <td className="p-4 border-r border-[var(--color-border)]">
+                                  <span className="text-[var(--color-text-900)]">{sub.milestoneName}</span>
+                                  {sub.currentVersion > 1 && <span className="ml-2 text-xs text-[var(--color-text-500)]">v{sub.currentVersion}</span>}
+                                </td>
+                                <td className="p-4 border-r border-[var(--color-border)]">
+                                  <div className="text-[var(--color-text-900)] text-sm">Group {sub.groupNumber}</div>
+                                  <div className="text-[var(--color-text-600)] text-xs truncate max-w-[140px]">{sub.projectName}</div>
+                                </td>
+                                <td className="p-4 border-r border-[var(--color-border)]">
+                                  <span className="font-mono text-xs text-[var(--color-text-500)] select-all">
+                                    {groups.find((g) => g.id === sub.groupId)?.groupCode ?? sub.groupId}
+                                  </span>
+                                </td>
+                                <td className="p-4 text-center border-r border-[var(--color-border)]">
+                                  <span className="text-[var(--color-text-600)] text-sm">{formatDate(sub.submittedAt)}</span>
+                                </td>
+                                <td className="p-4 text-center border-r border-[var(--color-border)]">
+                                  <span className={`inline-flex items-center px-3 py-1 rounded-full border text-sm ${getStatusColor(sub.status)}`}>
+                                    {getStatusText(sub.status)}
+                                  </span>
+                                </td>
+                                <td className="p-4 text-center border-r border-[var(--color-border)]">
+                                  {(() => {
+                                    const latestVersion = sub.versions[sub.versions.length - 1];
+                                    const filePath = latestVersion?.file_path ?? null;
+                                    const fileName = latestVersion?.file_name ?? 'file';
+                                    if (!filePath) return <span className="text-[var(--color-text-400)] text-sm">—</span>;
+                                    return (
+                                      <div className="flex items-center justify-center gap-2">
+                                        <Button size="sm" variant="outline" className="gap-1" onClick={() => handleViewFile(filePath, fileName)}>
+                                          <Eye className="w-3 h-3" /> View
+                                        </Button>
+                                        <Button size="sm" variant="outline" className="gap-1" onClick={() => handleDownloadFile(filePath, fileName)}>
+                                          <Download className="w-3 h-3" /> Download
+                                        </Button>
+                                      </div>
+                                    );
+                                  })()}
+                                </td>
+                                <td className="p-4 text-center">
+                                  <div className="flex flex-row items-center justify-center gap-2">
+                                    {isPending && (
+                                      <>
+                                        <Button size="sm" className="gap-1 !bg-green-600 hover:!bg-green-700 text-white border-green-600" onClick={() => { setApproveTarget(sub); setApproveComment(''); }}>
+                                          <CheckCircle className="w-3 h-3" /> Approve
+                                        </Button>
+                                        <Button size="sm" variant="outline" className="gap-1 !text-red-600 border-red-300 hover:!bg-red-50" onClick={() => { setRejectTarget(sub); setRejectFeedback(''); }}>
+                                          <XCircle className="w-3 h-3" /> Reject
+                                        </Button>
+                                      </>
+                                    )}
+                                    <Button size="sm" variant="outline" className="gap-1 text-purple-600 border-purple-300 hover:bg-purple-50" onClick={() => navigate(`/supervisor/review/${sub.id}`)}>
+                                      <ClipboardList className="w-3 h-3" /> Review
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
                 )}
               </div>
             </div>
@@ -1004,25 +999,25 @@ export function SupervisorMyGroupsAndReviews() {
                     </div>
 
                     {/* Breakdown */}
-                    <div className="flex lg:flex-col gap-2 lg:gap-2">
-                      <div className="flex flex-1 lg:flex-none items-center justify-between text-sm">
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center justify-between text-sm">
                         <span className="flex items-center gap-1.5 text-yellow-700">
                           <Clock className="w-3.5 h-3.5" />
                           Pending
                         </span>
                         <span className="font-semibold text-[var(--color-text-900)]">{stats.pending}</span>
                       </div>
-                      <div className="flex flex-1 lg:flex-none items-center justify-between text-sm">
+                      <div className="flex items-center justify-between text-sm">
                         <span className="flex items-center gap-1.5 text-green-700">
                           <CheckCircle className="w-3.5 h-3.5" />
                           Approved
                         </span>
                         <span className="font-semibold text-[var(--color-text-900)]">{stats.approved}</span>
                       </div>
-                      <div className="flex flex-1 lg:flex-none items-center justify-between text-sm">
-                        <span className="flex items-center gap-1.5 text-amber-700">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="flex items-center gap-1.5 text-red-700">
                           <XCircle className="w-3.5 h-3.5" />
-                          Changes Req.
+                          Changes Requested
                         </span>
                         <span className="font-semibold text-[var(--color-text-900)]">{stats.rejected}</span>
                       </div>
@@ -1239,7 +1234,43 @@ export function SupervisorMyGroupsAndReviews() {
                               (Coordinator-defined — read-only)
                             </span>
                           </h4>
-                          <div className="rounded-lg border border-[var(--color-border)] overflow-hidden">
+                          {/* Mobile: card list */}
+                          <div className="sm:hidden rounded-lg border border-[var(--color-border)] divide-y divide-[var(--color-border)]">
+                            {group.components.map((comp) => (
+                              <div key={comp.componentKey} className="px-4 py-3 flex items-center justify-between gap-2">
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm text-[var(--color-text-900)] font-medium truncate">{comp.componentName}</p>
+                                  <div className="flex items-center gap-2 mt-0.5">
+                                    <span className="capitalize text-[var(--color-text-600)] text-xs bg-[var(--color-surface-alt)] px-2 py-0.5 rounded border border-[var(--color-border)]">
+                                      {comp.evaluatorRole}
+                                    </span>
+                                    <span className="text-xs text-[var(--color-text-500)]">Weight: {comp.totalMarks}</span>
+                                  </div>
+                                </div>
+                                <div className="text-right flex-shrink-0">
+                                  {comp.score != null ? (
+                                    <span className="font-semibold text-[var(--color-text-900)] text-sm">
+                                      {comp.score.toFixed(1)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[var(--color-text-400)] text-xs">—</span>
+                                  )}
+                                  <p className="text-[var(--color-text-400)] text-xs">/ {comp.totalMarks}</p>
+                                </div>
+                              </div>
+                            ))}
+                            {group.components.length > 0 && (
+                              <div className="px-4 py-2.5 bg-[var(--color-surface-alt)] flex items-center justify-between">
+                                <span className="text-sm font-semibold text-[var(--color-text-900)]">Total</span>
+                                <span className="text-sm font-semibold text-[var(--color-text-900)]">
+                                  {totalComponentScore.toFixed(1)} / {totalComponentMax}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Desktop: full table */}
+                          <div className="hidden sm:block rounded-lg border border-[var(--color-border)] overflow-hidden">
                             <table className="w-full text-sm">
                               <thead className="bg-[var(--color-surface-alt)]">
                                 <tr>
@@ -1259,10 +1290,7 @@ export function SupervisorMyGroupsAndReviews() {
                               </thead>
                               <tbody className="divide-y divide-[var(--color-border)]">
                                 {group.components.map((comp) => (
-                                  <tr
-                                    key={comp.componentKey}
-                                    className="hover:bg-[var(--color-surface-alt)]"
-                                  >
+                                  <tr key={comp.componentKey} className="hover:bg-[var(--color-surface-alt)]">
                                     <td className="px-4 py-3 text-[var(--color-text-900)] border-r border-[var(--color-border)]">
                                       {comp.componentName}
                                     </td>
@@ -1285,14 +1313,9 @@ export function SupervisorMyGroupsAndReviews() {
                                     </td>
                                   </tr>
                                 ))}
-
-                                {/* Total row */}
                                 {group.components.length > 0 && (
                                   <tr className="bg-[var(--color-surface-alt)] border-t-2 border-[var(--color-border)]">
-                                    <td
-                                      className="px-4 py-2.5 font-semibold text-[var(--color-text-900)] border-r border-[var(--color-border)]"
-                                      colSpan={2}
-                                    >
+                                    <td className="px-4 py-2.5 font-semibold text-[var(--color-text-900)] border-r border-[var(--color-border)]" colSpan={2}>
                                       Total
                                     </td>
                                     <td className="px-4 py-2.5 text-center font-semibold text-[var(--color-text-900)] border-r border-[var(--color-border)]">
@@ -1426,7 +1449,7 @@ export function SupervisorMyGroupsAndReviews() {
                               <div className="flex items-center justify-between text-sm">
                                 <span className="flex items-center gap-1.5 text-amber-700">
                                   <XCircle className="w-3.5 h-3.5" />
-                                  Changes Req.
+                                  Changes Requested
                                 </span>
                                 <span className="font-semibold text-amber-900">
                                   {group.approvalCounts.rejected}

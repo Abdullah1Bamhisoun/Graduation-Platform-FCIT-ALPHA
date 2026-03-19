@@ -59,7 +59,7 @@ export function SupervisorDashboard() {
       id: s.id,
       message: `${s.studentName} submitted ${s.milestoneName}`,
       time: timeAgo(s.submittedAt),
-      color: s.status === 'changes-requested' ? 'amber' : 'blue',
+      color: s.status === 'changes-requested' ? 'red' : 'blue',
     }));
 
   const eventColors: Record<string, string> = {
@@ -67,12 +67,14 @@ export function SupervisorDashboard() {
     purple: 'border-purple-600 dark:border-purple-900/50',
     green: 'border-green-600 dark:border-green-900/50',
     amber: 'border-amber-600 dark:border-amber-900/50',
+    red: 'border-red-600 dark:border-red-900/50',
   };
   const eventTextColors: Record<string, string> = {
     blue: 'text-blue-600 dark:text-blue-400',
     purple: 'text-purple-600 dark:text-purple-400',
     green: 'text-green-600 dark:text-green-400',
     amber: 'text-amber-600 dark:text-amber-400',
+    red: 'text-red-600 dark:text-red-400',
   };
 
   return (

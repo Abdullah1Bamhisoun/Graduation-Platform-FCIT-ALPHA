@@ -406,6 +406,7 @@ export function SupervisorWeeklyReports() {
 
               <div className="p-6">
                 <div className="border border-[var(--color-border)] rounded-lg overflow-hidden">
+                  <div className="overflow-x-auto">
                   <table className="w-full">
                     <tbody className="divide-y divide-[var(--color-border)]">
                       <tr>
@@ -454,6 +455,7 @@ export function SupervisorWeeklyReports() {
                       </tr>
                     </tbody>
                   </table>
+                  </div>
                 </div>
 
                 <div className="mt-6 flex justify-end">

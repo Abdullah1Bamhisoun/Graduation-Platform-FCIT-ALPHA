@@ -317,136 +317,161 @@ export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGrade
         </Select>
       </div>
 
-      {/* Submissions Table */}
-      <Card className="overflow-hidden max-w-full">
-        <div className="overflow-x-auto w-full">
-          <div className="min-w-[700px]">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">Group</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">Student</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">Chapter</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">Version</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">Submitted</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">Grade</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={8} className="px-6 py-8 text-center text-gray-500">
-                    Loading submissions...
-                  </td>
-                </tr>
-              ) : submissions.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-6 py-8 text-center text-gray-500">
-                    No submissions found for the selected filter.
-                  </td>
-                </tr>
-              ) : (
-                submissions.map((submission, idx) => {
-                  const criterion = milestoneMap[submission.milestoneId];
-                  const hasLinkedCriterion = !!(criterion?.gradingCriterionKey);
-                  const existingScore = hasLinkedCriterion
-                    ? groupScores[submission.groupId]?.[criterion.gradingCriterionKey!]
-                    : undefined;
+      {/* Submissions — mobile cards */}
+      {isLoading ? (
+        <Card className="p-8 text-center text-gray-500">Loading submissions...</Card>
+      ) : submissions.length === 0 ? (
+        <Card className="p-8 text-center text-gray-500">No submissions found for the selected filter.</Card>
+      ) : (
+        <>
+          {/* Mobile: card list */}
+          <div className="sm:hidden space-y-3">
+            {submissions.map((submission) => {
+              const criterion = milestoneMap[submission.milestoneId];
+              const hasLinkedCriterion = !!(criterion?.gradingCriterionKey);
+              const existingScore = hasLinkedCriterion
+                ? groupScores[submission.groupId]?.[criterion.gradingCriterionKey!]
+                : undefined;
+              const latestVersion = submission.versions.find(v => v.version === submission.currentVersion)
+                ?? submission.versions[submission.versions.length - 1];
+              const filePath = latestVersion?.filePath;
+              const fileName = latestVersion?.fileName ?? `submission-v${submission.currentVersion}`;
 
-                  return (
-                    <tr key={submission.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                      <td className="px-6 py-4 text-sm text-gray-900 font-medium">
-                        {submission.groupNumber ? `Group ${submission.groupNumber}` : 'Unknown'}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-600">
-                        {submission.studentName || 'Unknown Student'}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-600">
-                        {submission.milestoneName || 'Unknown Milestone'}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-600">
-                        v{submission.currentVersion}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-600">
-                        {new Date(submission.submittedAt).toLocaleDateString(undefined, {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric',
-                        })}
-                      </td>
-                      <td className="px-6 py-4 text-sm">
-                        <div className="flex items-center gap-2">
-                          {getStatusIcon(submission.status)}
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusBadgeColor(submission.status)}`}>
-                            {getStatusLabel(submission.status)}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-sm">
-                        {hasLinkedCriterion ? (
+              return (
+                <Card key={submission.id} className="p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-medium text-gray-900 text-sm">{submission.milestoneName || 'Unknown Milestone'}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {submission.groupNumber ? `Group ${submission.groupNumber}` : 'Unknown'} · {submission.studentName || 'Unknown'}
+                      </p>
+                    </div>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border flex-shrink-0 ${getStatusBadgeColor(submission.status)}`}>
+                      {getStatusLabel(submission.status)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-gray-500">
+                    <span>v{submission.currentVersion}</span>
+                    <span>·</span>
+                    <span>{new Date(submission.submittedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                    {existingScore !== undefined && (
+                      <>
+                        <span>·</span>
+                        <span className="inline-flex items-center gap-1 text-purple-700 font-semibold">
+                          <Award className="w-3 h-3" />{existingScore}/{criterion.gradingCriterionMax}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {filePath && (
+                      <>
+                        <Button size="sm" variant="outline" className="h-7 text-xs gap-1 border-blue-300 text-blue-700 hover:bg-blue-50" onClick={() => handleView(filePath, fileName)}>
+                          <Eye className="w-3 h-3" /> View
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-7 text-xs gap-1 border-gray-300 text-gray-700 hover:bg-gray-50" onClick={() => handleDownload(filePath, fileName)}>
+                          <Download className="w-3 h-3" /> Download
+                        </Button>
+                      </>
+                    )}
+                    {hasLinkedCriterion && (
+                      <Button size="sm" variant="outline" className="h-7 text-xs gap-1 border-purple-300 text-purple-700 hover:bg-purple-50" onClick={() => openGradeDialog(submission)}>
+                        <Award className="w-3 h-3" /> {existingScore !== undefined ? 'Edit Grade' : 'Grade'}
+                      </Button>
+                    )}
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+
+          {/* Desktop: full table */}
+          <Card className="hidden sm:block overflow-hidden max-w-full">
+            <div className="overflow-x-auto w-full">
+              <table className="w-full min-w-[700px]">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">Group</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">Student</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">Chapter</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">Version</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">Submitted</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">Status</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">Grade</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {submissions.map((submission, idx) => {
+                    const criterion = milestoneMap[submission.milestoneId];
+                    const hasLinkedCriterion = !!(criterion?.gradingCriterionKey);
+                    const existingScore = hasLinkedCriterion
+                      ? groupScores[submission.groupId]?.[criterion.gradingCriterionKey!]
+                      : undefined;
+
+                    return (
+                      <tr key={submission.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                        <td className="px-6 py-4 text-sm text-gray-900 font-medium">
+                          {submission.groupNumber ? `Group ${submission.groupNumber}` : 'Unknown'}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-600">{submission.studentName || 'Unknown Student'}</td>
+                        <td className="px-6 py-4 text-sm text-gray-600">{submission.milestoneName || 'Unknown Milestone'}</td>
+                        <td className="px-6 py-4 text-sm text-gray-600">v{submission.currentVersion}</td>
+                        <td className="px-6 py-4 text-sm text-gray-600">
+                          {new Date(submission.submittedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </td>
+                        <td className="px-6 py-4 text-sm">
                           <div className="flex items-center gap-2">
-                            {existingScore !== undefined ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200">
-                                <Award className="w-3 h-3" />
-                                {existingScore}/{criterion.gradingCriterionMax}
-                              </span>
-                            ) : null}
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 text-xs gap-1 border-purple-300 text-purple-700 hover:bg-purple-50"
-                              onClick={() => openGradeDialog(submission)}
-                            >
-                              <Award className="w-3 h-3" />
-                              {existingScore !== undefined ? 'Edit' : 'Grade'}
-                            </Button>
+                            {getStatusIcon(submission.status)}
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusBadgeColor(submission.status)}`}>
+                              {getStatusLabel(submission.status)}
+                            </span>
                           </div>
-                        ) : (
-                          <span className="text-xs text-gray-400">No grade linked</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-sm">
-                        {(() => {
-                          const latestVersion = submission.versions.find(v => v.version === submission.currentVersion)
-                            ?? submission.versions[submission.versions.length - 1];
-                          const filePath = latestVersion?.filePath;
-                          const fileName = latestVersion?.fileName ?? `submission-v${submission.currentVersion}`;
-                          if (!filePath) return <span className="text-xs text-gray-400">No file</span>;
-                          return (
-                            <div className="flex items-center gap-1">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 text-xs gap-1 border-blue-300 text-blue-700 hover:bg-blue-50"
-                                onClick={() => handleView(filePath, fileName)}
-                              >
-                                <Eye className="w-3 h-3" />
-                                View
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-7 text-xs gap-1 border-gray-300 text-gray-700 hover:bg-gray-50"
-                                onClick={() => handleDownload(filePath, fileName)}
-                              >
-                                <Download className="w-3 h-3" />
-                                Download
+                        </td>
+                        <td className="px-6 py-4 text-sm">
+                          {hasLinkedCriterion ? (
+                            <div className="flex items-center gap-2">
+                              {existingScore !== undefined && (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200">
+                                  <Award className="w-3 h-3" />{existingScore}/{criterion.gradingCriterionMax}
+                                </span>
+                              )}
+                              <Button size="sm" variant="outline" className="h-7 text-xs gap-1 border-purple-300 text-purple-700 hover:bg-purple-50" onClick={() => openGradeDialog(submission)}>
+                                <Award className="w-3 h-3" />{existingScore !== undefined ? 'Edit' : 'Grade'}
                               </Button>
                             </div>
-                          );
-                        })()}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-          </div>
-        </div>
-      </Card>
+                          ) : (
+                            <span className="text-xs text-gray-400">No grade linked</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-sm">
+                          {(() => {
+                            const latestVersion = submission.versions.find(v => v.version === submission.currentVersion)
+                              ?? submission.versions[submission.versions.length - 1];
+                            const filePath = latestVersion?.filePath;
+                            const fileName = latestVersion?.fileName ?? `submission-v${submission.currentVersion}`;
+                            if (!filePath) return <span className="text-xs text-gray-400">No file</span>;
+                            return (
+                              <div className="flex items-center gap-1">
+                                <Button size="sm" variant="outline" className="h-7 text-xs gap-1 border-blue-300 text-blue-700 hover:bg-blue-50" onClick={() => handleView(filePath, fileName)}>
+                                  <Eye className="w-3 h-3" /> View
+                                </Button>
+                                <Button size="sm" variant="outline" className="h-7 text-xs gap-1 border-gray-300 text-gray-700 hover:bg-gray-50" onClick={() => handleDownload(filePath, fileName)}>
+                                  <Download className="w-3 h-3" /> Download
+                                </Button>
+                              </div>
+                            );
+                          })()}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </>
+      )}
 
       {/* File Viewer with Annotations */}
       {viewerFile && (

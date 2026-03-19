@@ -20,7 +20,7 @@ const statusConfig: Record<SubmissionStatus, StatusConfig> = {
   },
   'changes-requested': {
     label: 'Changes Requested',
-    className: '!bg-white text-amber-600 border-[1.5px] border-amber-500',
+    className: '!bg-white text-red-600 border-[1.5px] border-red-500',
   },
   'approved': {
     label: 'Approved',

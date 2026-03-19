@@ -669,14 +669,14 @@ export function CoordinatorGradeSchemeEditor() {
           <TabsList className="mb-6 flex flex-wrap gap-3 bg-transparent p-1 h-auto">
             <TabsTrigger
               value="498"
-              className="px-4 py-2.5 border-2 border-[var(--color-border)] rounded-lg font-medium transition-all duration-200 data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-[var(--color-primary-50)] data-[state=active]:text-[var(--color-primary-900)] data-[state=inactive]:hover:border-[var(--color-primary-400)] data-[state=inactive]:hover:bg-[var(--color-surface-alt)]"
+              className="px-4 py-2.5 border-2 border-[var(--color-border)] rounded-lg font-medium transition-all duration-200 data-[state=active]:border-green-600 data-[state=active]:bg-green-600 data-[state=active]:text-white data-[state=inactive]:hover:border-[var(--color-primary-400)] data-[state=inactive]:hover:bg-[var(--color-surface-alt)]"
             >
               <span className="sm:hidden">CPIS-498</span>
               <span className="hidden sm:inline">CPIS-498 — Senior Project I</span>
             </TabsTrigger>
             <TabsTrigger
               value="499"
-              className="px-4 py-2.5 border-2 border-[var(--color-border)] rounded-lg font-medium transition-all duration-200 data-[state=active]:border-[var(--color-primary-600)] data-[state=active]:bg-[var(--color-primary-50)] data-[state=active]:text-[var(--color-primary-900)] data-[state=inactive]:hover:border-[var(--color-primary-400)] data-[state=inactive]:hover:bg-[var(--color-surface-alt)]"
+              className="px-4 py-2.5 border-2 border-[var(--color-border)] rounded-lg font-medium transition-all duration-200 data-[state=active]:border-green-600 data-[state=active]:bg-green-600 data-[state=active]:text-white data-[state=inactive]:hover:border-[var(--color-primary-400)] data-[state=inactive]:hover:bg-[var(--color-surface-alt)]"
             >
               <span className="sm:hidden">CPIS-499</span>
               <span className="hidden sm:inline">CPIS-499 — Senior Project II</span>

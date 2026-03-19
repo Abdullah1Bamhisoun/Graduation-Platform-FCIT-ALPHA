@@ -195,7 +195,7 @@ export function StudentDashboard() {
               {pendingActions.map((milestone) => (
                 <div
                   key={milestone.id}
-                  className="p-4 rounded-lg !bg-white dark:bg-gray-800 border-[1.5px] border-amber-600 dark:border-amber-900/50 hover:bg-amber-50/30 transition-colors"
+                  className="p-4 rounded-lg !bg-white dark:bg-gray-800 border-[1.5px] border-red-500 dark:border-red-900/50 hover:bg-red-50/30 transition-colors"
                 >
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <h3 className="text-[var(--color-text-900)] min-w-0">{milestone.name}</h3>
