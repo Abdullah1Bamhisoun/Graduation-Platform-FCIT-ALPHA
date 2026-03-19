@@ -6,38 +6,29 @@ const emailService = require('../services/email.service');
  * Tries 16 weeks; falls back to 14 if the DB has a stricter check constraint.
  */
 async function ensureSeeded(courseType) {
+  // Fetch existing week numbers so we can insert only the missing ones
   const { data: existing } = await supabaseAdmin
     .from('week_statuses')
-    .select('id')
-    .eq('course_type', courseType)
-    .limit(1);
+    .select('week_number')
+    .eq('course_type', courseType);
 
-  if (existing && existing.length > 0) return; // already seeded
+  const existingNums = new Set((existing || []).map((r) => r.week_number));
+  const missing = Array.from({ length: 16 }, (_, i) => i + 1).filter((n) => !existingNums.has(n));
 
-  // Try seeding 16 weeks first
-  const makeSeeds = (count) => Array.from({ length: count }, (_, i) => ({
+  if (missing.length === 0) return; // all 16 weeks already exist
+
+  const rows = missing.map((n) => ({
     course_type: courseType,
-    week_number: i + 1,
+    week_number: n,
     is_open:     false,
     was_opened:  false,
   }));
 
-  const { error: err16 } = await supabaseAdmin
+  const { error } = await supabaseAdmin
     .from('week_statuses')
-    .insert(makeSeeds(16));
+    .insert(rows);
 
-  if (!err16) return; // success
-
-  // Constraint may only allow up to 14 — fall back
-  if (err16.message?.includes('check constraint')) {
-    console.warn(`week_number constraint hit for ${courseType}, seeding 14 weeks. Run SQL to expand to 16.`);
-    const { error: err14 } = await supabaseAdmin
-      .from('week_statuses')
-      .insert(makeSeeds(14));
-    if (err14) console.error(`Seed error for ${courseType}:`, err14.message);
-  } else {
-    console.error(`Seed error for ${courseType}:`, err16.message);
-  }
+  if (error) console.error(`Seed error for ${courseType} (missing weeks ${missing.join(',')}):`, error.message);
 }
 
 /**

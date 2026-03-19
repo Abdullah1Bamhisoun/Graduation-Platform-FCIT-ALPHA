@@ -271,11 +271,12 @@ async function getMyGrades(req, res) {
           score = coordinatorScore;
           break;
         case 'coordinator_deliverables':
-          // Prefer rubric-based coordinator score if available; otherwise fall back
-          // to coordinator_deliverable_scores total (CommitteeScores page) or
-          // admin_committee_scores (legacy 499) or chapter deliverable totals (498)
-          score = coordinatorScore
-            ?? (courseType === '499' ? (deliverablesTotal || adminCommitteeTotal) : deliverablesTotal);
+          // Always sum coordinator_deliverable_scores so the header total matches
+          // the individual sub-item rows shown in the UI.
+          // Fall back to admin_committee_scores for legacy CPIS-499 data.
+          score = courseType === '499'
+            ? (deliverablesTotal || adminCommitteeTotal)
+            : deliverablesTotal;
           break;
         case 'progress_reports':
           score = weeklyScore; // capped at weeklyMaxScore

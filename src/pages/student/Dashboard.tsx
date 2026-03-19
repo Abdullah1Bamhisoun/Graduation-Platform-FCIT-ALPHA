@@ -197,8 +197,8 @@ export function StudentDashboard() {
                   key={milestone.id}
                   className="p-4 rounded-lg !bg-white dark:bg-gray-800 border-[1.5px] border-amber-600 dark:border-amber-900/50 hover:bg-amber-50/30 transition-colors"
                 >
-                  <div className="flex items-start justify-between mb-2">
-                    <h3 className="text-[var(--color-text-900)]">{milestone.name}</h3>
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <h3 className="text-[var(--color-text-900)] min-w-0">{milestone.name}</h3>
                     <StatusBadge status={milestone.status} />
                   </div>
                   <p className="text-[var(--color-text-600)] mb-3">
@@ -244,10 +244,10 @@ export function StudentDashboard() {
               {milestones.slice(0, 5).map((milestone) => (
                 <div
                   key={milestone.id}
-                  className="flex items-center justify-between py-2 cursor-pointer hover:bg-[var(--color-surface-alt)] rounded px-2"
+                  className="flex items-center justify-between gap-3 py-2 cursor-pointer hover:bg-[var(--color-surface-alt)] rounded px-2"
                   onClick={() => navigate(`/student/submissions/${milestone.id}`)}
                 >
-                  <span className="text-[var(--color-text-900)]">{milestone.name}</span>
+                  <span className="text-[var(--color-text-900)] min-w-0 truncate">{milestone.name}</span>
                   <StatusBadge status={milestone.status} />
                 </div>
               ))}

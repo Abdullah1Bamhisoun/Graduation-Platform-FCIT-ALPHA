@@ -201,15 +201,15 @@ export function AdminWeeklyReports() {
 
           {/* Collapse toggle — takes remaining space */}
           <button
-            className="flex-1 flex items-center justify-between px-5 py-3.5 hover:bg-[var(--color-surface-alt)] transition-colors"
+            className="flex-1 flex items-center justify-between px-3 sm:px-5 py-3.5 hover:bg-[var(--color-surface-alt)] transition-colors min-w-0"
             onClick={() => setWeekPanelOpen(v => !v)}
           >
-            <div className="flex items-center gap-3">
-              <Lock className="w-4 h-4 text-[var(--color-text-600)]" />
+            <div className="flex flex-wrap items-center gap-2 min-w-0">
+              <Lock className="w-4 h-4 text-[var(--color-text-600)] shrink-0" />
               <span className="font-medium text-[var(--color-text-900)]">
                 Week Control
               </span>
-              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+              <span className={`hidden sm:inline text-xs font-semibold px-2 py-0.5 rounded-full ${
                 activeCourse === '498'
                   ? 'bg-blue-100 text-blue-700'
                   : 'bg-violet-100 text-violet-700'
@@ -221,8 +221,8 @@ export function AdminWeeklyReports() {
               </span>
             </div>
             {weekPanelOpen
-              ? <ChevronUp className="w-4 h-4 text-[var(--color-text-600)]" />
-              : <ChevronDown className="w-4 h-4 text-[var(--color-text-600)]" />}
+              ? <ChevronUp className="w-4 h-4 text-[var(--color-text-600)] shrink-0 ml-2" />
+              : <ChevronDown className="w-4 h-4 text-[var(--color-text-600)] shrink-0 ml-2" />}
           </button>
         </div>
 

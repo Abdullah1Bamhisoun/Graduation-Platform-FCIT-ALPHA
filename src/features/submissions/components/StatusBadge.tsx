@@ -36,7 +36,7 @@ export function StatusBadge({ status }: StatusBadgeProps) {
   const config = statusConfig[status];
 
   return (
-    <span className={`inline-flex items-center px-3 py-1 rounded-full ${config.className}`}>
+    <span className={`inline-flex items-center px-3 py-1 rounded-full whitespace-nowrap flex-shrink-0 text-sm font-medium ${config.className}`}>
       {config.label}
     </span>
   );

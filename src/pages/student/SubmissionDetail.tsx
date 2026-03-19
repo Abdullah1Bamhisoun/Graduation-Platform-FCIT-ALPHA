@@ -385,16 +385,16 @@ export function StudentSubmissionDetail() {
               </div>
               <div className="divide-y divide-[var(--color-border)]">
                 {submission.versions.map((version) => (
-                  <div key={version.version} className="p-6 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 !bg-white dark:bg-blue-950/30 rounded-lg flex items-center justify-center border-[1.5px] border-blue-500 dark:border-blue-900/50">
+                  <div key={version.version} className="p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center gap-4">
+                    <div className="flex items-start gap-4 flex-1 min-w-0">
+                      <div className="w-12 h-12 flex-shrink-0 !bg-white dark:bg-blue-950/30 rounded-lg flex items-center justify-center border-[1.5px] border-blue-500 dark:border-blue-900/50">
                         <FileText className="w-6 h-6 text-blue-600 dark:text-blue-400" />
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <h3 className="text-[var(--color-text-900)] mb-1">
                           Version {version.version}
                         </h3>
-                        <p className="text-[var(--color-text-600)]">
+                        <p className="text-[var(--color-text-600)] break-all">
                           {version.fileName} • {version.fileSize}
                         </p>
                         <p className="text-[var(--color-text-600)]">
@@ -407,12 +407,13 @@ export function StudentSubmissionDetail() {
                         )}
                       </div>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-shrink-0 sm:ml-4">
                       {version.filePath ? (
                         <>
                           <Button
                             variant="outline"
                             size="sm"
+                            className="flex-1 sm:flex-none"
                             onClick={() => handleView(version.filePath!, version.fileName)}
                           >
                             <Eye className="w-4 h-4 mr-2" />
@@ -421,6 +422,7 @@ export function StudentSubmissionDetail() {
                           <Button
                             variant="outline"
                             size="sm"
+                            className="flex-1 sm:flex-none"
                             onClick={() => handleDownload(version.filePath!, version.fileName)}
                           >
                             <Download className="w-4 h-4 mr-2" />
@@ -428,7 +430,7 @@ export function StudentSubmissionDetail() {
                           </Button>
                         </>
                       ) : (
-                        <Button variant="outline" size="sm" disabled>
+                        <Button variant="outline" size="sm" disabled className="flex-1 sm:flex-none">
                           <Download className="w-4 h-4 mr-2" />
                           Download
                         </Button>

@@ -137,6 +137,7 @@ export function StudentGradesOverview() {
   const [peerSubmitting, setPeerSubmitting] = useState(false);
   const [peerSubmitError, setPeerSubmitError] = useState<string | null>(null);
   const [peerSubmitted, setPeerSubmitted]   = useState(false);
+  const [peerEditing, setPeerEditing]       = useState(false);
   const [refreshing, setRefreshing]         = useState(false);
   const [rubricCriteria, setRubricCriteria] = useState<RubricCriterion[]>([]);
   const [expandedComponents, setExpandedComponents] = useState<Set<string>>(new Set());
@@ -206,9 +207,7 @@ export function StudentGradesOverview() {
           }
           // Coordinator deliverable scores (CommitteeScores page) for 499 criteria display
           for (const s of coordDelivScores ?? []) {
-            if (!(s.deliverable_key in scores)) {
-              scores[s.deliverable_key] = Number(s.score);
-            }
+            scores[s.deliverable_key] = Number(s.score);
           }
           setCriterionScores(scores);
         }
@@ -278,11 +277,28 @@ export function StudentGradesOverview() {
       }
 
       setPeerSubmitted(true);
+      setPeerEditing(false);
     } catch (err) {
       setPeerSubmitError('Failed to submit. Please try again.');
     } finally {
       setPeerSubmitting(false);
     }
+  }
+
+  async function handlePeerEdit() {
+    if (!user || gradesData === 'loading' || !gradesData) return;
+    const g = gradesData;
+    // Load existing ratings so the form is pre-filled
+    const { data: existing } = await supabase
+      .from('peer_evaluations')
+      .select('student_id, score')
+      .eq('evaluator_id', user.id)
+      .eq('group_id', g.groupId);
+    const loaded: Record<string, number> = {};
+    for (const row of existing ?? []) loaded[row.student_id] = row.score;
+    setPeerRatings(loaded);
+    setPeerSubmitError(null);
+    setPeerEditing(true);
   }
 
   if (!user) return null;
@@ -905,10 +921,21 @@ export function StudentGradesOverview() {
           )}
 
           {/* Submit ratings for each peer */}
-          {g.peerEvaluation.hasSubmitted || peerSubmitted ? (
-            <div className="flex items-center gap-1.5 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-              <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
-              You have submitted your peer evaluations
+          {(g.peerEvaluation.hasSubmitted || peerSubmitted) && !peerEditing ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-1.5 text-xs text-green-700">
+                  <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                  You have submitted your peer evaluations
+                </div>
+                <button
+                  type="button"
+                  onClick={handlePeerEdit}
+                  className="text-xs text-pink-600 hover:text-pink-700 font-medium underline underline-offset-2 flex-shrink-0"
+                >
+                  Edit
+                </button>
+              </div>
             </div>
           ) : (
             <div className="space-y-2">
@@ -942,15 +969,27 @@ export function StudentGradesOverview() {
               {peerSubmitError && (
                 <p className="text-xs text-red-600 pt-1">{peerSubmitError}</p>
               )}
-              <button
-                type="button"
-                disabled={peerSubmitting}
-                onClick={handlePeerSubmit}
-                className="w-full mt-2 flex items-center justify-center gap-1.5 text-xs text-white bg-pink-500 hover:bg-pink-600 disabled:opacity-50 rounded-lg px-3 py-2 transition-colors font-medium"
-              >
-                <CheckCircle className="w-3.5 h-3.5" />
-                {peerSubmitting ? 'Submitting…' : 'Submit Peer Evaluations'}
-              </button>
+              <div className="flex gap-2 mt-2">
+                {peerEditing && (
+                  <button
+                    type="button"
+                    disabled={peerSubmitting}
+                    onClick={() => { setPeerEditing(false); setPeerSubmitError(null); }}
+                    className="flex-1 flex items-center justify-center gap-1.5 text-xs text-[var(--color-text-700)] bg-[var(--color-surface-alt)] hover:bg-[var(--color-border)] disabled:opacity-50 rounded-lg px-3 py-2 transition-colors font-medium border border-[var(--color-border)]"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={peerSubmitting}
+                  onClick={handlePeerSubmit}
+                  className="flex-1 flex items-center justify-center gap-1.5 text-xs text-white bg-pink-500 hover:bg-pink-600 disabled:opacity-50 rounded-lg px-3 py-2 transition-colors font-medium"
+                >
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  {peerSubmitting ? 'Submitting…' : peerEditing ? 'Update Peer Evaluations' : 'Submit Peer Evaluations'}
+                </button>
+              </div>
             </div>
           )}
         </div>
