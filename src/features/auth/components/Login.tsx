@@ -13,6 +13,7 @@ export function Login() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -29,7 +30,7 @@ export function Login() {
     setIsLoading(true);
 
     try {
-      await login(email, password);
+      await login(email, password, rememberMe);
       // Navigation is handled by the login function
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
@@ -97,8 +98,13 @@ export function Login() {
             </div>
 
             <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2">
-                <input type="checkbox" className="rounded border-[var(--color-border)]" />
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="rounded border-[var(--color-border)]"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                />
                 <span className="text-[var(--color-text-600)]">Remember me</span>
               </label>
               <Link to="/forgot-password" className="text-[var(--color-primary-600)] hover:underline">

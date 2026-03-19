@@ -8,7 +8,7 @@ import {
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User as SupabaseUser } from '@supabase/supabase-js';
-import { supabase } from './supabase';
+import { supabase, adaptiveStorage } from './supabase';
 import { User, UserRole } from '../types';
 import {
   getUserRoles,
@@ -25,7 +25,7 @@ interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, rememberMe?: boolean) => Promise<void>;
   logout: () => void;
   /** Switch active role for multi-role faculty (supervisor ↔ coordinator) */
   switchRole: (newRole: UserRole) => Promise<void>;
@@ -138,7 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loadUserProfile]);
 
   // ── Login ──────────────────────────────────────────────────────────────────
-  const login = async (email: string, password: string): Promise<void> => {
+  const login = async (email: string, password: string, rememberMe = true): Promise<void> => {
     const kauEmailRegex = /^[\w.-]+@(stu\.)?kau\.edu\.sa$/;
     if (!kauEmailRegex.test(email)) {
       throw new Error('Please enter a valid KAU email address');
@@ -146,6 +146,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (password.length < 8) {
       throw new Error('Password must be at least 8 characters');
     }
+
+    // Configure storage before signing in so the session lands in the right place.
+    adaptiveStorage.setMode(rememberMe);
+    localStorage.setItem('rememberMePref', String(rememberMe));
 
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
@@ -170,6 +174,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // ── Logout ────────────────────────────────────────────────────────────────
   const logout = async () => {
     if (user) clearStoredActiveRole(user.id);
+    localStorage.removeItem('rememberMePref');
+    adaptiveStorage.setMode(true); // reset to default for next login
     await supabase.auth.signOut();
     setUser(null);
     navigate('/login');
