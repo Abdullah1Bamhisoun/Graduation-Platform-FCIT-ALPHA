@@ -1,9 +1,12 @@
 node_modules
 
-# Environment variables
+# Environment variables — NEVER commit real .env files
 .env
 .env.local
 .env.*.local
+server/.env
+server/.env.local
+server/.env.*.local
 
 # Build outputs
 dist

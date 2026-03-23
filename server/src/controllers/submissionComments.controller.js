@@ -123,25 +123,21 @@ async function getComments(req, res) {
     const userRoles = req.user.roles;
     const activeRole = req.user.activeRole;
 
-    // Fetch the group row once to avoid repeated queries
-    const { data: groupRow } = await supabaseAdmin
-      .from('groups')
-      .select('supervisor_id')
-      .eq('id', submission.group_id)
-      .single();
+    // Fetch group and comments in parallel — neither depends on the other
+    const [{ data: groupRow }, { data: comments, error: cError }] = await Promise.all([
+      supabaseAdmin.from('groups').select('supervisor_id').eq('id', submission.group_id).single(),
+      supabaseAdmin
+        .from('submission_comments')
+        .select('id, content, author_id, author_role, visibility_scope, created_at')
+        .eq('submission_id', submissionId)
+        .order('created_at', { ascending: true }),
+    ]);
 
     const callerRole = await resolveCallerRole(userId, submission.group_id, userRoles, activeRole, groupRow);
 
     if (!callerRole) {
       return res.status(403).json({ error: 'Access denied' });
     }
-
-    // Fetch all comments — visibility_scope may or may not be present (migration may not have run)
-    const { data: comments, error: cError } = await supabaseAdmin
-      .from('submission_comments')
-      .select('id, content, author_id, author_role, visibility_scope, created_at')
-      .eq('submission_id', submissionId)
-      .order('created_at', { ascending: true });
 
     if (cError) {
       if (isTableMissing(cError)) return res.json([]);

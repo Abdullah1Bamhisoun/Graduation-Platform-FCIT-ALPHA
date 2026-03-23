@@ -45,7 +45,8 @@ async function getChapterSubmissionsForSupervisor(req, res) {
         versions:submission_versions!submission_id(version, file_name, file_size, file_path, uploaded_at, notes)
       `)
       .in('group_id', groupIds)
-      .order('updated_at', { ascending: false });
+      .order('updated_at', { ascending: false })
+      .range(req.pagination.from, req.pagination.to);
 
     if (sError) throw sError;
 
@@ -238,7 +239,7 @@ async function updateSubmissionApproval(req, res) {
   } catch (error) {
     console.error('Error updating submission approval:', error);
     res.status(500).json({
-      error: error?.message || 'Failed to update submission',
+      error: 'Failed to update submission',
       detail: error?.details || error?.hint || null,
     });
   }
@@ -318,7 +319,8 @@ async function getChapterSubmissionsForCoordinator(req, res) {
         versions:submission_versions!submission_id(version, file_name, file_size, file_path, uploaded_at, notes)
       `)
       .in('group_id', groupIds)
-      .order('updated_at', { ascending: false });
+      .order('updated_at', { ascending: false })
+      .range(req.pagination.from, req.pagination.to);
 
     if (sError) throw sError;
 
@@ -611,7 +613,7 @@ async function createSubmission(req, res) {
     res.json({ success: true, submissionId: submission.id });
   } catch (error) {
     console.error('Error creating submission:', error);
-    res.status(500).json({ error: error?.message || 'Failed to create submission' });
+    res.status(500).json({ error: 'Failed to create submission' });
   }
 }
 
@@ -700,7 +702,7 @@ async function createSubmissionVersion(req, res) {
     res.json({ success: true });
   } catch (error) {
     console.error('Error creating submission version:', error);
-    res.status(500).json({ error: error?.message || 'Failed to create submission version' });
+    res.status(500).json({ error: 'Failed to create submission version' });
   }
 }
 

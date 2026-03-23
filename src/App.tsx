@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from './components/ui/sonner';
 import { AuthProvider } from './lib/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 // Auth
 import { Login } from './features/auth/components/Login';
@@ -68,6 +69,7 @@ const SUPERVISOR_ROLES   = ['supervisor', 'admin'] as const;
 
 export default function App() {
   return (
+    <ErrorBoundary>
     <BrowserRouter>
       <AuthProvider>
         <Routes>
@@ -147,5 +149,6 @@ export default function App() {
         <Toaster position="top-center" />
       </AuthProvider>
     </BrowserRouter>
+    </ErrorBoundary>
   );
 }

@@ -15,6 +15,11 @@ const emailService = require('../services/email.service');
 async function resolveRecipientEmails(targetRoles, coordinatorCourseId) {
   const recipientEmails = new Set();
 
+  // Kick off course name lookup in parallel with all role lookups
+  const courseNamePromise = coordinatorCourseId
+    ? supabaseAdmin.from('courses').select('code').eq('id', coordinatorCourseId).single()
+    : Promise.resolve({ data: null });
+
   // ── Students ──────────────────────────────────────────────────────────────
   if (targetRoles.includes('student')) {
     let foundViaGroups = false;
@@ -38,8 +43,6 @@ async function resolveRecipientEmails(targetRoles, coordinatorCourseId) {
       }
     }
 
-    // Fallback: no coordinatorCourseId OR no groups/members found yet →
-    // email ALL students on the platform so the announcement is never lost.
     if (!foundViaGroups) {
       const { data: profiles } = await supabaseAdmin
         .from('profiles').select('email').eq('role', 'student');
@@ -85,13 +88,9 @@ async function resolveRecipientEmails(targetRoles, coordinatorCourseId) {
     }
   }
 
-  // ── Course name (for email subject) ──────────────────────────────────────
-  let courseName = '';
-  if (coordinatorCourseId) {
-    const { data: course } = await supabaseAdmin
-      .from('courses').select('code').eq('id', coordinatorCourseId).single();
-    courseName = course?.code ?? '';
-  }
+  // ── Course name — resolve the promise started at the top ──────────────────
+  const { data: course } = await courseNamePromise;
+  const courseName = course?.code ?? '';
 
   return { emails: [...recipientEmails], courseName };
 }
@@ -113,7 +112,8 @@ async function listAnnouncements(req, res) {
       query = query.contains('target_roles', [role]);
     }
 
-    const { data, error } = await query;
+    const { from, to } = req.pagination;
+    const { data, error } = await query.range(from, to);
     if (error) throw error;
 
     // Batch-fetch author names
@@ -126,6 +126,10 @@ async function listAnnouncements(req, res) {
         .in('id', authorIds);
       for (const p of (profiles || [])) authorMap[p.id] = p.name;
     }
+
+    // Cache per-user for 60 seconds — announcements change infrequently.
+    // 'private' ensures CDN/proxies never share one user's response with another.
+    res.set('Cache-Control', 'private, max-age=60');
 
     res.json((data || []).map((a) => ({
       id: a.id,

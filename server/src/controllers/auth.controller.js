@@ -67,7 +67,7 @@ async function submitRegistration(req, res) {
     res.json({ success: true });
   } catch (error) {
     console.error('Error submitting registration:', error);
-    res.status(500).json({ error: error.message || 'Failed to submit registration' });
+    res.status(500).json({ error: 'Failed to submit registration. Please try again.' });
   }
 }
 
@@ -330,7 +330,7 @@ async function approveRegistration(req, res) {
     });
   } catch (error) {
     console.error('Error approving registration:', error);
-    res.status(500).json({ error: 'Failed to approve registration' });
+    res.status(500).json({ error: 'Failed to approve registration. Please try again.' });
   }
 }
 
@@ -427,7 +427,7 @@ async function rejectRegistration(req, res) {
     });
   } catch (error) {
     console.error('Error rejecting registration:', error);
-    res.status(500).json({ error: 'Failed to reject registration' });
+    res.status(500).json({ error: 'Failed to reject registration. Please try again.' });
   }
 }
 
@@ -581,7 +581,7 @@ async function repairGroups(req, res) {
     res.json({ success: true, created, assigned, skipped });
   } catch (error) {
     console.error('Error repairing groups:', error);
-    res.status(500).json({ error: 'Failed to repair groups' });
+    res.status(500).json({ error: 'Failed to repair groups. Please try again.' });
   }
 }
 
@@ -609,13 +609,14 @@ async function listRegistrations(req, res) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const { data, error } = await query;
+    const { from, to } = req.pagination;
+    const { data, error } = await query.range(from, to);
     if (error) throw error;
 
     res.json(data || []);
   } catch (error) {
     console.error('Error listing registrations:', error);
-    res.status(500).json({ error: 'Failed to fetch registrations' });
+    res.status(500).json({ error: 'Failed to fetch registrations. Please try again.' });
   }
 }
 

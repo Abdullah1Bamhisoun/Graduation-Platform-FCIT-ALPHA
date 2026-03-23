@@ -91,7 +91,7 @@ async function setCurrentTerm(req, res) {
     res.json({ success: true, term, year: Number(year), term_code, migratedGroups });
   } catch (err) {
     console.error('setCurrentTerm error:', err);
-    res.status(500).json({ error: err.message || 'Failed to update current term' });
+    res.status(500).json({ error: 'Failed to update current term' });
   }
 }
 

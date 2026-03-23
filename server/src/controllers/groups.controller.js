@@ -23,7 +23,8 @@ async function getAllGroups(req, res) {
       query = query.eq('course_id', req.user.coordinatorCourseId);
     }
 
-    let { data: groupData, error: groupError } = await query;
+    const { from, to } = req.pagination;
+    let { data: groupData, error: groupError } = await query.range(from, to);
 
     if (groupError) throw groupError;
 
@@ -339,7 +340,7 @@ async function deleteGroup(req, res) {
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting group:', error);
-    res.status(500).json({ error: error.message || 'Failed to delete group' });
+    res.status(500).json({ error: 'Failed to delete group' });
   }
 }
 
@@ -401,7 +402,7 @@ async function updateGroup(req, res) {
     res.json({ success: true });
   } catch (error) {
     console.error('Error updating group:', error);
-    res.status(500).json({ error: error.message || 'Failed to update group' });
+    res.status(500).json({ error: 'Failed to update group' });
   }
 }
 
@@ -498,7 +499,7 @@ async function createGroup(req, res) {
     res.json({ success: true, group: newGroup });
   } catch (error) {
     console.error('Error creating group:', error);
-    res.status(500).json({ error: error.message || 'Failed to create group' });
+    res.status(500).json({ error: 'Failed to create group' });
   }
 }
 
@@ -582,45 +583,44 @@ async function buildGradesResponse(res, groupsRaw, supervisorId) {
   if (!groupsRaw.length) return res.json([]);
 
   const groupIds   = groupsRaw.map((g) => g.id);
-  const courseIds  = [...new Set(groupsRaw.map((g) => g.course_id).filter(Boolean))];
+  // courseIds reserved for future use
 
-  // ── Step 2: Grading components (Coordinator-defined, read-only here) ──────
-  const { data: components } = await supabaseAdmin
-    .from('grading_components')
-    .select('course_type, component_key, component_name, total_marks, evaluator_role, display_order')
-    .eq('is_active', true)
-    .order('display_order');
-
-  // ── Step 3: Coordinator deliverable scores ────────────────────────────────
-  const { data: delivScores } = await supabaseAdmin
-    .from('coordinator_deliverable_scores')
-    .select('group_id, course_id, deliverable_key, score, max_score, graded_at')
-    .in('group_id', groupIds);
-
-  // ── Step 4: Supervisor assessment totals (normalized per student) ─────────
-  const { data: supAssessments } = await supabaseAdmin
-    .from('supervisor_assessments')
-    .select('student_id, group_id, course_id, score, max_score, graded_at, submission_status')
-    .in('group_id', groupIds);
-
-  // ── Step 5: Per-criterion rubric scores (this supervisor only) ───────────
-  const { data: rubricScores } = await supabaseAdmin
-    .from('supervisor_rubric_scores')
-    .select('student_id, group_id, course_id, criterion_key, raw_score, submission_status, graded_at')
-    .eq('graded_by', supervisorId)
-    .in('group_id', groupIds);
-
-  // ── Step 6: Chapter submission approval counts ────────────────────────────
-  const { data: submissions } = await supabaseAdmin
-    .from('submissions')
-    .select('group_id, status')
-    .in('group_id', groupIds);
-
-  // ── Step 7: Weekly progress marks ────────────────────────────────────────
-  const { data: weeklyReports } = await supabaseAdmin
-    .from('weekly_reports')
-    .select('group_id, student_mark, supervisor_mark')
-    .in('group_id', groupIds);
+  // ── Steps 2–7: All independent — fetch in parallel ───────────────────────
+  const [
+    { data: components },
+    { data: delivScores },
+    { data: supAssessments },
+    { data: rubricScores },
+    { data: submissions },
+    { data: weeklyReports },
+  ] = await Promise.all([
+    supabaseAdmin
+      .from('grading_components')
+      .select('course_type, component_key, component_name, total_marks, evaluator_role, display_order')
+      .eq('is_active', true)
+      .order('display_order'),
+    supabaseAdmin
+      .from('coordinator_deliverable_scores')
+      .select('group_id, course_id, deliverable_key, score, max_score, graded_at')
+      .in('group_id', groupIds),
+    supabaseAdmin
+      .from('supervisor_assessments')
+      .select('student_id, group_id, course_id, score, max_score, graded_at, submission_status')
+      .in('group_id', groupIds),
+    supabaseAdmin
+      .from('supervisor_rubric_scores')
+      .select('student_id, group_id, course_id, criterion_key, raw_score, submission_status, graded_at')
+      .eq('graded_by', supervisorId)
+      .in('group_id', groupIds),
+    supabaseAdmin
+      .from('submissions')
+      .select('group_id, status')
+      .in('group_id', groupIds),
+    supabaseAdmin
+      .from('weekly_reports')
+      .select('group_id, student_mark, supervisor_mark')
+      .in('group_id', groupIds),
+  ]);
 
   // ── Assemble ──────────────────────────────────────────────────────────────
   const result = groupsRaw.map((g) => {
@@ -811,7 +811,7 @@ async function markGroupAsIP(req, res) {
     res.json({ success: true, projectStatus: status });
   } catch (error) {
     console.error('Error updating group project status:', error);
-    res.status(500).json({ error: error.message || 'Failed to update project status' });
+    res.status(500).json({ error: 'Failed to update project status' });
   }
 }
 
@@ -860,13 +860,29 @@ async function submitSupervisorEvaluation(req, res) {
     const courseId   = group.course_id;
     const courseType = group.course?.code?.includes('499') ? '499' : '498';
 
-    // ── Fetch rubric criteria to validate keys and compute max raw total ──────
-    const { data: criteria, error: cError } = await supabaseAdmin
-      .from('grading_rubric_criteria')
-      .select('criterion_key, max_raw_score')
-      .eq('course_type', courseType)
-      .eq('component_key', 'supervisor_eval')
-      .eq('is_active', true);
+    // ── Fetch criteria, component, and members in parallel ───────────────────
+    const [
+      { data: criteria, error: cError },
+      { data: component },
+      { data: members },
+    ] = await Promise.all([
+      supabaseAdmin
+        .from('grading_rubric_criteria')
+        .select('criterion_key, max_raw_score')
+        .eq('course_type', courseType)
+        .eq('component_key', 'supervisor_eval')
+        .eq('is_active', true),
+      supabaseAdmin
+        .from('grading_components')
+        .select('total_marks')
+        .eq('course_type', courseType)
+        .eq('component_key', 'supervisor_eval')
+        .single(),
+      supabaseAdmin
+        .from('group_members')
+        .select('student_id')
+        .eq('group_id', groupId),
+    ]);
 
     if (cError || !criteria || criteria.length === 0) {
       return res.status(400).json({ error: 'No rubric criteria defined for this course type' });
@@ -874,22 +890,7 @@ async function submitSupervisorEvaluation(req, res) {
 
     const criteriaMap   = Object.fromEntries(criteria.map((c) => [c.criterion_key, c]));
     const maxRawTotal   = criteria.reduce((s, c) => s + Number(c.max_raw_score), 0);
-
-    // ── Fetch component total marks for normalization ─────────────────────────
-    const { data: component } = await supabaseAdmin
-      .from('grading_components')
-      .select('total_marks')
-      .eq('course_type', courseType)
-      .eq('component_key', 'supervisor_eval')
-      .single();
-
     const totalMarks = component ? Number(component.total_marks) : (courseType === '499' ? 23 : 18);
-
-    // ── Fetch group members for student membership validation ─────────────────
-    const { data: members } = await supabaseAdmin
-      .from('group_members')
-      .select('student_id')
-      .eq('group_id', groupId);
 
     const memberIds = new Set((members || []).map((m) => m.student_id));
 
@@ -947,22 +948,21 @@ async function submitSupervisorEvaluation(req, res) {
 
     if (upsertError) throw upsertError;
 
-    // ── Sync normalized scores to supervisor_assessments (backward compat) ────
+    // ── Batch upsert all normalized scores in one DB call ────────────────────
     const now = new Date().toISOString();
-    for (const { studentId, normalizedScore } of assessments) {
-      await supabaseAdmin
-        .from('supervisor_assessments')
-        .upsert({
-          student_id:        studentId,
-          group_id:          groupId,
-          course_id:         courseId,
-          score:             normalizedScore,
-          max_score:         totalMarks,
-          graded_by:         supervisorId,
-          graded_at:         now,
-          submission_status: submissionStatus,
-        }, { onConflict: 'student_id,group_id,course_id' });
-    }
+    const assessmentRows = assessments.map(({ studentId, normalizedScore }) => ({
+      student_id:        studentId,
+      group_id:          groupId,
+      course_id:         courseId,
+      score:             normalizedScore,
+      max_score:         totalMarks,
+      graded_by:         supervisorId,
+      graded_at:         now,
+      submission_status: submissionStatus,
+    }));
+    await supabaseAdmin
+      .from('supervisor_assessments')
+      .upsert(assessmentRows, { onConflict: 'student_id,group_id,course_id' });
 
     // ── Fire-and-forget email to each evaluated student (final submit only) ──
     if (submissionStatus === 'submitted') {
@@ -999,7 +999,7 @@ async function submitSupervisorEvaluation(req, res) {
     });
   } catch (error) {
     console.error('Error submitting supervisor evaluation:', error);
-    res.status(500).json({ error: error.message || 'Failed to submit evaluation' });
+    res.status(500).json({ error: 'Failed to submit evaluation' });
   }
 }
 
@@ -1060,55 +1060,49 @@ async function getGroupsWithCoordinatorGrades(req, res) {
 
     const groupIds = groups.map(g => g.id);
 
-    // 2. Fetch group members
-    const { data: members, error: membersError } = await supabaseAdmin
-      .from('group_members')
-      .select('group_id, student_id')
-      .in('group_id', groupIds);
+    // 2. Fetch members + components in parallel (both independent of each other)
+    const supervisorIds = [...new Set((groups || []).map(g => g.supervisor_id).filter(Boolean))];
+
+    const [
+      { data: members, error: membersError },
+      { data: components, error: componentError },
+    ] = await Promise.all([
+      supabaseAdmin.from('group_members').select('group_id, student_id').in('group_id', groupIds),
+      supabaseAdmin
+        .from('grading_components')
+        .select('component_key, component_name, evaluator_role, total_marks, display_order')
+        .eq('course_type', courseType)
+        .eq('is_active', true)
+        .order('display_order'),
+    ]);
 
     if (membersError) throw membersError;
+    if (componentError) throw componentError;
 
-    // 3. Fetch student profiles
+    // 3. Fetch student + supervisor profiles in parallel
     const studentIds = [...new Set((members || []).map(m => m.student_id))];
-    const { data: studentProfiles, error: profilesError } = await supabaseAdmin
-      .from('profiles')
-      .select('id, name, student_id')
-      .in('id', studentIds);
+    const [{ data: studentProfiles, error: profilesError }, { data: supervisorProfiles }] = await Promise.all([
+      studentIds.length > 0
+        ? supabaseAdmin.from('profiles').select('id, name, student_id').in('id', studentIds)
+        : { data: [] },
+      supervisorIds.length > 0
+        ? supabaseAdmin.from('profiles').select('id, name').in('id', supervisorIds)
+        : { data: [] },
+    ]);
 
     if (profilesError) throw profilesError;
 
-    // 3b. Fetch supervisor profiles
-    const supervisorIds = [...new Set((groups || []).map(g => g.supervisor_id).filter(Boolean))];
-    const { data: supervisorProfiles } = await supabaseAdmin
-      .from('profiles')
-      .select('id, name')
-      .in('id', supervisorIds);
-
     const supervisorMap = {};
-    (supervisorProfiles || []).forEach(p => {
-      supervisorMap[p.id] = p;
-    });
+    (supervisorProfiles || []).forEach(p => { supervisorMap[p.id] = p; });
 
     const profileMap = {};
-    (studentProfiles || []).forEach(p => {
-      profileMap[p.id] = p;
-    });
+    (studentProfiles || []).forEach(p => { profileMap[p.id] = p; });
 
     const membersByGroup = {};
     (members || []).forEach(m => {
       if (!membersByGroup[m.group_id]) membersByGroup[m.group_id] = [];
       membersByGroup[m.group_id].push(m);
     });
-
-    // 4. Fetch grading components for courseType
-    const { data: components, error: componentError } = await supabaseAdmin
-      .from('grading_components')
-      .select('component_key, component_name, evaluator_role, total_marks, display_order')
-      .eq('course_type', courseType)
-      .eq('is_active', true)
-      .order('display_order');
-
-    if (componentError) throw componentError;
 
     // 5. Batch fetch all assessment data to populate grade component scores
     // Collect the course IDs from the fetched groups to scope coordinator_deliverable_scores
@@ -1135,36 +1129,43 @@ async function getGroupsWithCoordinatorGrades(req, res) {
       supabaseAdmin.from('peer_evaluations').select('group_id, student_id, score').in('group_id', groupIds),
     ]);
 
-    // 6. For each group, fetch coordinator evaluation and approval counts
-    const result = await Promise.all((groups || []).map(async (group) => {
-      // Get approval counts
-      const { data: approvals, error: approvalsError } = await supabaseAdmin
-        .from('chapter_submissions')
-        .select('status')
-        .eq('group_id', group.id);
+    // 6. Batch-prefetch per-group data (replaces N+1 per-group queries)
+    const [
+      { data: allChapterSubs },
+      { data: allCoordEvals },
+      { data: allCoordAssessBatch },
+    ] = await Promise.all([
+      supabaseAdmin.from('chapter_submissions').select('group_id, status').in('group_id', groupIds),
+      isAdmin
+        ? supabaseAdmin.from('coordinator_evaluations').select('group_id, id, submission_status').in('group_id', groupIds)
+        : supabaseAdmin.from('coordinator_evaluations').select('group_id, id, submission_status').eq('coordinator_id', coordinatorId).in('group_id', groupIds),
+      isAdmin
+        ? supabaseAdmin.from('coordinator_assessments').select('group_id, normalized_score, max_score, submission_status').in('group_id', groupIds)
+        : supabaseAdmin.from('coordinator_assessments').select('group_id, normalized_score, max_score, submission_status').eq('coordinator_id', coordinatorId).in('group_id', groupIds),
+    ]);
 
+    // Build lookup maps for O(1) access inside the loop
+    const chapterSubsByGroup = {};
+    (allChapterSubs || []).forEach(s => {
+      if (!chapterSubsByGroup[s.group_id]) chapterSubsByGroup[s.group_id] = [];
+      chapterSubsByGroup[s.group_id].push(s);
+    });
+    const coordEvalByGroup = {};
+    (allCoordEvals || []).forEach(e => { coordEvalByGroup[e.group_id] = e; });
+    const coordAssessByGroup = {};
+    (allCoordAssessBatch || []).forEach(a => { coordAssessByGroup[a.group_id] = a; });
+
+    const result = (groups || []).map((group) => {
+      const approvals = chapterSubsByGroup[group.id] || [];
       const approvalCounts = {
-        total: approvals?.length || 0,
-        approved: approvals?.filter(a => a.status === 'approved').length || 0,
-        pending: approvals?.filter(a => a.status === 'pending').length || 0,
-        rejected: approvals?.filter(a => a.status === 'rejected').length || 0,
+        total:    approvals.length,
+        approved: approvals.filter(a => a.status === 'approved').length,
+        pending:  approvals.filter(a => a.status === 'pending').length,
+        rejected: approvals.filter(a => a.status === 'rejected').length,
       };
 
-      // Get coordinator evaluation status (admin sees any coordinator's evaluation)
-      let coordEvalQuery = supabaseAdmin
-        .from('coordinator_evaluations')
-        .select('id, submission_status')
-        .eq('group_id', group.id);
-      if (!isAdmin) coordEvalQuery = coordEvalQuery.eq('coordinator_id', coordinatorId);
-      const { data: coordEval } = await coordEvalQuery.limit(1).maybeSingle();
-
-      // Get normalized coordinator score (admin sees any coordinator's assessment)
-      let coordAssessQuery = supabaseAdmin
-        .from('coordinator_assessments')
-        .select('normalized_score, max_score, submission_status')
-        .eq('group_id', group.id);
-      if (!isAdmin) coordAssessQuery = coordAssessQuery.eq('coordinator_id', coordinatorId);
-      const { data: coordAssess } = await coordAssessQuery.limit(1).maybeSingle();
+      const coordEval   = coordEvalByGroup[group.id]   ?? null;
+      const coordAssess = coordAssessByGroup[group.id] ?? null;
 
       // Compute per-component scores from batched data
       const groupSupScores = (allSupAssessments || []).filter(a => a.group_id === group.id);
@@ -1261,12 +1262,12 @@ async function getGroupsWithCoordinatorGrades(req, res) {
           submittedAt: coordEval ? new Date().toISOString() : null,
         } : null,
       };
-    }));
+    });
 
     res.json({ groups: result });
   } catch (error) {
     console.error('Error fetching coordinator grades:', error);
-    res.status(500).json({ error: error.message || 'Failed to fetch coordinator grades' });
+    res.status(500).json({ error: 'Failed to fetch coordinator grades' });
   }
 }
 
@@ -1308,7 +1309,7 @@ async function submitCoordinatorEvaluation(req, res) {
     }
 
     // 2. Dynamically find the coordinator grading component from Grade Scheme Editor
-    const { data: coordComponent, error: compError } = await supabaseAdmin
+    const { data: coordComponent } = await supabaseAdmin
       .from('grading_components')
       .select('component_key, total_marks')
       .eq('course_type', courseType)
@@ -1371,7 +1372,7 @@ async function submitCoordinatorEvaluation(req, res) {
       : 0;
 
     // 5. Upsert coordinator_evaluations
-    const { data: upsertEvals, error: upserEvalsError } = await supabaseAdmin
+    const { error: upserEvalsError } = await supabaseAdmin
       .from('coordinator_evaluations')
       .upsert(evaluationRows, { onConflict: 'group_id,coordinator_id,criterion_id' });
 
@@ -1428,7 +1429,7 @@ async function submitCoordinatorEvaluation(req, res) {
     });
   } catch (error) {
     console.error('Error submitting coordinator evaluation:', error);
-    res.status(500).json({ error: error.message || 'Failed to submit evaluation' });
+    res.status(500).json({ error: 'Failed to submit evaluation' });
   }
 }
 
@@ -1522,7 +1523,7 @@ async function getCoordinatorEvaluation(req, res) {
     res.json(result);
   } catch (error) {
     console.error('Error fetching coordinator evaluation:', error);
-    res.status(500).json({ error: error.message || 'Failed to fetch evaluation' });
+    res.status(500).json({ error: 'Failed to fetch evaluation' });
   }
 }
 

@@ -1,25 +1,57 @@
 require('dotenv').config();
+const Joi = require('joi');
 
-module.exports = {
-  PORT: process.env.PORT || 5000,
-  NODE_ENV: process.env.NODE_ENV || 'development',
-  JWT_SECRET: process.env.JWT_SECRET,
-  JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '7d',
-  SUPABASE_URL: process.env.SUPABASE_URL,
-  SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
-  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
-  MINIO_ENDPOINT: process.env.MINIO_ENDPOINT,
-  MINIO_PORT: parseInt(process.env.MINIO_PORT, 10),
-  MINIO_ACCESS_KEY: process.env.MINIO_ACCESS_KEY,
-  MINIO_SECRET_KEY: process.env.MINIO_SECRET_KEY,
-  MINIO_BUCKET: process.env.MINIO_BUCKET,
-  MINIO_USE_SSL: process.env.MINIO_USE_SSL === 'true',
-  REDIS_HOST: process.env.REDIS_HOST || 'localhost',
-  REDIS_PORT: parseInt(process.env.REDIS_PORT, 10) || 6379,
-  SMTP_HOST: process.env.SMTP_HOST,
-  SMTP_PORT: parseInt(process.env.SMTP_PORT, 10),
-  SMTP_USER: process.env.SMTP_USER,
-  SMTP_PASS: process.env.SMTP_PASS,
-  EMAIL_FROM: process.env.EMAIL_FROM,
-  APP_URL: process.env.APP_URL || '',
-};
+const schema = Joi.object({
+  // ── Server ────────────────────────────────────────────────────────────────
+  PORT:     Joi.number().integer().min(1).max(65535).default(5000),
+  NODE_ENV: Joi.string().valid('development', 'test', 'production').default('development'),
+
+  // ── Supabase (all required) ───────────────────────────────────────────────
+  SUPABASE_URL:              Joi.string().uri().required(),
+  SUPABASE_ANON_KEY:         Joi.string().min(50).required(),
+  SUPABASE_SERVICE_ROLE_KEY: Joi.string().min(50).required(),
+
+  // ── CORS ─────────────────────────────────────────────────────────────────
+  // Comma-separated list of allowed origins, e.g. "https://app.example.com,http://localhost:5173"
+  ALLOWED_ORIGINS: Joi.string().default('http://localhost:5173'),
+
+  // ── App URL (used in email links) ─────────────────────────────────────────
+  APP_URL: Joi.string().uri().default('http://localhost:5173'),
+
+  // ── Email / SMTP ─────────────────────────────────────────────────────────
+  SMTP_HOST: Joi.string().hostname().required(),
+  SMTP_PORT: Joi.number().integer().default(587),
+  SMTP_USER: Joi.string().email({ tlds: { allow: false } }).required(),
+  SMTP_PASS: Joi.string().min(1).required(),
+  EMAIL_FROM: Joi.string().required(),
+
+  // ── Redis (optional — used by BullMQ job queue) ───────────────────────────
+  REDIS_HOST: Joi.string().default('localhost'),
+  REDIS_PORT: Joi.number().integer().default(6379),
+
+  // ── MinIO (optional — used for file storage if enabled) ──────────────────
+  MINIO_ENDPOINT:   Joi.string().optional().allow(''),
+  MINIO_PORT:       Joi.number().integer().optional(),
+  MINIO_ACCESS_KEY: Joi.string().optional().allow(''),
+  MINIO_SECRET_KEY: Joi.string().optional().allow(''),
+  MINIO_BUCKET:     Joi.string().optional().allow(''),
+  MINIO_USE_SSL:    Joi.boolean().default(false),
+
+  // ── JWT (kept for future use; Supabase currently manages tokens) ──────────
+  JWT_SECRET:     Joi.string().min(32).optional().allow(''),
+  JWT_EXPIRES_IN: Joi.string().default('7d'),
+})
+  .unknown(true)  // allow OS/Node env vars (PATH, HOME, etc.)
+  .options({ convert: true });
+
+const { error, value } = schema.validate(process.env);
+
+if (error) {
+  // Print every failing field clearly before crashing — makes CI failures obvious
+  const missing = error.details.map((d) => `  ✗ ${d.path.join('.')}: ${d.message}`).join('\n');
+  console.error(`\n❌  Server cannot start — invalid environment variables:\n${missing}\n`);
+  console.error('Copy server/.env.example → server/.env and fill in the required values.\n');
+  process.exit(1);
+}
+
+module.exports = value;

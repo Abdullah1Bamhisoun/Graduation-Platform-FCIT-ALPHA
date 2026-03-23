@@ -109,7 +109,7 @@ async function assignRole(req, res) {
         });
 
       if (lockErr) {
-        return res.status(500).json({ error: `Failed to assign coordinator: ${lockErr.message}` });
+        return res.status(500).json({ error: 'Failed to assign coordinator' });
       }
 
       // ── Secondary: also update profiles.coordinator_course_id if column exists ──
@@ -155,7 +155,7 @@ async function assignRole(req, res) {
     res.json({ success: true });
   } catch (error) {
     console.error('Error assigning role:', error);
-    res.status(500).json({ error: error.message || 'Failed to assign role' });
+    res.status(500).json({ error: 'Failed to assign role' });
   }
 }
 
@@ -183,7 +183,7 @@ async function revokeRole(req, res) {
         .eq('locked_by', userId);
 
       if (lockErr) {
-        return res.status(500).json({ error: lockErr.message || 'Failed to revoke coordinator' });
+        return res.status(500).json({ error: 'Failed to revoke coordinator' });
       }
 
       // ── Secondary: clear profiles.coordinator_course_id if column exists ──────
@@ -222,7 +222,7 @@ async function revokeRole(req, res) {
     res.json({ success: true });
   } catch (error) {
     console.error('Error revoking role:', error);
-    res.status(500).json({ error: error.message || 'Failed to revoke role' });
+    res.status(500).json({ error: 'Failed to revoke role' });
   }
 }
 

@@ -53,7 +53,8 @@ async function listUsers(req, res) {
       }
     }
 
-    const { data, error } = await query;
+    const { from, to } = req.pagination;
+    const { data, error } = await query.range(from, to);
     if (error) throw error;
 
     // Fetch all user_roles in one query to avoid N+1
@@ -146,7 +147,7 @@ async function deleteUser(req, res) {
     res.json({ success: true, message: `User ${profile.name} deleted successfully` });
   } catch (error) {
     console.error('Error deleting user:', error);
-    res.status(500).json({ error: error.message || 'Failed to delete user' });
+    res.status(500).json({ error: 'Failed to delete user' });
   }
 }
 

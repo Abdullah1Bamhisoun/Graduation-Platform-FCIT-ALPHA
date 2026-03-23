@@ -65,56 +65,47 @@ const GROUP_SELECT =
 
 async function getGroupsForEvaluation(req, res) {
   try {
-    const supervisorId = req.user.id;
+    const supervisorId   = req.user.id;
     const supervisorName = req.user.name ?? '';
 
-    // ── Step 1: find groups this supervisor supervises — always excluded ────
-    const { data: supervisedRows, error: supError } = await supabaseAdmin
-      .from('groups')
-      .select('id')
-      .eq('supervisor_id', supervisorId);
+    // ── Steps 1 + 2: independent — fetch in parallel ───────────────────────
+    const [
+      { data: supervisedRows, error: supError },
+      { data: allSchedules, error: schedErr },
+    ] = await Promise.all([
+      supabaseAdmin.from('groups').select('id').eq('supervisor_id', supervisorId),
+      supervisorName
+        ? supabaseAdmin.from('presentation_schedules').select('group_id, committee_members, scheduled_at')
+        : Promise.resolve({ data: [], error: null }),
+    ]);
 
     if (supError) throw supError;
 
+    if (schedErr) {
+      const isMissing =
+        schedErr.code === '42P01' ||
+        schedErr.code === '42703' ||
+        (schedErr.message || '').toLowerCase().includes('does not exist');
+      if (isMissing) return res.json({ groups: [], assignmentMode: true });
+      throw schedErr;
+    }
+
     const supervisedGroupIds = (supervisedRows || []).map((g) => g.id);
 
-    // ── Step 2: fetch all presentation schedules and filter in JavaScript ────
-    // Using JS-side filtering (.includes) instead of PostgREST's array
-    // containment operator (.contains / @>) to avoid silent failures caused
-    // by type-coercion differences between JSON arrays and PostgreSQL TEXT[].
-    let assignedGroupIds = [];
-    let scheduleMap = new Map();
+    // Build schedule map from parallel result
+    const scheduleMap = new Map((allSchedules || []).map((s) => [s.group_id, { scheduled_at: s.scheduled_at }]));
 
-    if (supervisorName) {
-      const { data: allSchedules, error: schedErr } = await supabaseAdmin
-        .from('presentation_schedules')
-        .select('group_id, committee_members, scheduled_at');
-
-      if (schedErr) {
-        const isMissing =
-          schedErr.code === '42P01' ||
-          schedErr.code === '42703' ||
-          (schedErr.message || '').toLowerCase().includes('does not exist');
-        if (isMissing) return res.json({ groups: [], assignmentMode: true });
-        throw schedErr;
-      }
-
-      // Build schedule map (reuses the fetched rows — avoids a second DB query)
-      for (const s of (allSchedules || [])) {
-        scheduleMap.set(s.group_id, { scheduled_at: s.scheduled_at });
-      }
-
-      // Filter groups where this supervisor is listed as a committee member
-      assignedGroupIds = (allSchedules || [])
-        .filter(s => Array.isArray(s.committee_members) && s.committee_members.includes(supervisorName))
-        .map(s => s.group_id)
-        .filter(id => !supervisedGroupIds.includes(id));
-    }
+    // Filter to groups where this supervisor is a committee member
+    const assignedGroupIds = (allSchedules || [])
+      .filter((s) => Array.isArray(s.committee_members) && s.committee_members.includes(supervisorName))
+      .map((s) => s.group_id)
+      .filter((id) => !supervisedGroupIds.includes(id));
 
     if (assignedGroupIds.length === 0) {
       return res.json({ groups: [], assignmentMode: true });
     }
 
+    // ── Step 3: fetch assigned group details ────────────────────────────────
     const { data: assignedGroups, error: agError } = await supabaseAdmin
       .from('groups')
       .select(GROUP_SELECT)
@@ -122,8 +113,6 @@ async function getGroupsForEvaluation(req, res) {
       .order('group_number', { ascending: true });
 
     if (agError) throw agError;
-
-    // scheduleMap was already built above from the fetched schedules data
 
     return res.json({
       groups: (assignedGroups || []).map((g) => mapGroup(g, scheduleMap)),

@@ -1,5 +1,5 @@
-const express = require('express');
-const router = express.Router();
+const express  = require('express');
+const router   = express.Router();
 const controller = require('../controllers/submissions.controller');
 const commentsController = require('../controllers/submissionComments.controller');
 const {
@@ -8,78 +8,76 @@ const {
   requireCoordinatorOrAdmin,
   validateCoordinatorCourseType,
 } = require('../middleware/auth.middleware');
+const { idempotency } = require('../middleware/idempotency.middleware');
+const { paginate }    = require('../middleware/paginate.middleware');
+const { validate }    = require('../middleware/validate.middleware');
+const {
+  createSubmissionSchema,
+  createSubmissionVersionSchema,
+  updateSubmissionApprovalSchema,
+  addCommentSchema,
+} = require('../schemas/domain.schemas');
 
-/**
- * Submission routes
- *
- * GET  /api/submissions/chapter-submissions
- *   Supervisor: list chapter submissions for all groups assigned to this supervisor.
- *
- * GET  /api/submissions/group-submission?milestoneId=X&groupId=Y
- *   Student (any group member): fetch the shared group submission for a milestone.
- *   Bypasses RLS via supabaseAdmin; access enforced by group membership check.
- *
- * GET  /api/submissions/group-milestone-statuses?groupId=X
- *   Student (any group member): fetch milestone_id→status map for a group.
- *   Bypasses RLS so all teammates see the same submission statuses on the milestone list.
- *
- * PATCH /api/submissions/:id/approval
- *   Supervisor: approve or reject a chapter submission.
- */
-
-/**
- * Submission routes
- *
- * GET  /api/submissions/chapter-submissions
- *   Supervisor: list chapter submissions for all groups assigned to this supervisor.
- *   Backend-enforced filter by supervisor_id — supervisors cannot see other supervisors' groups.
- *
- * PATCH /api/submissions/:id/approval
- *   Supervisor: approve or reject a chapter submission.
- *   Grading remains entirely separate (coordinator-controlled grading scheme is unaffected).
- */
-
+// Supervisor: list chapter submissions for their assigned groups
 router.get(
   '/chapter-submissions',
   authenticate,
   requireSupervisorOrAdmin,
+  paginate({ defaultLimit: 200, maxLimit: 200 }),
   controller.getChapterSubmissionsForSupervisor
 );
 
-// Student group-shared submission endpoints (bypass RLS via supabaseAdmin)
-router.get('/group-submission', authenticate, controller.getGroupSubmission);
+// Student: fetch the shared group submission for a milestone
+router.get('/group-submission',         authenticate, controller.getGroupSubmission);
 router.get('/group-milestone-statuses', authenticate, controller.getGroupMilestoneStatuses);
 
 // Committee eval: milestone submissions flagged for committee review
 router.get('/committee-eval', authenticate, controller.getCommitteeEvalSubmissions);
 
+// Coordinator: chapter submissions for their assigned course
 router.get(
   '/coordinator/chapter-submissions',
   authenticate,
   requireCoordinatorOrAdmin,
   validateCoordinatorCourseType,
+  paginate({ defaultLimit: 200, maxLimit: 200 }),
   controller.getChapterSubmissionsForCoordinator
 );
 
+// Supervisor: approve or request changes on a submission
 router.patch(
   '/:id/approval',
   authenticate,
   requireSupervisorOrAdmin,
+  validate(updateSubmissionApprovalSchema),
   controller.updateSubmissionApproval
 );
 
-// POST /api/submissions — student creates a new submission (triggers supervisor email)
-router.post('/', authenticate, controller.createSubmission);
+// Student: create new submission — idempotency prevents duplicates on retry/double-click
+router.post(
+  '/',
+  authenticate,
+  idempotency({ ttlHours: 24 }),
+  validate(createSubmissionSchema),
+  controller.createSubmission
+);
 
-// POST /api/submissions/:id/versions — student adds a new version (triggers supervisor email)
-router.post('/:id/versions', authenticate, controller.createSubmissionVersion);
+// Student: add a new version — idempotency prevents duplicate uploads
+router.post(
+  '/:id/versions',
+  authenticate,
+  idempotency({ ttlHours: 24 }),
+  validate(createSubmissionVersionSchema),
+  controller.createSubmissionVersion
+);
 
-/**
- * Discussion comment routes — accessible by the submission's student or their supervisor.
- * GET  /api/submissions/:id/comments — list all comments
- * POST /api/submissions/:id/comments — add a comment
- */
-router.get('/:id/comments', authenticate, commentsController.getComments);
-router.post('/:id/comments', authenticate, commentsController.addComment);
+// Discussion comments
+router.get( '/:id/comments', authenticate, commentsController.getComments);
+router.post(
+  '/:id/comments',
+  authenticate,
+  validate(addCommentSchema),
+  commentsController.addComment
+);
 
 module.exports = router;

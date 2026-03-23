@@ -3,7 +3,6 @@ const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM, APP_URL } = requ
 
 // ─── Transport ─────────────────────────────────────────────────────────────────
 
-console.log('[email] SMTP_HOST:', SMTP_HOST, '| SMTP_USER:', SMTP_USER, '| SMTP_PASS set:', !!SMTP_PASS);
 
 const transporter = nodemailer.createTransport({
   host: SMTP_HOST || 'smtp.gmail.com',
