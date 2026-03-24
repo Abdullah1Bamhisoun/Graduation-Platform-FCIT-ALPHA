@@ -34,8 +34,9 @@ export function AnnouncementsManager() {
   });
 
   useEffect(() => {
+    if (!user) return;
     getAllAnnouncements(user.activeRole).then(setAnnouncements);
-  }, [user.activeRole]);
+  }, [user?.activeRole]);
 
   if (!user) return null;
 
