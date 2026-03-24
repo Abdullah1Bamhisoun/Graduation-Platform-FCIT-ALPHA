@@ -1,4 +1,5 @@
 const { supabaseAdmin } = require('../config/supabase');
+const { normalizeCourseCode } = require('../utils/helpers');
 
 /**
  * GET /api/important-files
@@ -60,7 +61,7 @@ async function listFiles(req, res) {
       type: f.type,
       fileUrl: f.file_url || null,
       courseId: f.course_id || null,
-      courseCode: f.courses?.code || null,
+      courseCode: normalizeCourseCode(f.courses?.code) || null,
       uploadedAt: f.uploaded_at,
     })));
   } catch (error) {
@@ -118,7 +119,7 @@ async function createFile(req, res) {
       type: data.type,
       fileUrl: data.file_url || null,
       courseId: data.course_id || null,
-      courseCode: data.courses?.code || null,
+      courseCode: normalizeCourseCode(data.courses?.code) || null,
       uploadedAt: data.uploaded_at,
     });
   } catch (error) {

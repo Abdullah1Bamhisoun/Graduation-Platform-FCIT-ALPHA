@@ -1,4 +1,5 @@
 const { supabaseAdmin } = require('../config/supabase');
+const { normalizeCourseCode } = require('../utils/helpers');
 
 /**
  * GET /api/evaluations/groups
@@ -28,7 +29,7 @@ function mapGroup(g, scheduleMap) {
     groupNumber: g.group_number,
     projectName: g.project_name,
     courseNumber: g.course_number,
-    courseCode: g.course?.code ?? '',
+    courseCode: normalizeCourseCode(g.course?.code ?? ''),
     scheduledAt,
     evaluationActive,
     students: (g.members || []).map((m) => ({ id: m.student?.id ?? '', name: m.student?.name ?? '' })).filter((s) => s.id),

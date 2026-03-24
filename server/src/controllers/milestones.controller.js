@@ -1,5 +1,6 @@
 const { supabaseAdmin } = require('../config/supabase');
 const emailService = require('../services/email.service');
+const { normalizeCourseCode } = require('../utils/helpers');
 
 /**
  * GET /api/milestones
@@ -40,7 +41,7 @@ async function listMilestones(req, res) {
       name:                     m.name,
       type:                     m.type,
       courseId:                 m.course_id,
-      courseCode:               m.course?.code ?? '',
+      courseCode:               normalizeCourseCode(m.course?.code ?? ''),
       openDate:                 m.open_date,
       dueDate:                  m.due_date,
       visible:                  m.visible ?? true,
@@ -136,18 +137,29 @@ async function createMilestone(req, res) {
       `Submission deadline: ${dueDateFormatted}`,
     ].join('\n');
 
-    const { error: aErr } = await supabaseAdmin.from('announcements').insert({
+    // Try inserting with course_id (post-migration 005). Fall back without it (pre-migration).
+    let aRes = await supabaseAdmin.from('announcements').insert({
       title:        `New Milestone: ${name}`,
       content:      announcementContent,
       author_id:    req.user.id,
+      course_id:    courseId,
       target_roles: ['student'],
       published_at: new Date().toISOString(),
       expires_at:   dueDate,
     });
-
-    if (aErr) {
+    if (aRes.error) {
+      aRes = await supabaseAdmin.from('announcements').insert({
+        title:        `New Milestone: ${name}`,
+        content:      announcementContent,
+        author_id:    req.user.id,
+        target_roles: ['student'],
+        published_at: new Date().toISOString(),
+        expires_at:   dueDate,
+      });
+    }
+    if (aRes.error) {
       // Best-effort — do not fail the whole request if announcement creation fails
-      console.warn('Auto-announcement creation failed (non-fatal):', aErr.message);
+      console.warn('Auto-announcement creation failed (non-fatal):', aRes.error.message);
     }
 
     // Send email to students in this course (best-effort, non-blocking)

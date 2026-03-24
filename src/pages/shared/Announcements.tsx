@@ -20,10 +20,10 @@ export function Announcements() {
       .finally(() => setLoading(false));
   }, [user]);
 
-  // Mark all announcements as read whenever this page is opened
+  // Mark all announcements as read whenever this page is opened (or user loads)
   useEffect(() => {
-    if (!loading) markAllRead();
-  }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
+    markAllRead();
+  }, [markAllRead]);
 
   const filteredAnnouncements = announcements;
 

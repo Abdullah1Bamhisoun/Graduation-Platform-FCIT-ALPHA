@@ -106,10 +106,10 @@ async function migrate498To499(actorId, newTermCode) {
     const { data: courses } = await supabaseAdmin
       .from('courses')
       .select('id, code')
-      .in('code', ['CPIS_498', 'CPIS_499']);
+      .in('code', ['CPIS-498', 'CPIS-499']);
 
-    const cpis498 = (courses || []).find((c) => c.code === 'CPIS_498');
-    const cpis499 = (courses || []).find((c) => c.code === 'CPIS_499');
+    const cpis498 = (courses || []).find((c) => c.code === 'CPIS-498');
+    const cpis499 = (courses || []).find((c) => c.code === 'CPIS-499');
 
     if (!cpis498 || !cpis499) {
       console.warn('migrate498To499: could not find both courses');

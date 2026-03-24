@@ -30,6 +30,13 @@ const actionLimiter = rateLimit({
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
+// Public — resolve university ID / employee number → email (used by login page)
+router.post(
+  '/resolve-identifier',
+  registrationLimiter,
+  controller.resolveIdentifier
+);
+
 // Public — submit a new registration
 // Rate-limited + Joi-validated before touching the database
 router.post(

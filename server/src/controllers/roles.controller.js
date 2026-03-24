@@ -1,4 +1,5 @@
 const { supabaseAdmin } = require('../config/supabase');
+const { normalizeCourseCode } = require('../utils/helpers');
 
 /**
  * POST /api/roles/switch
@@ -252,7 +253,7 @@ async function getCoordinators(req, res) {
         coordinators: lockRows.map((r) => ({
           userId:     r.locked_by,
           courseId:   r.entity_id,
-          courseCode: courseMap[r.entity_id]?.code ?? null,
+          courseCode: normalizeCourseCode(courseMap[r.entity_id]?.code) ?? null,
           courseName: courseMap[r.entity_id]?.name ?? null,
         })),
       });
@@ -270,7 +271,7 @@ async function getCoordinators(req, res) {
         coordinators: profiles.map((p) => ({
           userId:     p.id,
           courseId:   p.coordinator_course_id,
-          courseCode: p.courses?.code ?? null,
+          courseCode: normalizeCourseCode(p.courses?.code) ?? null,
           courseName: p.courses?.name ?? null,
         })),
       });
@@ -296,7 +297,7 @@ async function getCoordinators(req, res) {
       coordinators: (data || []).map((r) => ({
         userId:     r.user_id,
         courseId:   r.coordinator_course_id,
-        courseCode: r.courses?.code ?? null,
+        courseCode: normalizeCourseCode(r.courses?.code) ?? null,
         courseName: r.courses?.name ?? null,
       })),
     });

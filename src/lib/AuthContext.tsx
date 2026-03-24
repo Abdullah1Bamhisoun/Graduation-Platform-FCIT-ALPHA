@@ -138,13 +138,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loadUserProfile]);
 
   // ── Login ──────────────────────────────────────────────────────────────────
-  const login = async (email: string, password: string, rememberMe = true): Promise<void> => {
+  const login = async (identifier: string, password: string, rememberMe = true): Promise<void> => {
+    if (password.length < 8) {
+      throw new Error('Password must be at least 8 characters');
+    }
+
+    // If the input doesn't contain '@', treat it as a university / employee ID
+    // and resolve it to an email via the backend before proceeding.
+    let email = identifier.trim();
+    if (!email.includes('@')) {
+      const res = await fetch('/api/auth/resolve-identifier', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: email }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? 'University ID not found. Please use your email instead.');
+      }
+      const data = await res.json();
+      email = data.email;
+    }
+
     const kauEmailRegex = /^[\w.-]+@(stu\.)?kau\.edu\.sa$/;
     if (!kauEmailRegex.test(email)) {
       throw new Error('Please enter a valid KAU email address');
-    }
-    if (password.length < 8) {
-      throw new Error('Password must be at least 8 characters');
     }
 
     // Configure storage before signing in so the session lands in the right place.

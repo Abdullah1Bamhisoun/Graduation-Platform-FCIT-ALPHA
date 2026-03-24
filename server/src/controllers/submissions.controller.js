@@ -1,5 +1,6 @@
 const { supabaseAdmin } = require('../config/supabase');
 const emailService = require('../services/email.service');
+const { normalizeCourseCode } = require('../utils/helpers');
 
 /**
  * Normalize a DB status value (underscore format) to the frontend format (hyphen format).
@@ -227,7 +228,7 @@ async function updateSubmissionApproval(req, res) {
             status: action === 'approve' ? 'Approved' : 'Changes Requested',
             feedback: feedback ?? '',
             milestoneName: subDetail?.milestone?.name ?? '',
-            courseName: subDetail?.milestone?.course?.code ?? '',
+            courseName: normalizeCourseCode(subDetail?.milestone?.course?.code ?? ''),
           }).catch(console.error);
         }
       }
@@ -601,7 +602,7 @@ async function createSubmission(req, res) {
           emailService.sendSubmissionReceived(supervisorProfile.email, {
             studentName: req.user.name || 'Student',
             milestoneName: milestone?.name ?? '',
-            courseName: milestone?.course?.code ?? '',
+            courseName: normalizeCourseCode(milestone?.course?.code ?? ''),
             submittedAt: new Date().toISOString(),
           }).catch(console.error);
         }
@@ -690,7 +691,7 @@ async function createSubmissionVersion(req, res) {
           emailService.sendSubmissionReceived(supervisorProfile.email, {
             studentName: req.user.name || 'Student',
             milestoneName: milestone?.name ?? '',
-            courseName: milestone?.course?.code ?? '',
+            courseName: normalizeCourseCode(milestone?.course?.code ?? ''),
             submittedAt: new Date().toISOString(),
           }).catch(console.error);
         }

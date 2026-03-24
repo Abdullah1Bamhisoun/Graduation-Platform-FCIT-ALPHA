@@ -1,9 +1,10 @@
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
-import { FileText, Download, File, Plus, Edit, Trash2, Upload, Eye } from 'lucide-react';
+import { FileText, Download, File, Plus, Edit, Trash2, Upload, Eye, Loader2, X } from 'lucide-react';
 import { Card } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
@@ -63,6 +64,9 @@ export function ImportantFilesManager() {
   const [saving, setSaving] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [viewerFile, setViewerFile] = useState<FileItem | null>(null);
+  const [viewerUrl, setViewerUrl] = useState('');
+  const [viewerLoading, setViewerLoading] = useState(false);
   const [formData, setFormData] = useState<FileForm>({
     name: '',
     description: '',
@@ -134,13 +138,24 @@ export function ImportantFilesManager() {
 
   const handleViewFile = async (file: FileItem) => {
     if (!file.fileUrl) { toast.info('No file available'); return; }
+    setViewerFile(file);
+    setViewerUrl('');
+    setViewerLoading(true);
     try {
       const isStoragePath = !file.fileUrl.startsWith('http');
       const url = isStoragePath ? await getSignedUrl(file.fileUrl) : file.fileUrl;
-      window.open(url, '_blank');
+      setViewerUrl(`https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`);
     } catch {
       toast.error('Failed to open file');
+      setViewerFile(null);
+    } finally {
+      setViewerLoading(false);
     }
+  };
+
+  const handleCloseViewer = () => {
+    setViewerFile(null);
+    setViewerUrl('');
   };
 
   const handleSaveFile = async () => {
@@ -427,7 +442,7 @@ export function ImportantFilesManager() {
                 </div>
 
                 {/* Buttons: 2×2 grid on mobile, compact row on desktop */}
-                <div className="grid grid-cols-2 sm:flex sm:flex-row gap-2 sm:shrink-0 border-t border-gray-200 dark:border-gray-700 pt-2 sm:border-t-0 sm:pt-0">
+                <div className="grid grid-cols-2 sm:flex sm:flex-row gap-2 sm:shrink-0 border-t border-gray-200 pt-2 sm:border-t-0 sm:pt-0">
                   <Button variant="outline" size="sm" onClick={() => handleViewFile(file)} disabled={!file.fileUrl} className="justify-center">
                     <Eye className="w-3.5 h-3.5 mr-1.5" /> View
                   </Button>
@@ -459,6 +474,43 @@ export function ImportantFilesManager() {
           </Card>
         )}
       </div>
+
+      {/* Portal popup viewer */}
+      {viewerFile && createPortal(
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', flexDirection: 'column', background: '#fff' }}>
+          <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: '#fff', overflow: 'hidden' }}>
+            {/* Toolbar */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: '1px solid #e5e7eb', background: '#fff', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                <Eye size={16} color="#2563eb" style={{ flexShrink: 0 }} />
+                <span style={{ fontWeight: 500, fontSize: 14, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {viewerFile.name}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                <Button size="sm" onClick={() => handleDownload(viewerFile)}>
+                  <Download className="w-4 h-4 mr-1" /> Download
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleCloseViewer}>
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+            {/* Viewer */}
+            <div style={{ flex: 1, overflow: 'hidden', background: '#f3f4f6' }}>
+              {viewerLoading ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 8, color: '#6b7280' }}>
+                  <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
+                  Loading file...
+                </div>
+              ) : (
+                <iframe src={viewerUrl} title={viewerFile.name} style={{ width: '100%', height: '100%', border: 'none', display: 'block' }} />
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </Layout>
   );
 }

@@ -1158,7 +1158,7 @@ export function SupervisorGradesCommittee() {
               </div>
             </div>
 
-            {/* Table */}
+            {/* Table (desktop) / Cards (mobile) */}
             {filteredGroups.length === 0 ? (
               <div className="p-12 text-center">
                 <FileText className="w-12 h-12 text-[var(--color-text-400)] mx-auto mb-4" />
@@ -1166,7 +1166,8 @@ export function SupervisorGradesCommittee() {
               </div>
             ) : (
               <>
-                <div className="overflow-x-auto">
+                {/* ── DESKTOP: original table ── */}
+                <div className="hidden sm:block overflow-x-auto">
                   <table className="w-full">
                     <thead className="border-b border-[var(--color-border)] bg-gray-50">
                       <tr>
@@ -1229,7 +1230,7 @@ export function SupervisorGradesCommittee() {
                               <Button
                                 onClick={() => handleEvaluate(group.groupId)}
                                 size="sm"
-                                className="bg-blue-600 hover:bg-blue-700 text-[rgb(0,0,0)]"
+                                className="bg-blue-600 hover:bg-blue-700 text-white"
                               >
                                 Evaluate
                               </Button>
@@ -1247,6 +1248,69 @@ export function SupervisorGradesCommittee() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+
+                {/* ── MOBILE: stacked cards (no horizontal scroll) ── */}
+                <div className="sm:hidden p-4 space-y-3">
+                  {paginatedGroups.map((group) => (
+                    <div
+                      key={group.id}
+                      className="bg-white border border-[var(--color-border)] rounded-xl p-4"
+                    >
+                      <p className="font-semibold text-[var(--color-text-900)] leading-snug">
+                        {group.projectName}
+                      </p>
+                      <p className="text-xs text-[var(--color-text-600)] mt-0.5">
+                        {group.groupCode ?? group.groupId}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2 mt-3">
+                        <span className={`px-2.5 py-1 text-xs font-medium rounded-full border ${
+                          group.course === 'CPIS-498'
+                            ? 'bg-blue-100 text-blue-700 border-blue-200'
+                            : 'bg-purple-100 text-purple-700 border-purple-200'
+                        }`}>
+                          {group.course === 'CPIS-498' ? 'CPIS-498' : 'CPIS-499'}
+                        </span>
+                        <span className="px-2.5 py-1 text-xs font-medium rounded-full border bg-gray-100 text-gray-600 border-gray-200">
+                          {group.milestone}
+                        </span>
+                        <span className={`px-2.5 py-1 text-xs font-medium rounded-full border ${
+                          group.status === 'completed'
+                            ? 'bg-green-100 text-green-700 border-green-200'
+                            : group.status === 'scheduled'
+                            ? 'bg-blue-100 text-blue-700 border-blue-200'
+                            : 'bg-gray-100 text-gray-600 border-gray-200'
+                        }`}>
+                          {group.status === 'not-scheduled' ? 'Not scheduled' :
+                           group.status === 'scheduled' ? 'Scheduled' : 'Completed'}
+                        </span>
+                      </div>
+                      {(group.date || group.room) && (
+                        <p className="text-xs text-[var(--color-text-600)] mt-2">
+                          {[group.date, group.room].filter(Boolean).join(' · ')}
+                        </p>
+                      )}
+                      <div className="mt-3 flex justify-end">
+                        {group.evaluationActive ? (
+                          <Button
+                            onClick={() => handleEvaluate(group.groupId)}
+                            size="sm"
+                            className="bg-blue-600 hover:bg-blue-700 text-white"
+                          >
+                            Evaluate
+                          </Button>
+                        ) : (
+                          <span
+                            title="Evaluation is locked until the presentation date and time"
+                            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-500 border border-gray-200 cursor-default"
+                          >
+                            <AlertCircle className="w-3 h-3" />
+                            Locked
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
                 {/* Pagination */}

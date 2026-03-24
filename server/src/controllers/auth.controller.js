@@ -620,10 +620,43 @@ async function listRegistrations(req, res) {
   }
 }
 
+/**
+ * POST /api/auth/resolve-identifier
+ * Public (rate-limited) — resolve a university ID or employee number to an email.
+ * Used by the login page to support login-by-ID in addition to email.
+ */
+async function resolveIdentifier(req, res) {
+  try {
+    const { identifier } = req.body;
+    if (!identifier || typeof identifier !== 'string' || identifier.trim() === '') {
+      return res.status(400).json({ error: 'identifier is required' });
+    }
+
+    const id = identifier.trim();
+
+    // Try student_id first, then employee_number
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('email')
+      .or(`student_id.eq.${id},employee_number.eq.${id}`)
+      .maybeSingle();
+
+    if (!profile?.email) {
+      return res.status(404).json({ error: 'No account found for this university ID' });
+    }
+
+    return res.json({ email: profile.email });
+  } catch (error) {
+    console.error('Error resolving identifier:', error);
+    res.status(500).json({ error: 'Failed to resolve identifier' });
+  }
+}
+
 module.exports = {
   submitRegistration,
   approveRegistration,
   rejectRegistration,
   listRegistrations,
   repairGroups,
+  resolveIdentifier,
 };

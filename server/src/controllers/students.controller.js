@@ -1,4 +1,5 @@
 const { supabaseAdmin } = require('../config/supabase');
+const { normalizeCourseCode } = require('../utils/helpers');
 
 /**
  * GET /api/students/my-grades
@@ -83,7 +84,7 @@ async function getMyGrades(req, res) {
       }
     }
 
-    const courseCode = group.course?.code ?? '';
+    const courseCode = normalizeCourseCode(group.course?.code ?? '');
     const courseType = courseCode.includes('499') ? '499' : '498';
     const courseId   = group.course_id;
 
@@ -191,7 +192,10 @@ async function getMyGrades(req, res) {
       ? Number(coordAssessRows[0].normalized_score)
       : null;
 
-    const coordinatorComment = coordAssessRows?.[0]?.comment ?? null;
+    // Only expose comment once coordinator has submitted (not while draft)
+    const coordinatorComment = coordAssessRows?.[0]?.submission_status !== 'draft'
+      ? (coordAssessRows?.[0]?.comment ?? null)
+      : null;
 
     // ── Step 8b: Chapter submission approval counts ────────────────────────────
     const { data: submissions } = await supabaseAdmin

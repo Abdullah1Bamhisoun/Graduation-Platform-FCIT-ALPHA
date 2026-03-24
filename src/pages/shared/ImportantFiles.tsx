@@ -120,8 +120,9 @@ export function ImportantFiles() {
           </Card>
         ) : files.length > 0 ? (
           files.map((file) => (
-            <Card key={file.id} className="p-6">
-              <div className="flex items-start gap-4">
+            <Card key={file.id} className="p-4 sm:p-6">
+              {/* ── DESKTOP (sm+): old layout — info left, buttons right ── */}
+              <div className="hidden sm:flex items-start gap-4">
                 <div className="p-3 bg-[var(--color-surface-alt)] rounded-lg">
                   {getFileIcon(file.type)}
                 </div>
@@ -140,13 +141,58 @@ export function ImportantFiles() {
                   </div>
                 </div>
                 {file.fileUrl && (
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 shrink-0">
                     <Button variant="outline" size="sm" onClick={() => handleView(file)}>
                       <Eye className="w-4 h-4 mr-1" /> View
                     </Button>
                     <Button size="sm" onClick={() => handleDownload(file)}>
                       <Download className="w-4 h-4 mr-1" /> Download
                     </Button>
+                  </div>
+                )}
+              </div>
+
+              {/* ── MOBILE (< sm): new card — info top, action box below ── */}
+              <div className="sm:hidden">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 bg-[var(--color-surface-alt)] rounded-lg flex items-center justify-center shrink-0">
+                    {getFileIcon(file.type)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h2 className="text-sm font-semibold text-[var(--color-text-900)] line-clamp-2 leading-snug mb-1">
+                      {file.name}
+                    </h2>
+                    {file.description && (
+                      <p className="text-xs text-[var(--color-text-600)] line-clamp-1 mb-1.5">
+                        {file.description}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-400">
+                      <span className="uppercase font-medium">{file.type}</span>
+                      {file.size && <><span>•</span><span>{file.size}</span></>}
+                      <span>•</span>
+                      <span className="whitespace-nowrap">
+                        {new Date(file.uploadedAt).toLocaleDateString('en-US', {
+                          month: 'short', day: 'numeric', year: 'numeric',
+                        })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                {file.fileUrl && (
+                  <div className="mt-3 border border-gray-200 rounded-lg bg-gray-50 p-2 grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => handleView(file)}
+                      className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-md text-sm font-medium border border-gray-300 bg-white hover:bg-gray-100 text-[var(--color-text-700)] transition-colors"
+                    >
+                      <Eye className="w-4 h-4" /> View
+                    </button>
+                    <button
+                      onClick={() => handleDownload(file)}
+                      className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-md text-sm font-medium bg-[var(--color-primary-600)] hover:bg-[var(--color-primary-700)] text-white transition-colors"
+                    >
+                      <Download className="w-4 h-4" /> Download
+                    </button>
                   </div>
                 )}
               </div>

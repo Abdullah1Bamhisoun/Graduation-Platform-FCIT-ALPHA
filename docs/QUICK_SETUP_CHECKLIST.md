@@ -51,8 +51,8 @@ ORDER BY table_name;
 ### In SQL Editor, run:
 ```sql
 INSERT INTO courses (code, name, term, year) VALUES
-  ('CPIS_498', 'Graduation Project I', 'First Semester', 2026),
-  ('CPIS_499', 'Graduation Project II', 'Second Semester', 2026);
+  ('CPIS-498', 'Graduation Project I', 'First Semester', 2026),
+  ('CPIS-499', 'Graduation Project II', 'Second Semester', 2026);
 ```
 
 **Expected:** ✅ "Success. 2 rows affected"

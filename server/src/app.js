@@ -31,6 +31,9 @@ const groupFilesRoutes     = require('./routes/groupFiles.routes');
 
 const app = express();
 
+// ── Trust proxy (needed for rate-limiter behind Codespaces/VSCode forwarding) ─
+app.set('trust proxy', 1);
+
 // ── Security headers (Helmet) ────────────────────────────────────────────────
 app.use(helmet());
 

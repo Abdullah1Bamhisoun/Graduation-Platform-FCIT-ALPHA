@@ -20,12 +20,12 @@ export async function getAnnouncementsForRole(role: UserRole): Promise<Announcem
   }
 }
 
-export async function getAllAnnouncements(): Promise<Announcement[]> {
+export async function getAllAnnouncements(activeRole?: string): Promise<Announcement[]> {
   try {
     const token = await getToken();
-    const res = await fetch('/api/announcements', {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+    if (activeRole) headers['X-Active-Role'] = activeRole;
+    const res = await fetch('/api/announcements', { headers });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (error) {

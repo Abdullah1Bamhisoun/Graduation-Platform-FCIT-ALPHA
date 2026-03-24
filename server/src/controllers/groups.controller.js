@@ -1,5 +1,6 @@
 const { supabaseAdmin } = require('../config/supabase');
 const emailService = require('../services/email.service');
+const { normalizeCourseCode } = require('../utils/helpers');
 
 /**
  * GET /api/groups
@@ -624,7 +625,7 @@ async function buildGradesResponse(res, groupsRaw, supervisorId) {
 
   // ── Assemble ──────────────────────────────────────────────────────────────
   const result = groupsRaw.map((g) => {
-    const courseCode = g.course?.code ?? '';
+    const courseCode = normalizeCourseCode(g.course?.code ?? '');
     const courseType = courseCode.includes('499') ? '499' : '498';
     const courseId   = g.course_id;
 
@@ -966,7 +967,7 @@ async function submitSupervisorEvaluation(req, res) {
 
     // ── Fire-and-forget email to each evaluated student (final submit only) ──
     if (submissionStatus === 'submitted') {
-      const courseName = group.course?.code ?? '';
+      const courseName = normalizeCourseCode(group.course?.code ?? '');
       const studentIds = assessments.map((a) => a.studentId);
       supabaseAdmin
         .from('profiles')
@@ -1395,7 +1396,7 @@ async function submitCoordinatorEvaluation(req, res) {
 
     // ── Fire-and-forget email to group members (final submit only) ────────────
     if (submissionStatus === 'submitted') {
-      const courseName = group.course?.code ?? courseType;
+      const courseName = normalizeCourseCode(group.course?.code ?? courseType);
       supabaseAdmin
         .from('group_members')
         .select('student_id')

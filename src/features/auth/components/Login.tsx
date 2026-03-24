@@ -60,16 +60,17 @@ export function Login() {
             )}
 
             <div>
-              <Label htmlFor="email">University Email</Label>
+              <Label htmlFor="email">Email or University ID</Label>
               <Input
                 id="email"
-                type="email"
-                placeholder="your.name@stu.kau.edu.sa"
+                type="text"
+                placeholder="your.name@stu.kau.edu.sa or University ID"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="mt-2"
                 required
                 disabled={isLoading}
+                autoComplete="username"
               />
             </div>
 

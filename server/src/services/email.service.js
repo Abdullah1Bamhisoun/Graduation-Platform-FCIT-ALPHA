@@ -55,7 +55,7 @@ function layout(bodyContent, sectionLabel = 'Notification') {
               <img src="https://bmpnorvnjqzldrinfrop.supabase.co/storage/v1/object/public/assets/GPP_Logo.png"
                    alt="FCIT Graduation Project Platform"
                    width="160"
-                   style="display:block;margin:0 auto 14px;" />
+                   style="display:block;margin:0 auto 14px;max-width:100%;height:auto;" />
               <p style="margin:0;font-size:22px;font-weight:700;color:#1a6b4a;letter-spacing:0.5px;">
                 FCIT Graduation Project Platform
               </p>

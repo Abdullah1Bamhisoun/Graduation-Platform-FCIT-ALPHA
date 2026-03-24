@@ -34,8 +34,8 @@ export function AnnouncementsManager() {
   });
 
   useEffect(() => {
-    getAllAnnouncements().then(setAnnouncements);
-  }, []);
+    getAllAnnouncements(user.activeRole).then(setAnnouncements);
+  }, [user.activeRole]);
 
   if (!user) return null;
 
@@ -102,7 +102,7 @@ export function AnnouncementsManager() {
           authorId: user.id,
           targetRoles: formData.targetRoles,
         });
-        const fresh = await getAllAnnouncements();
+        const fresh = await getAllAnnouncements(user.activeRole);
         setAnnouncements(fresh);
         toast.success('Announcement published successfully');
       }

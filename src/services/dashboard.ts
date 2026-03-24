@@ -204,7 +204,7 @@ export async function getEvaluationProgressByCourse(courseId?: string): Promise<
       const { data } = await supabase
         .from('courses')
         .select('id, code')
-        .in('code', ['CPIS_498', 'CPIS_499']);
+        .in('code', ['CPIS-498', 'CPIS-499']);
       courses = data || [];
     }
 

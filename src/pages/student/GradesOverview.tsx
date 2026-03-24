@@ -86,7 +86,10 @@ async function fetchMyGrades(token: string): Promise<StudentMyGradesData | null>
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error(`Failed to fetch grades: ${res.status}`);
-  return res.json();
+  const data = await res.json();
+  // Normalize legacy underscore course codes (CPIS_498 → CPIS-498)
+  if (data?.courseCode) data.courseCode = data.courseCode.replace(/_/g, '-');
+  return data;
 }
 
 function getScoreColor(score: number, max: number) {
@@ -803,7 +806,7 @@ export function StudentGradesOverview() {
                       Supervisor Comment
                     </span>
                   </div>
-                  {g.supervisorEvaluation?.comment ? (
+                  {g.supervisorEvaluation?.submissionStatus !== 'draft' && g.supervisorEvaluation?.comment ? (
                     <p className="text-sm text-[var(--color-text-800)] leading-relaxed">
                       {g.supervisorEvaluation.comment}
                     </p>
