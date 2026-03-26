@@ -206,9 +206,16 @@ export function Register() {
     try {
       const email    = accountType === 'student' ? studentEmail    : supervisorEmail;
       const password = accountType === 'student' ? studentPassword : supervisorPassword;
+      const fullName = accountType === 'student'
+        ? `${studentFirstName} ${studentLastName}`.trim()
+        : `${supervisorFirstName} ${supervisorLastName}`.trim();
 
       // Step 1: Create Supabase auth user → triggers confirmation email
-      const { error: signUpError } = await supabase.auth.signUp({ email, password });
+      const { error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { full_name: fullName } },
+      });
       if (signUpError) throw signUpError;
 
       // Step 2: Store registration data as pending (no password stored)

@@ -132,8 +132,8 @@ export async function addRegistration(
       }),
     });
 
-    const json = await response.json();
-    if (!response.ok) throw new Error(json.error || 'Failed to submit registration');
+    const json = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error((json as any).error || 'Service unavailable. Please try again later.');
 
     notify();
   } catch (error: any) {

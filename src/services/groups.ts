@@ -179,18 +179,17 @@ export async function getAllGroups(activeRole?: string): Promise<GroupData[]> {
   }
 }
 
-export async function getGroupById(id: string): Promise<GroupData | null> {
+export async function getGroupById(id: string): Promise<{ groupNumber: number; groupCode: string; projectName: string } | null> {
   try {
-    const { data, error } = await supabase
-      .from('groups')
-      .select(GROUP_SELECT)
-      .eq('id', id)
-      .single();
-
-    if (error) throw error;
-    return data ? mapDbGroup(data) : null;
-  } catch (error) {
-    console.error('Error fetching group:', error);
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) return null;
+    const res = await fetch(`/api/groups/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
     return null;
   }
 }
@@ -221,6 +220,7 @@ export async function getPublicGroups(
     return [];
   }
 }
+
 
 /** Admin assigns a supervisor to a group */
 export async function assignSupervisor(

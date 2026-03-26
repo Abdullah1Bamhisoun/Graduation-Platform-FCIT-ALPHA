@@ -138,6 +138,11 @@ async function approveRegistration(req, res) {
 
     const authUser = { user: existingUser };
 
+    // Ensure the auth user's display name is set (may be blank if signUp didn't include metadata)
+    await supabaseAdmin.auth.admin.updateUserById(existingUser.id, {
+      user_metadata: { full_name: registration.name },
+    });
+
     // Upsert the profile — creates it if no DB trigger does so automatically
     const { error: profileError } = await supabaseAdmin
       .from('profiles')

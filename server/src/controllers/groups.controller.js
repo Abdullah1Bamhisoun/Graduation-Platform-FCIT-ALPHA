@@ -1528,9 +1528,25 @@ async function getCoordinatorEvaluation(req, res) {
   }
 }
 
+async function getGroupById(req, res) {
+  try {
+    const { id } = req.params;
+    const { data, error } = await supabaseAdmin
+      .from('groups')
+      .select('group_number, group_code, project_name')
+      .eq('id', id)
+      .single();
+    if (error || !data) return res.status(404).json({ error: 'Group not found' });
+    res.json({ groupNumber: data.group_number, groupCode: data.group_code, projectName: data.project_name });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch group' });
+  }
+}
+
 module.exports = {
   getAllGroups,
   getAvailableGroups,
+  getGroupById,
   assignSupervisor,
   updateGroupStatus,
   deleteGroup,

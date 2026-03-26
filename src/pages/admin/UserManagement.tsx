@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { toast } from 'sonner';
 import { Search, CheckCircle, XCircle, Eye, Clock, Users, UserCheck, Pencil, Trash2 } from 'lucide-react';
 import { getPendingRegistrationsViaAPI, approveRegistration, rejectRegistration, subscribe, type PendingRegistration } from '../../lib/pending-registrations';
-import { assignSupervisor, updateGroupStatus, deleteGroup, updateGroup, type GroupData } from '../../services/groups';
+import { assignSupervisor, updateGroupStatus, deleteGroup, updateGroup, getGroupById, type GroupData } from '../../services/groups';
 import type { User as ProfileUser } from '../../types';
 
 // ── Local types ───────────────────────────────────────────────────────────────
@@ -112,6 +112,7 @@ export function AdminUserManagement() {
   const [pendingRegs, setPendingRegs] = useState<PendingRegistration[]>([]);
   const [viewingReg, setViewingReg] = useState<PendingRegistration | null>(null);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
+  const [viewingRegGroup, setViewingRegGroup] = useState<{ groupNumber: number; groupCode: string; projectName: string } | null>(null);
 
   // ── Loading ───────────────────────────────────────────────────────────────
   const [isLoading, setIsLoading] = useState(true);
@@ -630,7 +631,12 @@ export function AdminUserManagement() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <Button size="sm" variant="outline" onClick={() => { setViewingReg(reg); setIsViewDialogOpen(true); }}>
+                    <Button size="sm" variant="outline" onClick={() => {
+                      setViewingReg(reg);
+                      setViewingRegGroup(null);
+                      setIsViewDialogOpen(true);
+                      if (reg.groupId) getGroupById(reg.groupId).then(setViewingRegGroup);
+                    }}>
                       <Eye className="w-4 h-4 mr-1" />Details
                     </Button>
                     <Button size="sm" variant="primary" onClick={() => handleApprove(reg)} disabled={isLocked}>
@@ -752,7 +758,7 @@ export function AdminUserManagement() {
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         {u.department && <span className="text-xs text-[var(--color-text-600)] bg-[var(--color-surface-alt)] px-2 py-0.5 rounded">{u.department}</span>}
-                        {coordinatorMap[u.id] && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-teal-50 text-teal-700 border border-teal-200">Coordinator · {coordinatorMap[u.id]}</span>}
+                        {coordinatorMap[u.id] && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-teal-50 text-teal-700 border border-teal-200 dark:bg-teal-900/40 dark:text-teal-300 dark:border-teal-700">Coordinator · {coordinatorMap[u.id]}</span>}
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         {u.role === 'student' && !groupedStudentIds.has(u.id) && (
@@ -783,7 +789,7 @@ export function AdminUserManagement() {
                       </div>
                       <div className="col-span-2 flex flex-col gap-1">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize w-fit ${getRoleBadge(u.role)}`}>{u.role}</span>
-                        {coordinatorMap[u.id] && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium w-fit bg-teal-50 text-teal-700 border border-teal-200"><span className="w-1.5 h-1.5 rounded-full bg-teal-500 inline-block" />Coordinator · {coordinatorMap[u.id]}</span>}
+                        {coordinatorMap[u.id] && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium w-fit bg-teal-50 text-teal-700 border border-teal-200 dark:bg-teal-900/40 dark:text-teal-300 dark:border-teal-700"><span className="w-1.5 h-1.5 rounded-full bg-teal-500 inline-block dark:bg-teal-400" />Coordinator · {coordinatorMap[u.id]}</span>}
                       </div>
                       <div className="col-span-1">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${u.status === 'active' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-gray-50 text-gray-500 border border-gray-200'}`}>{u.status}</span>
@@ -1052,7 +1058,7 @@ export function AdminUserManagement() {
                           </>
                         )}
                         <button
-                          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium bg-yellow-400 text-yellow-900 hover:bg-yellow-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium bg-yellow-400 text-yellow-900 hover:bg-yellow-500 dark:bg-yellow-500 dark:text-white dark:hover:bg-yellow-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           onClick={() => {
                             setEditingGroup(g);
                             setEditProjectName(g.projectName || '');
@@ -1125,7 +1131,7 @@ export function AdminUserManagement() {
       </Dialog>
 
       {/* ── Registration Details Dialog ── */}
-      <Dialog open={isViewDialogOpen} onOpenChange={(open) => { setIsViewDialogOpen(open); if (!open) setViewingReg(null); }}>
+      <Dialog open={isViewDialogOpen} onOpenChange={(open) => { setIsViewDialogOpen(open); if (!open) { setViewingReg(null); setViewingRegGroup(null); } }}>
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
             <DialogTitle>Registration Details</DialogTitle>
@@ -1154,10 +1160,28 @@ export function AdminUserManagement() {
               </div>
               {viewingReg.accountType === 'student' && (
                 <div>
-                  <h4 className="text-sm font-semibold text-[var(--color-text-900)] mb-3">Project Information</h4>
-                  {viewingReg.teammateSubmittedIdea ? (
-                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
-                      Teammate has already submitted the project idea
+                  <h4 className="text-sm font-semibold text-[var(--color-text-900)] mb-3">
+                    {viewingReg.groupId ? 'Group Assignment' : 'Project Information'}
+                  </h4>
+                  {viewingReg.groupId ? (
+                    <div className="space-y-3">
+                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+                        This student is joining an existing group. The group will be assigned automatically on approval.
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="p-3 bg-[var(--color-surface-alt)] rounded-lg">
+                          <p className="text-xs text-[var(--color-text-600)]">Group Number</p>
+                          <p className="text-sm font-medium text-[var(--color-text-900)]">
+                            {viewingRegGroup ? (viewingRegGroup.groupCode || `Group ${viewingRegGroup.groupNumber}`) : '—'}
+                          </p>
+                        </div>
+                        <div className="p-3 bg-[var(--color-surface-alt)] rounded-lg">
+                          <p className="text-xs text-[var(--color-text-600)]">Group Project</p>
+                          <p className="text-sm font-medium text-[var(--color-text-900)]">
+                            {viewingRegGroup?.projectName || '—'}
+                          </p>
+                        </div>
+                      </div>
                     </div>
                   ) : (
                     <div className="space-y-3">

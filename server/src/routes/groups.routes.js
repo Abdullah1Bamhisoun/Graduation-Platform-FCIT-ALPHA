@@ -105,6 +105,7 @@ router.get(
   paginate({ defaultLimit: 200, maxLimit: 200 }),
   controller.getAllGroups
 );
+router.get(    '/:id', authenticate, requireCoordinatorOrAdmin, controller.getGroupById);
 router.post(   '/',     authenticate, requireCoordinatorOrAdmin, controller.createGroup);
 router.patch(  '/:id', authenticate, requireCoordinatorOrAdmin, controller.updateGroup);
 router.delete( '/:id', authenticate, requireCoordinatorOrAdmin, controller.deleteGroup);
