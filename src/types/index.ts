@@ -100,7 +100,7 @@ export interface Submission {
 export interface SubmissionVersion {
   version: number;
   fileName: string;
-  fileSize: string;
+  fileSize: number;
   uploadedAt: string;
   notes?: string;
   filePath?: string;

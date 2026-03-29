@@ -9,7 +9,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { toast } from 'sonner';
-import { Search, CheckCircle, XCircle, Eye, Clock, Users, UserCheck, Pencil, Trash2 } from 'lucide-react';
+import { Search, CheckCircle, XCircle, Eye, Clock, Users, UserCheck, Pencil, Trash2, ChevronDown } from 'lucide-react';
 import { getPendingRegistrationsViaAPI, approveRegistration, rejectRegistration, subscribe, type PendingRegistration } from '../../lib/pending-registrations';
 import { assignSupervisor, updateGroupStatus, deleteGroup, updateGroup, getGroupById, type GroupData } from '../../services/groups';
 import type { User as ProfileUser } from '../../types';
@@ -99,6 +99,8 @@ export function AdminUserManagement() {
   const [quickAssignStudent, setQuickAssignStudent] = useState<User | null>(null);
   const [quickAssignGroupId, setQuickAssignGroupId] = useState('');
   const [isQuickAssigning, setIsQuickAssigning] = useState(false);
+  const [isGroupDropdownOpen, setIsGroupDropdownOpen] = useState(false);
+  const [isCoordDropdownOpen, setIsCoordDropdownOpen] = useState(false);
 
   // ── Assign Coordinator ────────────────────────────────────────────────────
   const [assigningCoordinatorUser, setAssigningCoordinatorUser] = useState<User | null>(null);
@@ -798,9 +800,9 @@ export function AdminUserManagement() {
                       <div className="col-span-2 flex items-center justify-end gap-2">
                         {u.role === 'student' && !groupedStudentIds.has(u.id) && <button className="text-xs px-2 py-1 border border-blue-300 text-blue-700 hover:bg-blue-50 transition-colors rounded whitespace-nowrap" onClick={() => { setQuickAssignStudent(u); setQuickAssignGroupId(''); }} disabled={isLocked}>Assign Group</button>}
                         {u.role === 'supervisor' && (coordinatorMap[u.id] ? (
-                          <button style={{ borderRadius: 0 }} className="text-xs px-2 py-1 border border-orange-400 text-orange-600 hover:bg-orange-50 transition-colors whitespace-nowrap" onClick={() => handleRemoveCoordinator(u)}>Remove Coordinator</button>
+                          <button className="text-xs px-2 py-1 border border-orange-400 text-orange-600 hover:bg-orange-50 transition-colors whitespace-nowrap rounded-lg" onClick={() => handleRemoveCoordinator(u)}>Remove Coordinator</button>
                         ) : (
-                          <button style={{ borderRadius: 0 }} className="text-xs px-2 py-1 border border-purple-300 text-purple-700 hover:bg-purple-50 transition-colors whitespace-nowrap" onClick={() => { setAssigningCoordinatorUser(u); setSelectedCoordinatorCourseId(''); }}>Assign Coordinator</button>
+                          <button className="text-xs px-2 py-1 border border-purple-300 text-purple-700 hover:bg-purple-50 transition-colors whitespace-nowrap rounded-lg" onClick={() => { setAssigningCoordinatorUser(u); setSelectedCoordinatorCourseId(''); }}>Assign Coordinator</button>
                         ))}
                         {u.id !== user?.id && !(user?.activeRole === 'coordinator' && u.role === 'admin') && (
                           <button className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" onClick={() => { setDeletingUser(u); setIsDeleteDialogOpen(true); }} disabled={isLocked}>
@@ -1090,7 +1092,7 @@ export function AdminUserManagement() {
 
       {/* ── Quick Assign Student to Group Dialog ── */}
       <Dialog open={!!quickAssignStudent} onOpenChange={(open) => { if (!open) { setQuickAssignStudent(null); setQuickAssignGroupId(''); } }}>
-        <DialogContent className="sm:max-w-[440px]">
+        <DialogContent className="sm:max-w-[560px]">
           <DialogHeader>
             <DialogTitle>Assign Student to Group</DialogTitle>
             <DialogDescription>
@@ -1099,20 +1101,37 @@ export function AdminUserManagement() {
           </DialogHeader>
           <div className="py-4">
             <Label>Select Group</Label>
-            <Select value={quickAssignGroupId} onValueChange={setQuickAssignGroupId}>
-              <SelectTrigger className="mt-2">
-                <SelectValue placeholder="Choose a group…" />
-              </SelectTrigger>
-              <SelectContent>
-                {groups
-                  .filter((g) => g.membersCount < 3)
-                  .map((g) => (
-                    <SelectItem key={g.id} value={g.id}>
-                      {g.groupCode} — {g.projectName || 'No project name'} ({g.membersCount}/3 members)
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
+            <div className="relative mt-2">
+              <button
+                type="button"
+                onClick={() => setIsGroupDropdownOpen((v) => !v)}
+                className="flex w-full items-center justify-between rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-white)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[var(--color-focus)]"
+              >
+                <span className={quickAssignGroupId ? 'text-[var(--color-text-900)]' : 'text-[var(--color-text-600)]'}>
+                  {quickAssignGroupId
+                    ? (() => { const g = groups.find((g) => g.id === quickAssignGroupId); return g ? `${g.groupCode} — ${g.projectName || 'No project name'} (${g.membersCount}/3 members)` : 'Choose a group…'; })()
+                    : 'Choose a group…'}
+                </span>
+                <ChevronDown className={`size-4 text-[var(--color-text-600)] transition-transform ${isGroupDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {isGroupDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setIsGroupDropdownOpen(false)} />
+                  <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-white)] shadow-lg">
+                    {groups.filter((g) => g.membersCount < 3).map((g) => (
+                      <button
+                        key={g.id}
+                        type="button"
+                        onClick={() => { setQuickAssignGroupId(g.id); setIsGroupDropdownOpen(false); }}
+                        className={`w-full px-3 py-2.5 text-left text-sm transition-colors hover:bg-[var(--color-surface-alt)] ${quickAssignGroupId === g.id ? 'text-[var(--color-primary-600)] font-medium' : 'text-[var(--color-text-900)]'}`}
+                      >
+                        {g.groupCode} — {g.projectName || 'No project name'} ({g.membersCount}/3 members)
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
             {groups.filter((g) => g.membersCount < 3).length === 0 && (
               <p className="text-sm text-[var(--color-text-600)] mt-2">All groups are full (3/3 members). Create a new group first.</p>
             )}
@@ -1410,7 +1429,7 @@ export function AdminUserManagement() {
 
       {/* ── Assign Coordinator Dialog ── */}
       <Dialog open={!!assigningCoordinatorUser} onOpenChange={(open) => { if (!open) { setAssigningCoordinatorUser(null); setSelectedCoordinatorCourseId(''); } }}>
-        <DialogContent className="sm:max-w-[440px]">
+        <DialogContent className="sm:max-w-[560px]">
           <DialogHeader>
             <DialogTitle>Assign Coordinator Role</DialogTitle>
             <DialogDescription>
@@ -1419,20 +1438,41 @@ export function AdminUserManagement() {
           </DialogHeader>
           <div className="py-4">
             <Label>Select Course</Label>
-            <Select value={selectedCoordinatorCourseId} onValueChange={setSelectedCoordinatorCourseId}>
-              <SelectTrigger className="mt-2">
-                <SelectValue placeholder="Choose a course…" />
-              </SelectTrigger>
-              <SelectContent>
-                {courses.length === 0 ? (
-                  <SelectItem value="__none" disabled>No courses available</SelectItem>
-                ) : (
-                  courses.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.code} — {c.name}</SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
+            <div className="relative mt-2">
+              <button
+                type="button"
+                onClick={() => setIsCoordDropdownOpen((v) => !v)}
+                className="flex w-full items-center justify-between rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-white)] px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[var(--color-focus)]"
+              >
+                <span className={selectedCoordinatorCourseId ? 'text-[var(--color-text-900)]' : 'text-[var(--color-text-600)]'}>
+                  {selectedCoordinatorCourseId
+                    ? (() => { const c = courses.find((c) => c.id === selectedCoordinatorCourseId); return c ? `${c.code} — ${c.name}` : 'Choose a course…'; })()
+                    : 'Choose a course…'}
+                </span>
+                <ChevronDown className={`size-4 text-[var(--color-text-600)] transition-transform ${isCoordDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {isCoordDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setIsCoordDropdownOpen(false)} />
+                  <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-white)] shadow-lg">
+                    {courses.length === 0 ? (
+                      <p className="px-3 py-2.5 text-sm text-[var(--color-text-600)]">No courses available</p>
+                    ) : (
+                      courses.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => { setSelectedCoordinatorCourseId(c.id); setIsCoordDropdownOpen(false); }}
+                          className={`w-full px-3 py-2.5 text-left text-sm transition-colors hover:bg-[var(--color-surface-alt)] ${selectedCoordinatorCourseId === c.id ? 'text-[var(--color-primary-600)] font-medium' : 'text-[var(--color-text-900)]'}`}
+                        >
+                          {c.code} — {c.name}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAssigningCoordinatorUser(null)}>Cancel</Button>

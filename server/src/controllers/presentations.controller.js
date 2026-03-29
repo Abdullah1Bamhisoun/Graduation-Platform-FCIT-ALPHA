@@ -1,5 +1,6 @@
 const { supabaseAdmin } = require('../config/supabase');
 const emailService = require('../services/email.service');
+const notificationService = require('../services/notification.service');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -251,13 +252,24 @@ async function assignSchedule(req, res) {
       }
     }
 
-    // ── Fetch group info for announcement text ─────────────────────────────
+    // ── Fetch group info for announcement text + supervisor conflict check ──
     const { data: groupData } = await supabaseAdmin
       .from('groups')
-      .select('project_name, group_code, group_number')
+      .select('project_name, group_code, group_number, supervisor_id, supervisor:profiles!supervisor_id(name)')
       .eq('id', groupId)
       .single();
     const projectName = groupData?.project_name ?? 'Unknown Project';
+
+    // ── Reject if group's own supervisor is listed as a committee member ───
+    if (committeeMembers && committeeMembers.length > 0 && groupData?.supervisor?.name) {
+      const supervisorName = groupData.supervisor.name.trim().toLowerCase();
+      const conflict = committeeMembers.find(m => m.trim().toLowerCase() === supervisorName);
+      if (conflict) {
+        return res.status(400).json({
+          error: `The group's supervisor (${groupData.supervisor.name}) cannot be a committee member for their own group.`,
+        });
+      }
+    }
 
     // ── Fetch existing schedule to get linked calendar_event_id ───────────
     const { data: existing } = await supabaseAdmin
@@ -432,7 +444,74 @@ async function assignSchedule(req, res) {
         .catch((err) => console.error('[presentations] Failed to send presentation email:', err.message));
     }
 
-    return res.json({ success: true });
+    res.json({ success: true });
+
+    // ── Trigger 7: per-committee-member announcement + notification + personal calendar ───
+    if (committeeMembers && committeeMembers.length > 0) {
+      ;(async () => {
+        try {
+          const { data: committeeMemberProfiles } = await supabaseAdmin
+            .from('profiles')
+            .select('id, name, email')
+            .in('name', committeeMembers);
+
+          // Fetch group students for the notification message
+          const groupStudents = await notificationService.getGroupMembers(groupId);
+          const studentNames  = groupStudents.map((s) => s.name).join(', ') || 'N/A';
+          const formattedDate = formatPresentationDateTime(presentationDate);
+          const supervisorName = groupData?.supervisor?.name ?? 'N/A';
+          const groupNum       = groupData?.group_number ?? '';
+          const courseId       = await notificationService.getCourseIdFromGroup(groupId);
+
+          const announcementContent = [
+            `You have been assigned as a committee evaluator for the following group:`,
+            '',
+            `Group: ${projectName}${groupNum ? ` (Group ${groupNum})` : ''}`,
+            `Students: ${studentNames}`,
+            `Supervisor: ${supervisorName}`,
+            `Evaluation Date & Time: ${formattedDate}`,
+            ...(location ? [`Location: ${location}`] : []),
+          ].join('\n');
+
+          for (const profile of (committeeMemberProfiles || [])) {
+            if (!profile.id) continue;
+
+            await Promise.all([
+              notificationService.createAnnouncement({
+                title:       `Committee Assignment: ${projectName}`,
+                content:     announcementContent,
+                targetRoles: ['supervisor'],
+                courseId,
+                authorId:    req.user.id,
+                expiresAt:   presentationDate.toISOString().slice(0, 10),
+              }),
+              notificationService.createUserNotifications([profile.id], {
+                type:    'presentation',
+                title:   'You Are Assigned as Committee Evaluator',
+                message: [
+                  `Group: ${projectName}${groupNum ? ` (Group ${groupNum})` : ''}`,
+                  `Students: ${studentNames}`,
+                  `Supervisor: ${supervisorName}`,
+                  `Date & Time: ${formattedDate}`,
+                  location ? `Location: ${location}` : null,
+                ].filter(Boolean).join('\n'),
+                link:    '/supervisor/grades-committee',
+              }),
+              notificationService.createPersonalCalendarEvent({
+                title:    `Committee Evaluation: ${projectName}`,
+                date:     presentationDate.toISOString().slice(0, 10),
+                type:     'presentation',
+                time:     timeSlot,
+                location: location ?? null,
+                userId:   profile.id,
+              }),
+            ]);
+          }
+        } catch (e) {
+          console.error('[presentations] Trigger-7 committee notification error:', e.message);
+        }
+      })();
+    }
 
     // ── Fire-and-forget committee emails ───────────────────────────────────
     // For each committee member, fetch ALL presentations they are assigned to

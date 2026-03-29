@@ -1,5 +1,6 @@
 const { supabaseAdmin } = require('../config/supabase');
 const emailService = require('../services/email.service');
+const notificationService = require('../services/notification.service');
 
 /**
  * Seed closed rows for a course type if the table is empty for it.
@@ -121,8 +122,28 @@ async function openWeek(req, res) {
           weekNumber: weekRow.week_number,
           courseType: weekRow.course_type,
         });
+
+        // ── Trigger 3: announcement + calendar for students ───────────────────
+        const firstCourseId = courseIds[0] ?? null;
+        const today = new Date().toISOString().slice(0, 10);
+
+        await Promise.all([
+          notificationService.createAnnouncement({
+            title:       `Weekly Report #${weekRow.week_number} is Now Open`,
+            content:     `Week ${weekRow.week_number} report submission is now open for CPIS-${weekRow.course_type}.\nPlease submit your progress report on time.`,
+            targetRoles: ['student'],
+            courseId:    firstCourseId,
+            authorId:    updatedBy ?? null,
+          }),
+          notificationService.createCalendarEvent({
+            title:    `Weekly Report #${weekRow.week_number} Submission Open`,
+            date:     today,
+            type:     'deadline',
+            courseId: firstCourseId,
+          }),
+        ]);
       } catch (e) {
-        console.error('[weekStatuses] Failed to send week-opened emails:', e);
+        console.error('[weekStatuses] Failed to send week-opened notifications:', e);
       }
     })();
   } catch (err) {

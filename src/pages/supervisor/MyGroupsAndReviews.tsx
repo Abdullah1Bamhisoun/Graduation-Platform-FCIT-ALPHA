@@ -168,7 +168,7 @@ async function fetchChapterSubmissions(token: string): Promise<ChapterSubmission
 
 async function submitApproval(
   submissionId: string,
-  action: 'approve' | 'reject',
+  action: 'approve' | 'request_changes',
   feedback: string,
   token: string
 ): Promise<{ newStatus: string }> {
@@ -453,7 +453,7 @@ export function SupervisorMyGroupsAndReviews() {
         m.supabase.auth.getSession()
       );
       const token = session.data.session?.access_token ?? '';
-      await submitApproval(rejectTarget.id, 'reject', rejectFeedback.trim(), token);
+      await submitApproval(rejectTarget.id, 'request_changes', rejectFeedback.trim(), token);
       setSubmissions((prev) =>
         prev.map((s) =>
           s.id === rejectTarget.id ? { ...s, status: 'changes-requested' } : s

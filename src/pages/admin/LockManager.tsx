@@ -293,7 +293,7 @@ export function AdminLockManager() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              className={confirmTarget?.toLock ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}
+              className={confirmTarget?.toLock ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-green-600 hover:bg-green-700 text-white'}
               onClick={handleConfirm}
             >
               {confirmTarget?.toLock ? 'Lock Now' : 'Unlock Now'}

@@ -67,6 +67,7 @@ const updateMilestoneSchema = Joi.object({
 
 const createSubmissionSchema = Joi.object({
   milestoneId: Joi.string().uuid().required(),
+  studentId:   Joi.string().uuid().required(),
   groupId:     Joi.string().uuid().required(),
   fileName:    Joi.string().min(1).max(255).trim().required(),
   fileSize:    Joi.number().integer().positive().max(50 * 1024 * 1024).required(), // max 50 MB

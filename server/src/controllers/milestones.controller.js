@@ -1,6 +1,7 @@
 const { supabaseAdmin } = require('../config/supabase');
 const emailService = require('../services/email.service');
 const { normalizeCourseCode } = require('../utils/helpers');
+const notificationService = require('../services/notification.service');
 
 /**
  * GET /api/milestones
@@ -193,6 +194,30 @@ async function createMilestone(req, res) {
     })();
 
     res.status(201).json({ success: true, id: milestone.id });
+
+    // ── Trigger 6: supervisor announcement + calendar event ───────────────────
+    ;(async () => {
+      try {
+        await Promise.all([
+          notificationService.createAnnouncement({
+            title:       `New Milestone Added: ${name}`,
+            content:     `Coordinator created milestone "${name}" (type: ${type ?? 'chapter'}).\nOpens: ${openDateFormatted}\nDue: ${dueDateFormatted}${description ? `\n\n${description}` : ''}`,
+            targetRoles: ['supervisor'],
+            courseId,
+            authorId:    req.user.id,
+            expiresAt:   dueDate,
+          }),
+          notificationService.createCalendarEvent({
+            title:    `Milestone Due: ${name}`,
+            date:     dueDate.slice(0, 10),
+            type:     'deadline',
+            courseId,
+          }),
+        ]);
+      } catch (e) {
+        console.error('[milestones] Trigger-6 notification error:', e.message);
+      }
+    })();
   } catch (error) {
     console.error('Error creating milestone:', error);
     res.status(500).json({ error: 'Failed to create milestone' });

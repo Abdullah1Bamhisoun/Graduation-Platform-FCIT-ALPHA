@@ -111,6 +111,36 @@ async function listEvents(req, res) {
       );
     }
 
+    // ── Merge personal (user_id-scoped) calendar events ──────────────────────
+    // These are events created specifically for this user (e.g. "Review submission
+    // from Group X" visible only to that supervisor). Requires migration 012.
+    // Falls back gracefully if user_id column doesn't exist yet.
+    try {
+      const { data: personalEvents, error: peErr } = await supabaseAdmin
+        .from('calendar_events')
+        .select('id, title, date, type, time, location, course_id, user_id, created_at')
+        .eq('user_id', req.user.id)
+        .order('date', { ascending: true });
+
+      const isMissingUserIdCol = peErr && (
+        peErr.code === '42703' || (peErr.message || '').includes('does not exist')
+      );
+
+      if (!isMissingUserIdCol && !peErr && personalEvents && personalEvents.length > 0) {
+        // Merge + deduplicate by id (a personal event shouldn't also appear in course events,
+        // but guard just in case), then re-sort chronologically.
+        const mergedMap = new Map(events.map((e) => [e.id, e]));
+        for (const pe of personalEvents) mergedMap.set(pe.id, pe);
+        events = [...mergedMap.values()].sort((a, b) => {
+          if (a.date < b.date) return -1;
+          if (a.date > b.date) return 1;
+          return 0;
+        });
+      }
+    } catch (_) {
+      // Non-fatal — personal events are best-effort
+    }
+
     res.json(events.map((e) => ({
       id: e.id,
       title: e.title,

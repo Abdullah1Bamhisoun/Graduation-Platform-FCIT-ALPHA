@@ -136,10 +136,12 @@ async function listAnnouncements(req, res) {
     }
 
     // ── Apply course-scoped filter ────────────────────────────────────────────
-    // Filter by course_id when available (post-migration 005).
-    // Pre-migration or when course cannot be resolved: fall back to author-based scoping.
+    // Include announcements that:
+    //   (a) belong to the viewer's course  (course_id = viewerCourseId), OR
+    //   (b) are platform-wide / admin-posted (course_id IS NULL)
+    // Strictly matching on course_id alone silently hides null-scoped announcements.
     if (viewerCourseId) {
-      query = query.eq('course_id', viewerCourseId);
+      query = query.or(`course_id.eq.${viewerCourseId},course_id.is.null`);
     } else if (req.user?.activeRole === 'coordinator') {
       query = query.eq('author_id', req.user.id);
     }
@@ -148,14 +150,22 @@ async function listAnnouncements(req, res) {
     let { data, error } = await query.range(from, to);
 
     // Fallback when course_id column doesn't exist yet (pre-migration):
-    // the filter above causes a DB error — resolve via platform_locks instead.
+    // the filter above causes a DB error — resolve via platform_locks + user_roles instead.
     if (error && viewerCourseId) {
-      const { data: lockRows } = await supabaseAdmin
-        .from('platform_locks').select('locked_by')
-        .eq('entity_type', 'coordinator_assignment')
-        .eq('entity_id', viewerCourseId)
-        .eq('is_locked', true);
-      const coordIds = (lockRows || []).map((r) => r.locked_by).filter(Boolean);
+      // Gather coordinator IDs from both assignment mechanisms in parallel
+      const [{ data: lockRows }, { data: roleRows }] = await Promise.all([
+        supabaseAdmin.from('platform_locks').select('locked_by')
+          .eq('entity_type', 'coordinator_assignment')
+          .eq('entity_id', viewerCourseId)
+          .eq('is_locked', true),
+        supabaseAdmin.from('user_roles').select('user_id, roles(name)')
+          .eq('coordinator_course_id', viewerCourseId),
+      ]);
+      const coordIds = [
+        ...(lockRows || []).map((r) => r.locked_by).filter(Boolean),
+        ...(roleRows || []).filter((r) => r.roles?.name === 'coordinator').map((r) => r.user_id).filter(Boolean),
+      ];
+
       if (req.user?.activeRole === 'coordinator') coordIds.push(req.user.id);
       const uniqueCoordIds = [...new Set(coordIds)];
 
@@ -165,9 +175,11 @@ async function listAnnouncements(req, res) {
         .order('published_at', { ascending: false });
       if (role) baseQuery = baseQuery.contains('target_roles', [role]);
 
+      // If we found coordinator IDs, filter by author; otherwise return all role-matched
+      // announcements (no course scope possible without course_id column).
       const fallback = uniqueCoordIds.length > 0
         ? await baseQuery.in('author_id', uniqueCoordIds).range(from, to)
-        : await baseQuery.eq('author_id', req.user.id).range(from, to);
+        : await baseQuery.range(from, to);
 
       data = fallback.data;
       error = fallback.error;

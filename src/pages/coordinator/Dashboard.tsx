@@ -22,16 +22,16 @@ import type {
 } from '../../services/dashboard';
 import {
   BookOpen, AlertCircle, Settings, Bell, BarChart3, Users,
-  AlertTriangle, CheckCircle, Clock, FileText, CalendarDays, ClipboardList,
+  AlertTriangle, CheckCircle, Clock, FileText, CalendarDays,
 } from 'lucide-react';
 import type { Course } from '../../types';
 
 // ── Quick actions for coordinator ─────────────────────────────────────────────
 const QUICK_ACTIONS = [
-  { icon: Settings,      label: 'Configure Milestones',       path: '/coordinator/milestones' },
+  { icon: Settings,      label: 'Chapter Configuration',      path: '/admin/milestones' },
   { icon: Bell,          label: 'Create Announcement',        path: '/coordinator/announcements' },
   { icon: FileText,      label: 'View Weekly Reports',        path: '/coordinator/weekly-reports' },
-  { icon: ClipboardList, label: 'Manage Registrations',       path: '/coordinator/approvals' },
+  { icon: Users,         label: 'User Management',            path: '/admin/users' },
 ] as const;
 
 // ── Color maps (same as admin) ────────────────────────────────────────────────

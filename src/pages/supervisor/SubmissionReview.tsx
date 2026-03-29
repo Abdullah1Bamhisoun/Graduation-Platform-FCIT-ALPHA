@@ -66,7 +66,7 @@ async function fetchChapterSubmissions(token: string): Promise<ChapterSubmission
 
 async function submitApproval(
   submissionId: string,
-  action: 'approve' | 'reject',
+  action: 'approve' | 'request_changes',
   feedback: string,
   token: string
 ): Promise<{ newStatus: string }> {
@@ -254,7 +254,7 @@ export function SupervisorSubmissionReview() {
     setProcessing(true);
     try {
       const token = await getToken();
-      await submitApproval(submission.id, 'reject', feedback.trim(), token);
+      await submitApproval(submission.id, 'request_changes', feedback.trim(), token);
       setSubmission((prev) => prev ? { ...prev, status: 'changes-requested' } : prev);
       toast.success('Changes requested — student has been notified');
       // Keep draft in case supervisor wants to revisit

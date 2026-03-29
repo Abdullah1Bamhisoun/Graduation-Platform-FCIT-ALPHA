@@ -142,7 +142,7 @@ export function StudentSubmissionDetail() {
     let uploadedPath: string | null = null;
     try {
       uploadedPath = await uploadSubmissionFile(selectedFile, user.id, id);
-      const fileSize = formatFileSize(selectedFile.size);
+      const fileSize = selectedFile.size;
 
       if (submission) {
         const nextVersion = submission.currentVersion + 1;
@@ -395,7 +395,7 @@ export function StudentSubmissionDetail() {
                           Version {version.version}
                         </h3>
                         <p className="text-[var(--color-text-600)] break-all">
-                          {version.fileName} • {version.fileSize}
+                          {version.fileName} • {formatFileSize(version.fileSize)}
                         </p>
                         <p className="text-[var(--color-text-600)]">
                           {new Date(version.uploadedAt).toLocaleString()}

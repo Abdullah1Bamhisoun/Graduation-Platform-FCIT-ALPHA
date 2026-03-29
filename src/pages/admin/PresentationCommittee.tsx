@@ -418,28 +418,30 @@ export function AdminPresentationCommittee() {
   };
 
   // Auto-assign
+  // Automatically creates slots for every unassigned project — no manual slot creation needed.
   // Rule: a committee member may have AT MOST 4 consecutive sessions in a single day.
   const handleAutoAssign = () => {
-    const offeredSlots = slots.filter(s => s.status === 'offered' && !s.projectId);
     const unassigned = projects.filter(
       p => p.status === 'unassigned' && (course === null || p.course === course)
     );
 
-    if (offeredSlots.length === 0) {
-      toast.error('No available (offered) slots to fill. Create slots first.');
+    if (committeePool.size === 0) {
+      toast.error('No supervisors selected in the committee pool. Please select supervisors before running auto-assign.');
       setShowAutoAssignDialog(false);
       return;
     }
+
     if (unassigned.length === 0) {
       toast.error('No unassigned projects to place.');
       setShowAutoAssignDialog(false);
       return;
     }
 
-    // committeeLoad[supervisorName][day] = sorted array of TIME_SLOTS indices already assigned
-    const committeeLoad: Record<string, Record<string, number[]>> = {};
+    // Track which day+time combinations are already occupied
+    const takenSlots = new Set<string>(slots.map(s => `${s.day}-${s.startTime}`));
 
-    // Seed load from already-assigned slots
+    // committeeLoad[supervisorName][day] = TIME_SLOTS indices already assigned
+    const committeeLoad: Record<string, Record<string, number[]>> = {};
     slots
       .filter(s => s.status === 'assigned')
       .forEach(s => {
@@ -452,7 +454,7 @@ export function AdminPresentationCommittee() {
         });
       });
 
-    // groupSessionsInDay[groupId][day] = TIME_SLOTS indices → used for back-to-back avoidance
+    // groupSessionsInDay[groupId][day] = TIME_SLOTS indices — for back-to-back avoidance
     const groupSessionsInDay: Record<string, Record<string, number[]>> = {};
     slots
       .filter(s => s.status === 'assigned' && s.projectId)
@@ -483,97 +485,112 @@ export function AdminPresentationCommittee() {
     const totalLoad = (name: string) =>
       Object.values(committeeLoad[name] ?? {}).flat().length;
 
-    // Sort offered slots: prefer slots on the group's preferred day first (if option on)
-    // We'll sort projects into slots greedily.
-    let remainingProjects = [...unassigned];
+    // dayLoad tracks how many slots are placed per day — used for even spreading
+    const dayLoad: Record<string, number> = {};
+    DAYS.forEach(d => { dayLoad[d] = slots.filter(s => s.day === d).length; });
+
     const newSlots = slots.map(s => ({ ...s }));
     const newProjects = projects.map(p => ({ ...p }));
     let assigned = 0;
+    const unplaceable: string[] = [];
 
-    // Work slot-by-slot
-    for (const slot of offeredSlots) {
-      if (remainingProjects.length === 0) break;
+    for (const project of unassigned) {
+      const chosenGroupSupervisor = project.supervisor?.trim().toLowerCase();
 
-      const timeIdx = TIME_SLOTS.findIndex(t => t.start === slot.startTime);
-
-      // Pick a project: prefer one that prefers this day, otherwise any
-      let projectIdx = -1;
-      if (autoPreferDay) {
-        projectIdx = remainingProjects.findIndex(
-          p => p.preferredDay?.toLowerCase() === slot.day.toLowerCase()
-        );
+      // Build day priority order
+      let dayOrder = [...DAYS];
+      if (autoBalanceLoad) {
+        dayOrder.sort((a, b) => dayLoad[a] - dayLoad[b]);
       }
-      if (projectIdx === -1) projectIdx = 0; // fallback: first remaining
-
-      const project = remainingProjects[projectIdx];
-      // Avoid placing same group back-to-back on the same day
-      if (autoAvoidBackToBack && project.id) {
-        const existingSessions = groupSessionsInDay[project.id]?.[slot.day] ?? [];
-        if (existingSessions.includes(timeIdx - 1) || existingSessions.includes(timeIdx + 1)) {
-          // Try another project instead
-          const altIdx = remainingProjects.findIndex(
-            (p, i) => i !== projectIdx && !(
-              (groupSessionsInDay[p.id]?.[slot.day] ?? []).includes(timeIdx - 1) ||
-              (groupSessionsInDay[p.id]?.[slot.day] ?? []).includes(timeIdx + 1)
-            )
-          );
-          if (altIdx !== -1) projectIdx = altIdx;
-          // If no alt found, continue with original (best effort)
+      // If preferred day is set, always try it first
+      if (autoPreferDay && project.preferredDay) {
+        const preferred = DAYS.find(d => d.toLowerCase() === project.preferredDay!.toLowerCase());
+        if (preferred) {
+          dayOrder = [preferred, ...dayOrder.filter(d => d !== preferred)];
         }
       }
 
-      const chosenProject = remainingProjects[projectIdx];
-      const chosenGroupSupervisor = chosenProject.supervisor?.trim().toLowerCase();
+      let placed = false;
 
-      // Pick committee members: eligible = not the group's own supervisor + passes consecutive rule
-      const eligible = supervisors.filter(s => {
-        if (chosenGroupSupervisor && s.name.trim().toLowerCase() === chosenGroupSupervisor) return false;
-        return canAssign(s.name, slot.day, timeIdx);
-      });
+      outer: for (const day of dayOrder) {
+        for (let timeIdx = 0; timeIdx < TIME_SLOTS.length; timeIdx++) {
+          const timeInfo = TIME_SLOTS[timeIdx];
+          const key = `${day}-${timeInfo.start}`;
 
-      if (autoBalanceLoad) {
-        eligible.sort((a, b) => totalLoad(a.name) - totalLoad(b.name));
+          if (takenSlots.has(key)) continue;
+
+          // Back-to-back avoidance
+          if (autoAvoidBackToBack && project.id) {
+            const existingSessions = groupSessionsInDay[project.id]?.[day] ?? [];
+            if (existingSessions.includes(timeIdx - 1) || existingSessions.includes(timeIdx + 1)) continue;
+          }
+
+          // Pick committee members — respect the pool selection if any supervisors are checked
+          const poolCandidates = committeePool.size > 0
+            ? supervisors.filter(s => committeePool.has(s.name))
+            : supervisors;
+          const eligible = poolCandidates.filter(s => {
+            if (chosenGroupSupervisor && s.name.trim().toLowerCase() === chosenGroupSupervisor) return false;
+            return canAssign(s.name, day, timeIdx);
+          });
+
+          if (autoBalanceLoad) {
+            eligible.sort((a, b) => totalLoad(a.name) - totalLoad(b.name));
+          }
+
+          const member1 = eligible[0];
+          const member2 = eligible.find(s => s.id !== member1?.id);
+
+          // Create the new slot with the project already assigned
+          newSlots.push({
+            id: `slot-${Date.now()}-${assigned}`,
+            day,
+            startTime: timeInfo.start,
+            endTime: timeInfo.end,
+            room: '',
+            supervisor: member1?.name ?? '',
+            supervisor2: member2?.name,
+            status: 'assigned',
+            projectName: project.name,
+            projectId: project.id,
+            course: project.course,
+            supervisorsModified: true,
+          });
+
+          takenSlots.add(key);
+          dayLoad[day] = (dayLoad[day] ?? 0) + 1;
+
+          if (member1) recordAssignment(member1.name, day, timeIdx);
+          if (member2) recordAssignment(member2.name, day, timeIdx);
+
+          groupSessionsInDay[project.id] ??= {};
+          groupSessionsInDay[project.id][day] ??= [];
+          groupSessionsInDay[project.id][day].push(timeIdx);
+
+          const projIdx = newProjects.findIndex(p => p.id === project.id);
+          if (projIdx !== -1) newProjects[projIdx] = { ...newProjects[projIdx], status: 'assigned' };
+
+          assigned++;
+          placed = true;
+          break outer;
+        }
       }
 
-      const member1 = eligible[0];
-      // member2 must also differ from member1
-      const member2 = eligible.find(s => s.id !== member1?.id);
-
-      // Apply to slot
-      const slotIdx = newSlots.findIndex(s => s.id === slot.id);
-      if (slotIdx !== -1) {
-        newSlots[slotIdx] = {
-          ...newSlots[slotIdx],
-          status: 'assigned',
-          projectName: chosenProject.name,
-          projectId: chosenProject.id,
-          course: chosenProject.course,
-          supervisor: member1?.name ?? '',
-          supervisor2: member2?.name,
-          supervisorsModified: true,
-        };
+      if (!placed) {
+        unplaceable.push(project.name);
       }
-
-      if (member1) recordAssignment(member1.name, slot.day, timeIdx);
-      if (member2) recordAssignment(member2.name, slot.day, timeIdx);
-
-      // Track group sessions for back-to-back check
-      groupSessionsInDay[chosenProject.id] ??= {};
-      groupSessionsInDay[chosenProject.id][slot.day] ??= [];
-      groupSessionsInDay[chosenProject.id][slot.day].push(timeIdx);
-
-      const projIdx = newProjects.findIndex(p => p.id === chosenProject.id);
-      if (projIdx !== -1) newProjects[projIdx] = { ...newProjects[projIdx], status: 'assigned' };
-
-      remainingProjects.splice(projectIdx, 1);
-      assigned++;
     }
 
     setSlots(newSlots);
     setProjects(newProjects);
     addToHistory(newSlots);
     setShowAutoAssignDialog(false);
-    toast.success(`Auto-assigned ${assigned} project(s) — committee members capped at 4 consecutive sessions/day`);
+
+    if (unplaceable.length > 0) {
+      toast.warning(`${assigned} project(s) placed. Could not find a slot for: ${unplaceable.join(', ')}`);
+    } else {
+      toast.success(`Auto-assigned ${assigned} project(s) — committee members capped at 4 consecutive sessions/day`);
+    }
   };
 
   // Publish — saves assigned slots to backend with server-side date validation
@@ -1211,14 +1228,27 @@ export function AdminPresentationCommittee() {
           <div className="space-y-4 py-4">
             {/* Committee member selectors */}
             {(() => {
-              const poolList = committeePool.size > 0
+              const baseList = committeePool.size > 0
                 ? supervisors.filter(s => committeePool.has(s.name))
                 : supervisors;
+              // Exclude the group's own supervisor from being selectable as a committee member
+              const assignedProject = editingSlot.projectId
+                ? projects.find(p => p.id === editingSlot.projectId)
+                : null;
+              const groupSupervisorName = assignedProject?.supervisor?.trim().toLowerCase();
+              const poolList = groupSupervisorName
+                ? baseList.filter(s => s.name.trim().toLowerCase() !== groupSupervisorName)
+                : baseList;
               return (
                 <div className="space-y-3">
                   {committeePool.size === 0 && (
                     <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                       No supervisors selected in the pool — showing all supervisors.
+                    </p>
+                  )}
+                  {groupSupervisorName && assignedProject?.supervisor && (
+                    <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+                      <strong>{assignedProject.supervisor}</strong> is this group's supervisor and cannot be assigned as a committee member.
                     </p>
                   )}
                   <div>
@@ -1388,7 +1418,7 @@ export function AdminPresentationCommittee() {
           <DialogHeader>
             <DialogTitle>Auto-Assign Presentations</DialogTitle>
             <DialogDescription>
-              Automatically assign unassigned projects to available slots
+              Automatically create slots and assign all unassigned projects
             </DialogDescription>
           </DialogHeader>
 
@@ -1406,22 +1436,34 @@ export function AdminPresentationCommittee() {
               <Switch checked={autoAvoidBackToBack} onCheckedChange={setAutoAvoidBackToBack} />
             </div>
 
-            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-1">
-              <p className="text-sm text-blue-900">
-                This will assign <strong>{getUnassignedProjects().length}</strong> project(s) to{' '}
-                <strong>{slots.filter(s => s.status === 'offered').length}</strong> available slot(s).
-              </p>
-              <p className="text-xs text-blue-700">
-                Committee members are capped at <strong>4 consecutive sessions</strong> per day and the group's own supervisor is excluded.
-              </p>
-            </div>
+            {committeePool.size === 0 ? (
+              <div className="p-4 bg-red-50 border border-red-200 rounded-lg space-y-1">
+                <p className="text-sm text-red-800 font-medium">No supervisors selected in the pool.</p>
+                <p className="text-xs text-red-700">
+                  Go to the <strong>Committee Supervisors</strong> panel and select which supervisors can evaluate committees before running auto-assign.
+                </p>
+              </div>
+            ) : (
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-1">
+                <p className="text-sm text-blue-900">
+                  This will automatically create slots and assign <strong>{getUnassignedProjects().length}</strong> unassigned project(s) using <strong>{committeePool.size}</strong> selected supervisor(s).
+                </p>
+                <p className="text-xs text-blue-700">
+                  Slots are spread across days, committee members are capped at <strong>4 consecutive sessions</strong> per day, and the group's own supervisor is excluded.
+                </p>
+              </div>
+            )}
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAutoAssignDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handleAutoAssign} className="bg-(--color-primary-600)! hover:bg-(--color-primary-700)! text-white border-(--color-primary-600)">
+            <Button
+              onClick={handleAutoAssign}
+              disabled={committeePool.size === 0}
+              className="bg-(--color-primary-600)! hover:bg-(--color-primary-700)! text-white border-(--color-primary-600) disabled:opacity-50 disabled:cursor-not-allowed"
+            >
               Preview & Apply
             </Button>
           </DialogFooter>

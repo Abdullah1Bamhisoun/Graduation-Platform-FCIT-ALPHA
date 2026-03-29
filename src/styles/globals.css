@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
+@variant dark (&:is(.dark, .dark *));
+
 /* ─── Global box model reset ─────────────────────────────────────────────── */
 *, *::before, *::after {
   box-sizing: border-box;
@@ -153,8 +155,9 @@ img, video, iframe, embed, object {
     --color-primary-100: #E7F3EF;
     
     --color-text-900: #000000;
-    --color-text-600: #5B6472;
     --color-text-700: #3F4651;
+    --color-text-600: #5B6472;
+    --color-text-400: #9CA3AF;
     
     --color-surface-white: #FFFFFF;
     --color-surface-alt: #F8FAFB;
@@ -198,8 +201,9 @@ img, video, iframe, embed, object {
     --color-primary-100: #0D2B21;
 
     --color-text-900: #FFFFFF;
-    --color-text-600: #94A3B8;
     --color-text-700: #CBD5E1;
+    --color-text-600: #94A3B8;
+    --color-text-400: #64748B;
 
     --color-surface-white: #1E2330;
     --color-surface-alt: #151A25;
@@ -309,6 +313,9 @@ img, video, iframe, embed, object {
   html.dark .bg-orange-50,
   html.dark .bg-orange-100 { background-color: rgba(249, 115, 22, 0.15) !important; }
 
+  html.dark .bg-teal-50,
+  html.dark .bg-teal-100 { background-color: rgba(20, 184, 166, 0.15) !important; }
+
   /* Colored tint borders → semi-transparent equivalents */
   html.dark .border-blue-200   { border-color: rgba(59, 130, 246, 0.35) !important; }
   html.dark .border-green-200  { border-color: rgba(22, 163, 74, 0.35) !important; }
@@ -320,6 +327,7 @@ img, video, iframe, embed, object {
   html.dark .border-red-300    { border-color: rgba(239, 68, 68, 0.45) !important; }
   html.dark .border-blue-300   { border-color: rgba(59, 130, 246, 0.45) !important; }
   html.dark .border-purple-300 { border-color: rgba(147, 51, 234, 0.45) !important; }
+  html.dark .border-teal-200   { border-color: rgba(20, 184, 166, 0.35) !important; }
 
   /* Colored text → lighter equivalents for dark backgrounds */
   html.dark .text-blue-900,
@@ -367,6 +375,11 @@ img, video, iframe, embed, object {
   html.dark .text-pink-800,
   html.dark .text-pink-700,
   html.dark .text-pink-600    { color: rgba(249, 168, 212, 1) !important; }
+
+  html.dark .text-teal-900,
+  html.dark .text-teal-800,
+  html.dark .text-teal-700,
+  html.dark .text-teal-600    { color: rgba(94, 234, 212, 1) !important; }
 
   * {
     @apply border-[var(--color-border)];

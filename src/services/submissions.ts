@@ -191,7 +191,7 @@ export async function createSubmission(submission: {
   studentId: string;
   groupId: string;
   fileName: string;
-  fileSize: string;
+  fileSize: number;
   filePath: string;
   notes?: string;
 }): Promise<void> {
@@ -223,7 +223,7 @@ export async function createSubmission(submission: {
 
 export async function createSubmissionVersion(
   submissionId: string,
-  version: { version: number; fileName: string; fileSize: string; filePath: string; notes?: string }
+  version: { version: number; fileName: string; fileSize: number; filePath: string; notes?: string }
 ): Promise<void> {
   const session = await supabase.auth.getSession();
   const token = session.data.session?.access_token;
@@ -376,7 +376,7 @@ export async function getChapterSubmissionsForCoordinator(
         versions: (s.versions || []).map((v: any) => ({
           version: v.version,
           fileName: v.file_name ?? v.fileName ?? '',
-          fileSize: v.file_size ?? v.fileSize ?? '',
+          fileSize: v.file_size ?? v.fileSize ?? 0,
           uploadedAt: v.uploaded_at ?? v.uploadedAt ?? '',
           notes: v.notes ?? undefined,
           filePath: v.file_path ?? v.filePath ?? undefined,

@@ -6,12 +6,13 @@ async function getToken(): Promise<string> {
   return data.session?.access_token ?? '';
 }
 
-export async function getAnnouncementsForRole(role: UserRole): Promise<Announcement[]> {
+export async function getAnnouncementsForRole(role: UserRole, activeRole?: string): Promise<Announcement[]> {
   try {
     const token = await getToken();
-    const res = await fetch(`/api/announcements?role=${encodeURIComponent(role)}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+    // Send the active role so the backend resolves the correct course scope.
+    if (activeRole) headers['X-Active-Role'] = activeRole;
+    const res = await fetch(`/api/announcements?role=${encodeURIComponent(role)}`, { headers });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (error) {

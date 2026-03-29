@@ -10,4 +10,11 @@ const { authenticate, requireSupervisorOrAdmin } = require('../middleware/auth.m
  */
 router.get('/groups', authenticate, requireSupervisorOrAdmin, controller.getGroupsForEvaluation);
 
+/**
+ * POST /api/evaluations/scores
+ * Supervisor or committee member: submit rubric scores for a group.
+ * Fires Trigger 4: auto-announcement + per-student notifications on save.
+ */
+router.post('/scores', authenticate, requireSupervisorOrAdmin, controller.saveScores);
+
 module.exports = router;

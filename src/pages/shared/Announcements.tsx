@@ -5,7 +5,7 @@ import { useUnreadAnnouncements } from '../../hooks/useUnreadAnnouncements';
 import { Bell, Calendar as CalendarIcon } from 'lucide-react';
 import { Card } from '../../components/ui/card';
 import { useState, useEffect } from 'react';
-import type { Announcement } from '../../types';
+import type { Announcement, UserRole } from '../../types';
 
 export function Announcements() {
   const { user } = useAuth();
@@ -15,10 +15,13 @@ export function Announcements() {
 
   useEffect(() => {
     if (!user) return;
-    getAnnouncementsForRole(user.role)
+    // Use activeRole so multi-role users (e.g. supervisor+coordinator) get the right
+    // announcements for whichever role they are currently acting as.
+    // Pass it twice: once as the ?role= filter, once as X-Active-Role for course-scoping.
+    getAnnouncementsForRole(user.activeRole as UserRole, user.activeRole)
       .then(setAnnouncements)
       .finally(() => setLoading(false));
-  }, [user]);
+  }, [user?.id, user?.activeRole]);
 
   // Mark all announcements as read whenever this page is opened (or user loads)
   useEffect(() => {

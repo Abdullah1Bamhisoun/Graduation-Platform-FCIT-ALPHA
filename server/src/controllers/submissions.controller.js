@@ -1,6 +1,7 @@
 const { supabaseAdmin } = require('../config/supabase');
 const emailService = require('../services/email.service');
 const { normalizeCourseCode } = require('../utils/helpers');
+const notificationService = require('../services/notification.service');
 
 /**
  * Normalize a DB status value (underscore format) to the frontend format (hyphen format).
@@ -115,12 +116,12 @@ async function updateSubmissionApproval(req, res) {
     const { id: submissionId } = req.params;
     const { action, feedback } = req.body;
 
-    if (!['approve', 'reject'].includes(action)) {
-      return res.status(400).json({ error: 'action must be "approve" or "reject"' });
+    if (!['approve', 'request_changes'].includes(action)) {
+      return res.status(400).json({ error: 'action must be "approve" or "request_changes"' });
     }
 
-    if (action === 'reject' && (!feedback || !feedback.trim())) {
-      return res.status(400).json({ error: 'Feedback is required when rejecting a submission' });
+    if (action === 'request_changes' && (!feedback || !feedback.trim())) {
+      return res.status(400).json({ error: 'Feedback is required when requesting changes' });
     }
 
     // Fetch the submission
@@ -205,36 +206,68 @@ async function updateSubmissionApproval(req, res) {
       /* non-fatal */
     }
 
-    // ── Fire-and-forget email to students in the group ───────────────────────
-    try {
-      const [{ data: memberRows }, { data: subDetail }] = await Promise.all([
-        supabaseAdmin.from('group_members').select('student_id').eq('group_id', submission.group_id),
-        supabaseAdmin.from('submissions')
-          .select('milestone:milestones!milestone_id(name, course:courses!course_id(code))')
-          .eq('id', submissionId)
-          .single(),
-      ]);
+    // ── Fire-and-forget email + notifications to students ───────────────────
+    ;(async () => {
+      try {
+        const [{ data: memberRows }, { data: subDetail }] = await Promise.all([
+          supabaseAdmin.from('group_members').select('student_id').eq('group_id', submission.group_id),
+          supabaseAdmin.from('submissions')
+            .select('milestone:milestones!milestone_id(name, course:courses!course_id(code))')
+            .eq('id', submissionId)
+            .single(),
+        ]);
 
-      const studentIds = (memberRows || []).map((m) => m.student_id);
-      if (studentIds.length > 0) {
-        const { data: studentProfiles } = await supabaseAdmin
-          .from('profiles')
-          .select('email')
-          .in('id', studentIds);
+        const studentIds = (memberRows || []).map((m) => m.student_id);
+        const mileName   = subDetail?.milestone?.name ?? 'Submission';
+        const courseCode = normalizeCourseCode(subDetail?.milestone?.course?.code ?? '');
+        const decisionLabel = action === 'approve' ? 'Approved' : 'Changes Requested';
 
-        const emails = (studentProfiles || []).map((p) => p.email).filter(Boolean);
-        if (emails.length > 0) {
-          emailService.sendSubmissionDecision(emails, {
-            status: action === 'approve' ? 'Approved' : 'Changes Requested',
-            feedback: feedback ?? '',
-            milestoneName: subDetail?.milestone?.name ?? '',
-            courseName: normalizeCourseCode(subDetail?.milestone?.course?.code ?? ''),
-          }).catch(console.error);
+        if (studentIds.length > 0) {
+          const { data: studentProfiles } = await supabaseAdmin
+            .from('profiles')
+            .select('email')
+            .in('id', studentIds);
+
+          const emails = (studentProfiles || []).map((p) => p.email).filter(Boolean);
+          if (emails.length > 0) {
+            emailService.sendSubmissionDecision(emails, {
+              status: decisionLabel,
+              feedback: feedback ?? '',
+              milestoneName: mileName,
+              courseName: courseCode,
+            }).catch(console.error);
+          }
+
+          // ── Trigger 4 (approval path): announcement + notification ─────────
+          const courseId = await notificationService.getCourseIdFromGroup(submission.group_id);
+          const today    = new Date().toISOString().slice(0, 10);
+
+          await Promise.all([
+            notificationService.createAnnouncement({
+              title:       `Submission Review: ${mileName} — ${decisionLabel}`,
+              content:     `Your supervisor reviewed "${mileName}".\nDecision: ${decisionLabel}${feedback ? `\n\nFeedback: ${feedback}` : ''}`,
+              targetRoles: ['student'],
+              courseId,
+              authorId:    req.user.id,
+            }),
+            notificationService.createUserNotifications(studentIds, {
+              type:    'grade',
+              title:   `Submission ${decisionLabel}`,
+              message: `Your "${mileName}" submission has been ${decisionLabel.toLowerCase()}.`,
+              link:    '/student/milestones',
+            }),
+            notificationService.createCalendarEvent({
+              title:   `Review Result: ${mileName}`,
+              date:    today,
+              type:    'meeting',
+              courseId,
+            }),
+          ]);
         }
+      } catch (emailErr) {
+        console.error('[submissions] Failed to send decision notification:', emailErr.message);
       }
-    } catch (emailErr) {
-      console.error('[submissions] Failed to send decision email:', emailErr.message);
-    }
+    })();
 
     res.json({ success: true, newStatus });
   } catch (error) {
@@ -584,32 +617,63 @@ async function createSubmission(req, res) {
 
     if (vError) throw vError;
 
-    // ── Fire-and-forget email to supervisor ──────────────────────────────────
-    try {
-      const [{ data: group }, { data: milestone }] = await Promise.all([
-        supabaseAdmin.from('groups').select('supervisor_id').eq('id', groupId).single(),
-        supabaseAdmin.from('milestones').select('name, course:courses!course_id(code)').eq('id', milestoneId).single(),
-      ]);
+    // ── Fire-and-forget email + notifications to supervisor ───────────────────
+    ;(async () => {
+      try {
+        const [{ data: group }, { data: milestone }] = await Promise.all([
+          supabaseAdmin.from('groups').select('supervisor_id, group_number').eq('id', groupId).single(),
+          supabaseAdmin.from('milestones').select('name, due_date, course:courses!course_id(code)').eq('id', milestoneId).single(),
+        ]);
 
-      if (group?.supervisor_id) {
-        const { data: supervisorProfile } = await supabaseAdmin
-          .from('profiles')
-          .select('email')
-          .eq('id', group.supervisor_id)
-          .single();
+        if (group?.supervisor_id) {
+          const { data: supervisorProfile } = await supabaseAdmin
+            .from('profiles')
+            .select('email')
+            .eq('id', group.supervisor_id)
+            .single();
 
-        if (supervisorProfile?.email) {
-          emailService.sendSubmissionReceived(supervisorProfile.email, {
-            studentName: req.user.name || 'Student',
-            milestoneName: milestone?.name ?? '',
-            courseName: normalizeCourseCode(milestone?.course?.code ?? ''),
-            submittedAt: new Date().toISOString(),
-          }).catch(console.error);
+          if (supervisorProfile?.email) {
+            emailService.sendSubmissionReceived(supervisorProfile.email, {
+              studentName: req.user.name || 'Student',
+              milestoneName: milestone?.name ?? '',
+              courseName: normalizeCourseCode(milestone?.course?.code ?? ''),
+              submittedAt: new Date().toISOString(),
+            }).catch(console.error);
+          }
+
+          // ── Trigger 1: announcement + notification + personal calendar ─────
+          const courseId = await notificationService.getCourseIdFromGroup(groupId);
+          const today    = new Date().toISOString().slice(0, 10);
+          const groupNum = group.group_number ?? '';
+          const mileName = milestone?.name ?? 'Submission';
+          const dueDate  = milestone?.due_date ? milestone.due_date.slice(0, 10) : today;
+
+          await Promise.all([
+            notificationService.createAnnouncement({
+              title:       `New Submission: ${mileName}`,
+              content:     `${req.user.name || 'A student'} uploaded a new file for "${mileName}"${groupNum ? ` (Group ${groupNum})` : ''}.\nSubmitted: ${new Date().toLocaleString('en-US')}`,
+              targetRoles: ['supervisor'],
+              courseId,
+              authorId:    req.user.id,
+            }),
+            notificationService.createUserNotifications([group.supervisor_id], {
+              type:    'submission',
+              title:   'New Submission Received',
+              message: `${req.user.name || 'A student'} submitted "${mileName}"${groupNum ? ` for Group ${groupNum}` : ''}.`,
+              link:    '/supervisor/submissions',
+            }),
+            notificationService.createPersonalCalendarEvent({
+              title:  `Review: ${mileName}${groupNum ? ` — Group ${groupNum}` : ''}`,
+              date:   dueDate,
+              type:   'deadline',
+              userId: group.supervisor_id,
+            }),
+          ]);
         }
+      } catch (emailErr) {
+        console.error('[submissions] Failed to send submission notification:', emailErr.message);
       }
-    } catch (emailErr) {
-      console.error('[submissions] Failed to send submission email:', emailErr.message);
-    }
+    })();
 
     res.json({ success: true, submissionId: submission.id });
   } catch (error) {
@@ -673,32 +737,63 @@ async function createSubmissionVersion(req, res) {
 
     if (uError) throw uError;
 
-    // ── Fire-and-forget email to supervisor ──────────────────────────────────
-    try {
-      const [{ data: group }, { data: milestone }] = await Promise.all([
-        supabaseAdmin.from('groups').select('supervisor_id').eq('id', submission.group_id).single(),
-        supabaseAdmin.from('milestones').select('name, course:courses!course_id(code)').eq('id', submission.milestone_id).single(),
-      ]);
+    // ── Fire-and-forget email + notifications to supervisor ───────────────────
+    ;(async () => {
+      try {
+        const [{ data: group }, { data: milestone }] = await Promise.all([
+          supabaseAdmin.from('groups').select('supervisor_id, group_number').eq('id', submission.group_id).single(),
+          supabaseAdmin.from('milestones').select('name, due_date, course:courses!course_id(code)').eq('id', submission.milestone_id).single(),
+        ]);
 
-      if (group?.supervisor_id) {
-        const { data: supervisorProfile } = await supabaseAdmin
-          .from('profiles')
-          .select('email')
-          .eq('id', group.supervisor_id)
-          .single();
+        if (group?.supervisor_id) {
+          const { data: supervisorProfile } = await supabaseAdmin
+            .from('profiles')
+            .select('email')
+            .eq('id', group.supervisor_id)
+            .single();
 
-        if (supervisorProfile?.email) {
-          emailService.sendSubmissionReceived(supervisorProfile.email, {
-            studentName: req.user.name || 'Student',
-            milestoneName: milestone?.name ?? '',
-            courseName: normalizeCourseCode(milestone?.course?.code ?? ''),
-            submittedAt: new Date().toISOString(),
-          }).catch(console.error);
+          if (supervisorProfile?.email) {
+            emailService.sendSubmissionReceived(supervisorProfile.email, {
+              studentName: req.user.name || 'Student',
+              milestoneName: milestone?.name ?? '',
+              courseName: normalizeCourseCode(milestone?.course?.code ?? ''),
+              submittedAt: new Date().toISOString(),
+            }).catch(console.error);
+          }
+
+          // ── Trigger 1: announcement + notification + personal calendar ─────
+          const courseId = await notificationService.getCourseIdFromGroup(submission.group_id);
+          const today    = new Date().toISOString().slice(0, 10);
+          const groupNum = group.group_number ?? '';
+          const mileName = milestone?.name ?? 'Submission';
+          const dueDate  = milestone?.due_date ? milestone.due_date.slice(0, 10) : today;
+
+          await Promise.all([
+            notificationService.createAnnouncement({
+              title:       `Updated Submission: ${mileName} (v${version})`,
+              content:     `${req.user.name || 'A student'} uploaded revision v${version} for "${mileName}"${groupNum ? ` (Group ${groupNum})` : ''}.\nSubmitted: ${new Date().toLocaleString('en-US')}`,
+              targetRoles: ['supervisor'],
+              courseId,
+              authorId:    req.user.id,
+            }),
+            notificationService.createUserNotifications([group.supervisor_id], {
+              type:    'submission',
+              title:   `Submission Updated: ${mileName}`,
+              message: `${req.user.name || 'A student'} uploaded revision v${version}${groupNum ? ` for Group ${groupNum}` : ''}.`,
+              link:    '/supervisor/submissions',
+            }),
+            notificationService.createPersonalCalendarEvent({
+              title:  `Re-review: ${mileName}${groupNum ? ` — Group ${groupNum}` : ''}`,
+              date:   dueDate,
+              type:   'deadline',
+              userId: group.supervisor_id,
+            }),
+          ]);
         }
+      } catch (emailErr) {
+        console.error('[submissions] Failed to send version notification:', emailErr.message);
       }
-    } catch (emailErr) {
-      console.error('[submissions] Failed to send version email:', emailErr.message);
-    }
+    })();
 
     res.json({ success: true });
   } catch (error) {

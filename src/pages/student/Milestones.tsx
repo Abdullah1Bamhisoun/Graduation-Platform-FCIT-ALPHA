@@ -15,6 +15,12 @@ import { LockedBanner } from '../../components/ui/LockedBanner';
 import { Milestone, Submission } from '../../types';
 import { toast } from 'sonner';
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export function StudentMilestones() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -318,7 +324,7 @@ export function StudentMilestones() {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-[var(--color-text-900)] truncate">{v.fileName}</p>
                           <p className="text-xs text-[var(--color-text-600)]">
-                            v{v.version} · {v.fileSize} · {new Date(v.uploadedAt).toLocaleDateString()}
+                            v{v.version} · {formatFileSize(v.fileSize)} · {new Date(v.uploadedAt).toLocaleDateString()}
                           </p>
                         </div>
                         {v.filePath && (

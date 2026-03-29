@@ -234,14 +234,15 @@ function MilestoneSubmissionRow({
   };
 
   return (
-    <div className="flex items-start justify-between gap-4 p-4 border border-[var(--color-border)] rounded-lg bg-white hover:bg-gray-50 transition-colors">
-      <div className="flex items-start gap-3 min-w-0">
-        <FileText className="w-5 h-5 text-indigo-500 flex-shrink-0 mt-0.5" />
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap mb-1">
-            <span className="font-medium text-[var(--color-text-900)] truncate">
-              {entry.latestVersion?.fileName ?? entry.milestoneName}
-            </span>
+    <div className="p-4 border border-[var(--color-border)] rounded-lg bg-white hover:bg-gray-50 transition-colors">
+      {/* Top row: icon + filename + version + status */}
+      <div className="flex items-start gap-3">
+        <FileText className="w-4 h-4 text-indigo-500 flex-shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <p className="font-medium text-sm text-[var(--color-text-900)] truncate">
+            {entry.latestVersion?.fileName ?? entry.milestoneName}
+          </p>
+          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
             {entry.latestVersion && entry.latestVersion.version > 1 && (
               <span className="px-1.5 py-0.5 text-xs rounded bg-gray-100 text-gray-600 border border-gray-200">
                 v{entry.latestVersion.version}
@@ -257,31 +258,31 @@ function MilestoneSubmissionRow({
             )}
           </div>
           {entry.latestVersion ? (
-            <p className="text-sm text-[var(--color-text-600)]">
-              Submitted by {entry.submitterName ?? 'Student'}
-              {entry.latestVersion.fileSize ? ` · ${formatFileSize(entry.latestVersion.fileSize)}` : ''}
-              {entry.submittedAt ? ` · ${formatDate(entry.submittedAt)}` : ''}
-            </p>
+            <>
+              <p className="text-xs text-[var(--color-text-500)] mt-2">
+                {entry.submitterName ?? 'Student'}
+                {entry.latestVersion.fileSize ? ` · ${formatFileSize(entry.latestVersion.fileSize)}` : ''}
+                {entry.submittedAt ? ` · ${formatDate(entry.submittedAt)}` : ''}
+              </p>
+              <div className="flex gap-2 mt-2">
+                <Button variant="outline" size="sm" onClick={handleView}>
+                  <Eye className="w-3.5 h-3.5 mr-1" />
+                  View
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleDownload}>
+                  <Download className="w-3.5 h-3.5 mr-1" />
+                  Download
+                </Button>
+              </div>
+            </>
           ) : (
-            <p className="text-sm text-[var(--color-text-400)] italic">No submission yet</p>
+            <p className="text-sm text-[var(--color-text-400)] italic mt-1">No submission yet</p>
           )}
           {entry.latestVersion?.notes && (
-            <p className="text-sm text-[var(--color-text-500)] italic mt-1">{entry.latestVersion.notes}</p>
+            <p className="text-xs text-[var(--color-text-500)] italic mt-1">{entry.latestVersion.notes}</p>
           )}
         </div>
       </div>
-      {entry.latestVersion && (
-        <div className="flex gap-2 flex-shrink-0">
-          <Button variant="outline" size="sm" onClick={handleView}>
-            <Eye className="w-3.5 h-3.5 mr-1.5" />
-            View
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleDownload}>
-            <Download className="w-3.5 h-3.5 mr-1.5" />
-            Download
-          </Button>
-        </div>
-      )}
     </div>
   );
 }
@@ -1226,23 +1227,13 @@ export function SupervisorGradesCommittee() {
                             </span>
                           </td>
                           <td className="py-4 px-6">
-                            {group.evaluationActive ? (
-                              <Button
-                                onClick={() => handleEvaluate(group.groupId)}
-                                size="sm"
-                                className="bg-blue-600 hover:bg-blue-700 text-white"
-                              >
-                                Evaluate
-                              </Button>
-                            ) : (
-                              <span
-                                title="Evaluation is locked until the presentation date and time"
-                                className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-500 border border-gray-200 cursor-default"
-                              >
-                                <AlertCircle className="w-3 h-3" />
-                                Locked
-                              </span>
-                            )}
+                            <Button
+                              onClick={() => handleEvaluate(group.groupId)}
+                              size="sm"
+                              className="bg-blue-600 hover:bg-blue-700 text-white"
+                            >
+                              Evaluate
+                            </Button>
                           </td>
                         </tr>
                       ))}
@@ -1291,23 +1282,13 @@ export function SupervisorGradesCommittee() {
                         </p>
                       )}
                       <div className="mt-3 flex justify-end">
-                        {group.evaluationActive ? (
-                          <Button
-                            onClick={() => handleEvaluate(group.groupId)}
-                            size="sm"
-                            className="bg-blue-600 hover:bg-blue-700 text-white"
-                          >
-                            Evaluate
-                          </Button>
-                        ) : (
-                          <span
-                            title="Evaluation is locked until the presentation date and time"
-                            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-500 border border-gray-200 cursor-default"
-                          >
-                            <AlertCircle className="w-3 h-3" />
-                            Locked
-                          </span>
-                        )}
+                        <Button
+                          onClick={() => handleEvaluate(group.groupId)}
+                          size="sm"
+                          className="bg-blue-600 hover:bg-blue-700 text-white"
+                        >
+                          Evaluate
+                        </Button>
                       </div>
                     </div>
                   ))}
