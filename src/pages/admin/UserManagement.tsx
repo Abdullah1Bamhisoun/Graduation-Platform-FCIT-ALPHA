@@ -13,6 +13,7 @@ import { Search, CheckCircle, XCircle, Eye, Clock, Users, UserCheck, Pencil, Tra
 import { getPendingRegistrationsViaAPI, approveRegistration, rejectRegistration, subscribe, type PendingRegistration } from '../../lib/pending-registrations';
 import { assignSupervisor, updateGroupStatus, deleteGroup, updateGroup, getGroupById, type GroupData } from '../../services/groups';
 import type { User as ProfileUser } from '../../types';
+import { apiUrl } from '@/lib/api';
 
 // ── Local types ───────────────────────────────────────────────────────────────
 interface User {
@@ -133,7 +134,7 @@ export function AdminUserManagement() {
       const fetchRole = async (role: string): Promise<ProfileUser[]> => {
         const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
         if (user?.activeRole) headers['X-Active-Role'] = user.activeRole;
-        const res = await fetch(`/api/users?role=${encodeURIComponent(role)}`, { headers });
+        const res = await fetch(apiUrl(`/api/users?role=${encodeURIComponent(role)}`), { headers });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
           throw new Error((body as { error?: string }).error ?? `Server error (${res.status})`);
@@ -156,7 +157,7 @@ export function AdminUserManagement() {
       const token = await getToken();
       const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
       if (user?.activeRole) headers['X-Active-Role'] = user.activeRole;
-      const res = await fetch('/api/groups', { headers });
+      const res = await fetch(apiUrl('/api/groups'), { headers });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { error?: string }).error ?? `Server error (${res.status})`);
@@ -176,7 +177,7 @@ export function AdminUserManagement() {
       (async () => {
         try {
           const token = await getToken();
-          const res = await fetch('/api/users?role=supervisor', {
+          const res = await fetch(apiUrl('/api/users?role=supervisor'), {
             headers: { Authorization: `Bearer ${token}` },
           });
           if (res.ok) setSupervisors(await res.json());
@@ -184,14 +185,14 @@ export function AdminUserManagement() {
       })(),
       (async () => {
         try {
-          const res = await fetch('/api/courses/active');
+          const res = await fetch(apiUrl('/api/courses/active'));
           if (res.ok) setCourses(await res.json());
         } catch { /* non-fatal */ }
       })(),
       (async () => {
         try {
           const token = await getToken();
-          const res = await fetch('/api/roles/coordinators', {
+          const res = await fetch(apiUrl('/api/roles/coordinators'), {
             headers: { Authorization: `Bearer ${token}` },
           });
           if (res.ok) {
@@ -246,7 +247,7 @@ export function AdminUserManagement() {
     setIsAssigningCoordinator(true);
     try {
       const token = await getToken();
-      const res = await fetch('/api/roles/assign', {
+      const res = await fetch(apiUrl('/api/roles/assign'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
@@ -281,7 +282,7 @@ export function AdminUserManagement() {
   const handleRemoveCoordinator = async (u: User) => {
     try {
       const token = await getToken();
-      const res = await fetch('/api/roles/revoke', {
+      const res = await fetch(apiUrl('/api/roles/revoke'), {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ userId: u.id, roleName: 'coordinator' }),
@@ -308,7 +309,7 @@ export function AdminUserManagement() {
     try {
       const session = await import('../../lib/supabase').then((m) => m.supabase.auth.getSession());
       const token = session.data.session?.access_token;
-      const res = await fetch(`/api/users/${deletingUser.id}`, {
+      const res = await fetch(apiUrl(`/api/users/${deletingUser.id}`), {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -349,7 +350,7 @@ export function AdminUserManagement() {
     setIsRepairingGroups(true);
     try {
       const token = await getToken();
-      const res = await fetch('/api/auth/repair-groups', {
+      const res = await fetch(apiUrl('/api/auth/repair-groups'), {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -381,7 +382,7 @@ export function AdminUserManagement() {
     setIsCreatingGroup(true);
     try {
       const token = await getToken();
-      const res = await fetch('/api/groups', {
+      const res = await fetch(apiUrl('/api/groups'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

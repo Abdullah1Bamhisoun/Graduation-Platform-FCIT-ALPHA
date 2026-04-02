@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { apiUrl } from '@/lib/api';
 import type { PresentationSchedule, StudentPresentationSelection } from '../types';
 
 // ─── Auth helper ──────────────────────────────────────────────────────────────
@@ -16,7 +17,7 @@ async function getToken(): Promise<string> {
 export async function getServerTime(): Promise<Date> {
   try {
     const token = await getToken();
-    const res = await fetch('/api/presentations/server-time', {
+    const res = await fetch(apiUrl('/api/presentations/server-time'), {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -92,7 +93,7 @@ export async function getPresentationsByCourse(
 ): Promise<SavedScheduleEntry[]> {
   const token = await getToken();
   const res = await fetch(
-    `/api/presentations/by-course?courseId=${encodeURIComponent(courseId)}`,
+    apiUrl(`/api/presentations/by-course?courseId=${encodeURIComponent(courseId)}`),
     { headers: { Authorization: `Bearer ${token}` } }
   );
   if (!res.ok) return [];
@@ -152,7 +153,7 @@ export async function assignPresentationSchedule(
   payload: AssignSchedulePayload
 ): Promise<void> {
   const token = await getToken();
-  const res = await fetch('/api/presentations/assign', {
+  const res = await fetch(apiUrl('/api/presentations/assign'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify(payload),
@@ -170,7 +171,7 @@ export async function assignPresentationSchedule(
  */
 export async function deletePresentationSchedule(groupId: string): Promise<void> {
   const token = await getToken();
-  const res = await fetch(`/api/presentations/schedule/${groupId}`, {
+  const res = await fetch(apiUrl(`/api/presentations/schedule/${groupId}`), {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -203,7 +204,7 @@ export async function getStudentPresentationView(): Promise<StudentPresentationV
   const session = await supabase.auth.getSession();
   const token = session.data.session?.access_token;
 
-  const response = await fetch('/api/presentations/student-view', {
+  const response = await fetch(apiUrl('/api/presentations/student-view'), {
     headers: {
       Authorization: `Bearer ${token ?? ''}`,
     },

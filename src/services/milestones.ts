@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { apiUrl } from '@/lib/api';
 import type { Milestone, MilestoneConfig, RubricCriterion } from '../types';
 import { mapMilestoneType, mapCourseCode, mapSubmissionStatus } from './mappers';
 
@@ -119,7 +120,7 @@ export async function getMilestonesByStudentWithStatus(studentId: string): Promi
     const session = await supabase.auth.getSession();
     const token = session.data.session?.access_token ?? '';
     const statusRes = await fetch(
-      `/api/submissions/group-milestone-statuses?groupId=${groupId}`,
+      apiUrl(`/api/submissions/group-milestone-statuses?groupId=${groupId}`),
       { headers: { Authorization: `Bearer ${token}` } }
     );
 
@@ -173,7 +174,7 @@ export async function getMilestoneConfigs(courseId?: string): Promise<MilestoneC
     const params = new URLSearchParams();
     if (courseId) params.set('course_id', courseId);
 
-    const response = await fetch(`/api/milestones?${params.toString()}`, {
+    const response = await fetch(apiUrl(`/api/milestones?${params.toString()}`), {
       headers: {
         Authorization: `Bearer ${token ?? ''}`,
         'X-Active-Role': activeRole,
@@ -200,7 +201,7 @@ export async function createMilestone(config: Omit<MilestoneConfig, 'id'>): Prom
   const userId = session.data.session?.user?.id ?? '';
   const activeRole = localStorage.getItem(`activeRole_${userId}`) ?? 'coordinator';
 
-  const response = await fetch('/api/milestones', {
+  const response = await fetch(apiUrl('/api/milestones'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -238,7 +239,7 @@ export async function updateMilestone(id: string, updates: Partial<MilestoneConf
   const userId = session.data.session?.user?.id ?? '';
   const activeRole = localStorage.getItem(`activeRole_${userId}`) ?? 'coordinator';
 
-  const response = await fetch(`/api/milestones/${id}`, {
+  const response = await fetch(apiUrl(`/api/milestones/${id}`), {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -272,7 +273,7 @@ export async function deleteMilestone(id: string): Promise<void> {
   const userId = session.data.session?.user?.id ?? '';
   const activeRole = localStorage.getItem(`activeRole_${userId}`) ?? 'coordinator';
 
-  const response = await fetch(`/api/milestones/${id}`, {
+  const response = await fetch(apiUrl(`/api/milestones/${id}`), {
     method: 'DELETE',
     headers: {
       Authorization: `Bearer ${token ?? ''}`,

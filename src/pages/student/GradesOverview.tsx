@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import type { WeekStatus } from '../../types';
+import { apiUrl } from '@/lib/api';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -82,7 +83,7 @@ interface StudentMyGradesData {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async function fetchMyGrades(token: string): Promise<StudentMyGradesData | null> {
-  const res = await fetch('/api/students/my-grades', {
+  const res = await fetch(apiUrl('/api/students/my-grades'), {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error(`Failed to fetch grades: ${res.status}`);
@@ -265,7 +266,7 @@ export function StudentGradesOverview() {
       const ratings: Record<string, number> = {};
       for (const s of peers) ratings[s.id] = peerRatings[s.id];
 
-      const res = await fetch('/api/students/peer-evaluations', {
+      const res = await fetch(apiUrl('/api/students/peer-evaluations'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

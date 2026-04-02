@@ -4,6 +4,7 @@ import { DashboardCard } from '../../features/dashboard/components/DashboardCard
 import { MetricCard } from '../../features/dashboard/components/MetricCard';
 import { useAuth } from '../../lib/AuthContext';
 import { supabase } from '../../lib/supabase';
+import { apiUrl } from '@/lib/api';
 import { getCourseById } from '../../services/courses';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -83,7 +84,7 @@ export function CoordinatorDashboard() {
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token;
         if (token) {
-          const res = await fetch('/api/roles/coordinator-info', {
+          const res = await fetch(apiUrl('/api/roles/coordinator-info'), {
             headers: { Authorization: `Bearer ${token}` },
           });
           if (res.ok) {

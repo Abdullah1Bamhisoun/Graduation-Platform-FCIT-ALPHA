@@ -9,6 +9,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 import { supabase, adaptiveStorage } from './supabase';
+import { apiUrl } from '@/lib/api';
 import { User, UserRole } from '../types';
 import {
   getUserRoles,
@@ -147,7 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // and resolve it to an email via the backend before proceeding.
     let email = identifier.trim();
     if (!email.includes('@')) {
-      const res = await fetch('/api/auth/resolve-identifier', {
+      const res = await fetch(apiUrl('/api/auth/resolve-identifier'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ identifier: email }),

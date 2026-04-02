@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { apiUrl } from '@/lib/api';
 import type { WeekStatus, WeekDisplayStatus } from '../types';
 
 async function getToken(): Promise<string> {
@@ -47,7 +48,7 @@ export async function getWeekStatuses(
   _department?: string
 ): Promise<WeekStatus[]> {
   const token = await getToken();
-  const res = await fetch(`/api/week-statuses?courseType=${courseType}`, {
+  const res = await fetch(apiUrl(`/api/week-statuses?courseType=${courseType}`), {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) {
@@ -64,7 +65,7 @@ export async function openWeek(
   _openedBy?: string
 ): Promise<void> {
   const token = await getToken();
-  const res = await fetch(`/api/week-statuses/${weekStatusId}/open`, {
+  const res = await fetch(apiUrl(`/api/week-statuses/${weekStatusId}/open`), {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -77,7 +78,7 @@ export async function openWeek(
 /** Close a week (sets is_open = false). Cannot close a locked week. */
 export async function closeWeek(weekStatusId: string): Promise<void> {
   const token = await getToken();
-  const res = await fetch(`/api/week-statuses/${weekStatusId}/close`, {
+  const res = await fetch(apiUrl(`/api/week-statuses/${weekStatusId}/close`), {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -90,7 +91,7 @@ export async function closeWeek(weekStatusId: string): Promise<void> {
 /** Lock a week permanently (must have been opened before). */
 export async function lockWeek(weekStatusId: string): Promise<void> {
   const token = await getToken();
-  const res = await fetch(`/api/week-statuses/${weekStatusId}/lock`, {
+  const res = await fetch(apiUrl(`/api/week-statuses/${weekStatusId}/lock`), {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${token}` },
   });

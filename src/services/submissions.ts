@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { apiUrl } from '@/lib/api';
 import type { Submission, SubmissionVersion, Feedback, RubricCriterion } from '../types';
 import { mapSubmissionStatus } from './mappers';
 
@@ -168,7 +169,7 @@ export async function getSubmissionByMilestoneAndGroup(
     const token = session.data.session?.access_token;
 
     const params = new URLSearchParams({ milestoneId, groupId });
-    const res = await fetch(`/api/submissions/group-submission?${params.toString()}`, {
+    const res = await fetch(apiUrl(`/api/submissions/group-submission?${params.toString()}`), {
       headers: { Authorization: `Bearer ${token ?? ''}` },
     });
 
@@ -198,7 +199,7 @@ export async function createSubmission(submission: {
   const session = await supabase.auth.getSession();
   const token = session.data.session?.access_token;
 
-  const res = await fetch('/api/submissions', {
+  const res = await fetch(apiUrl('/api/submissions'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -228,7 +229,7 @@ export async function createSubmissionVersion(
   const session = await supabase.auth.getSession();
   const token = session.data.session?.access_token;
 
-  const res = await fetch(`/api/submissions/${submissionId}/versions`, {
+  const res = await fetch(apiUrl(`/api/submissions/${submissionId}/versions`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -345,7 +346,7 @@ export async function getChapterSubmissionsForCoordinator(
       params.set('filterGroup', filterGroup);
     }
 
-    const response = await fetch(`/api/submissions/coordinator/chapter-submissions?${params.toString()}`, {
+    const response = await fetch(apiUrl(`/api/submissions/coordinator/chapter-submissions?${params.toString()}`), {
       headers: {
         Authorization: `Bearer ${token ?? ''}`,
         'X-Active-Role': activeRole,

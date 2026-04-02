@@ -8,6 +8,7 @@ import { Button } from '../../components/ui/button';
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../../lib/supabase';
+import { apiUrl } from '@/lib/api';
 
 interface FileItem {
   id: string;
@@ -38,7 +39,7 @@ export function ImportantFiles() {
         headers['Authorization'] = `Bearer ${token}`;
         if (user?.activeRole) headers['X-Active-Role'] = user.activeRole;
       }
-      fetch('/api/important-files', { headers })
+      fetch(apiUrl('/api/important-files'), { headers })
         .then((r) => r.json())
         .then((d) => setFiles(Array.isArray(d) ? d : []))
         .catch(() => setFiles([]))

@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { apiUrl } from '@/lib/api';
 import type { Announcement, UserRole } from '../types';
 
 async function getToken(): Promise<string> {
@@ -12,7 +13,7 @@ export async function getAnnouncementsForRole(role: UserRole, activeRole?: strin
     const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
     // Send the active role so the backend resolves the correct course scope.
     if (activeRole) headers['X-Active-Role'] = activeRole;
-    const res = await fetch(`/api/announcements?role=${encodeURIComponent(role)}`, { headers });
+    const res = await fetch(apiUrl(`/api/announcements?role=${encodeURIComponent(role)}`), { headers });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (error) {
@@ -26,7 +27,7 @@ export async function getAllAnnouncements(activeRole?: string): Promise<Announce
     const token = await getToken();
     const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
     if (activeRole) headers['X-Active-Role'] = activeRole;
-    const res = await fetch('/api/announcements', { headers });
+    const res = await fetch(apiUrl('/api/announcements'), { headers });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (error) {
@@ -43,7 +44,7 @@ export async function createAnnouncement(announcement: {
   expiresAt?: string;
 }): Promise<void> {
   const token = await getToken();
-  const res = await fetch('/api/announcements', {
+  const res = await fetch(apiUrl('/api/announcements'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({
@@ -66,7 +67,7 @@ export async function updateAnnouncement(id: string, updates: {
   expiresAt?: string | null;
 }): Promise<void> {
   const token = await getToken();
-  const res = await fetch(`/api/announcements/${id}`, {
+  const res = await fetch(apiUrl(`/api/announcements/${id}`), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({
@@ -84,7 +85,7 @@ export async function updateAnnouncement(id: string, updates: {
 
 export async function deleteAnnouncement(id: string): Promise<void> {
   const token = await getToken();
-  const res = await fetch(`/api/announcements/${id}`, {
+  const res = await fetch(apiUrl(`/api/announcements/${id}`), {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${token}` },
   });

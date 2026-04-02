@@ -4,6 +4,7 @@ import { useAuth } from '../../lib/AuthContext';
 import { useLockStatus } from '../../hooks/useLockStatus';
 import { LockedBanner } from '../../components/ui/LockedBanner';
 import { supabase } from '../../lib/supabase';
+import { apiUrl } from '@/lib/api';
 import { CheckCircle, XCircle, Clock, AlertCircle, RefreshCw, User } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { toast } from 'sonner';
@@ -43,7 +44,7 @@ export function CoordinatorApprovals() {
       const params = new URLSearchParams();
       if (filter !== 'all') params.set('status', filter);
 
-      const response = await fetch(`/api/auth/pending-registrations?${params}`, {
+      const response = await fetch(apiUrl(`/api/auth/pending-registrations?${params}`), {
         headers: {
           Authorization: `Bearer ${token}`,
           'X-Active-Role': 'coordinator',
@@ -93,7 +94,7 @@ export function CoordinatorApprovals() {
       const session = await supabase.auth.getSession();
       const token = session.data.session?.access_token;
 
-      const response = await fetch('/api/auth/approve-registration', {
+      const response = await fetch(apiUrl('/api/auth/approve-registration'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -121,7 +122,7 @@ export function CoordinatorApprovals() {
       const session = await supabase.auth.getSession();
       const token = session.data.session?.access_token;
 
-      const response = await fetch('/api/auth/reject-registration', {
+      const response = await fetch(apiUrl('/api/auth/reject-registration'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

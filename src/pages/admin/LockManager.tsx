@@ -4,6 +4,7 @@ import { Button } from '../../components/ui/button';
 import { useAuth } from '../../lib/AuthContext';
 import { getAllLocks, type PlatformLock, type LockEntityType } from '../../services/platform-locks';
 import { supabase } from '../../lib/supabase';
+import { apiUrl } from '@/lib/api';
 import { Lock, Unlock, AlertTriangle, RefreshCw } from 'lucide-react';
 import { LockBadge } from '../../components/ui/LockBadge';
 import {
@@ -113,7 +114,7 @@ export function AdminLockManager() {
 
     try {
       const token = (await supabase.auth.getSession()).data.session?.access_token;
-      const res = await fetch('/api/locks', {
+      const res = await fetch(apiUrl('/api/locks'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { apiUrl } from '@/lib/api';
 
 export interface CalendarEvent {
   id: string;
@@ -18,7 +19,7 @@ async function getToken(): Promise<string> {
 export async function getCalendarEvents(): Promise<CalendarEvent[]> {
   try {
     const token = await getToken();
-    const res = await fetch('/api/calendar-events', {
+    const res = await fetch(apiUrl('/api/calendar-events'), {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -37,7 +38,7 @@ export async function createCalendarEvent(event: {
   location?: string;
 }): Promise<string> {
   const token = await getToken();
-  const res = await fetch('/api/calendar-events', {
+  const res = await fetch(apiUrl('/api/calendar-events'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify(event),
@@ -52,7 +53,7 @@ export async function createCalendarEvent(event: {
 
 export async function deleteCalendarEvent(id: string): Promise<void> {
   const token = await getToken();
-  const res = await fetch(`/api/calendar-events/${id}`, {
+  const res = await fetch(apiUrl(`/api/calendar-events/${id}`), {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${token}` },
   });

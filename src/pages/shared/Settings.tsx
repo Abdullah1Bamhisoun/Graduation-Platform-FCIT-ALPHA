@@ -11,6 +11,7 @@ import { Bell, Lock, User as UserIcon, Mail, Building, CalendarDays, ChevronLeft
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { supabase } from '../../lib/supabase';
+import { apiUrl } from '@/lib/api';
 import { getGroupForStudent, type GroupData } from '../../services/groups';
 
 // ── Term constants ─────────────────────────────────────────────────────────────
@@ -55,7 +56,7 @@ export function Settings() {
 
   const fetchCurrentTerm = useCallback(async () => {
     try {
-      const res = await fetch('/api/settings/current-term');
+      const res = await fetch(apiUrl('/api/settings/current-term'));
       if (res.ok) setCurrentTerm(await res.json());
     } catch (_) {}
   }, []);
@@ -98,7 +99,7 @@ export function Settings() {
     setTermLoading(true);
     try {
       const token = await getToken();
-      const res = await fetch('/api/settings/current-term', {
+      const res = await fetch(apiUrl('/api/settings/current-term'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(term),
