@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Layout } from '../../components/layout/Layout';
 import { DashboardCard } from '../../features/dashboard/components/DashboardCard';
 import { MetricCard } from '../../features/dashboard/components/MetricCard';
@@ -40,6 +41,7 @@ const EVENT_LABEL: Record<string, string> = {
 
 export function CoordinatorDashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   const [course, setCourse] = useState<Course | null>(null);
   const [courseId, setCourseId] = useState<string | null>(null);

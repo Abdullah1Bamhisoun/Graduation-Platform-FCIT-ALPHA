@@ -396,7 +396,7 @@ export function StudentSubmissionDetail() {
                           Version {version.version}
                         </h3>
                         <p className="text-[var(--color-text-600)] break-all">
-                          {version.fileName} • {formatFileSize(version.fileSize)}
+                          {version.fileName} • {formatFileSize(Number(version.fileSize))}
                         </p>
                         <p className="text-[var(--color-text-600)]">
                           {new Date(version.uploadedAt).toLocaleString()}

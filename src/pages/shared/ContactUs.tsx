@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Mail, Phone, User, BookOpen, Edit, Trash2, Plus, HeadphonesIcon, X } from 'lucide-react';
+import { Mail, Phone, User, BookOpen, Edit, Trash2, Plus, HeadphonesIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { Card } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';

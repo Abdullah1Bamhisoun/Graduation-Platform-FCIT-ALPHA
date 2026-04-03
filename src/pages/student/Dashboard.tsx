@@ -20,7 +20,7 @@ export function StudentDashboard() {
   const { user } = useAuth();
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
+  const [_upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
   const [group, setGroup] = useState<GroupData | null>(null);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,18 +58,6 @@ export function StudentDashboard() {
     .sort((a, b) => new Date(b.feedback!.reviewedAt).getTime() - new Date(a.feedback!.reviewedAt).getTime())
     .slice(0, 6);
 
-  const eventTextColor: Record<string, string> = {
-    blue: 'text-blue-600 dark:text-blue-400',
-    purple: 'text-purple-600 dark:text-purple-400',
-    green: 'text-green-600 dark:text-green-400',
-    amber: 'text-amber-600 dark:text-amber-400',
-  };
-  const eventBorderColor: Record<string, string> = {
-    blue: 'border-blue-500 dark:border-blue-900/50',
-    purple: 'border-purple-500 dark:border-purple-900/50',
-    green: 'border-green-500 dark:border-green-900/50',
-    amber: 'border-amber-500 dark:border-amber-900/50',
-  };
 
   return (
     <Layout user={user} pageTitle="Dashboard" unreadCount={notifications.filter(n => !n.read).length}>

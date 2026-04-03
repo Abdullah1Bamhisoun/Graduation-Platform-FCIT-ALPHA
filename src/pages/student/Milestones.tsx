@@ -324,7 +324,7 @@ export function StudentMilestones() {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-[var(--color-text-900)] truncate">{v.fileName}</p>
                           <p className="text-xs text-[var(--color-text-600)]">
-                            v{v.version} · {formatFileSize(v.fileSize)} · {new Date(v.uploadedAt).toLocaleDateString()}
+                            v{v.version} · {formatFileSize(Number(v.fileSize))} · {new Date(v.uploadedAt).toLocaleDateString()}
                           </p>
                         </div>
                         {v.filePath && (

@@ -1,7 +1,7 @@
 import { Layout } from '../../components/layout/Layout';
 import { DashboardCard } from '../../features/dashboard/components/DashboardCard';
 import { MetricCard } from '../../features/dashboard/components/MetricCard';
-import { StatusBadge } from '../../features/submissions/components/StatusBadge';
+
 import { Button } from '../../components/ui/button';
 import { getSubmissionsForSupervisor } from '../../services/submissions';
 import { getGroupsForSupervisor } from '../../services/groups';
