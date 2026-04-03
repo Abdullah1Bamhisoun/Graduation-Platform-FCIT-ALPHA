@@ -199,7 +199,6 @@ export function AdminExportsAudit() {
         // Fetch peer_evaluations per student so each student gets their own
         // peer score (average of scores they received), not the group average.
         const peerComp = componentMeta.find(c => c.key === 'peer_review');
-        const _peerWeight = peerComp?.maxScore ?? 5;
         const peerScoreByStudent = new Map<string, number>(); // profile UUID → normalized score
 
         const allGroupIds = allGroups.map(g => g.id);
