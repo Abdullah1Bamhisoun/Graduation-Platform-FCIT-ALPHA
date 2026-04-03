@@ -8,6 +8,7 @@ import { useTheme } from '../../lib/ThemeContext';
 interface TopbarProps {
   user: User;
   pageTitle: string;
+  subtitle?: string;
   unreadCount?: number;
   onMenuClick?: () => void;
 }
@@ -30,7 +31,7 @@ const roleLabel: Record<string, string> = {
 // Faculty roles that can be switched between
 const SWITCHABLE_ROLES: UserRole[] = ['supervisor', 'coordinator'];
 
-export function Topbar({ user, pageTitle, onMenuClick }: TopbarProps) {
+export function Topbar({ user, pageTitle, subtitle, onMenuClick }: TopbarProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const { logout, switchRole } = useAuth();
   const { theme, toggleTheme } = useTheme();
@@ -94,9 +95,14 @@ export function Topbar({ user, pageTitle, onMenuClick }: TopbarProps) {
               </button>
             )}
             {/* Active role badge — hidden on xs */}
-            <span className={`hidden sm:inline text-xs font-semibold px-2.5 py-1 rounded-full ${roleBadgeStyle[user.activeRole] ?? ''}`}>
-              {roleLabel[user.activeRole] ?? user.activeRole}
-            </span>
+            <div className="hidden sm:flex items-center gap-2">
+              <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${roleBadgeStyle[user.activeRole] ?? ''}`}>
+                {roleLabel[user.activeRole] ?? user.activeRole}
+              </span>
+              {subtitle && (
+                <span className="text-xs text-[var(--color-text-600)] font-medium hidden md:inline">{subtitle}</span>
+              )}
+            </div>
           </>
         )}
 

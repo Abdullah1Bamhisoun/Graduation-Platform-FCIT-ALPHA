@@ -100,7 +100,7 @@ export interface Submission {
 export interface SubmissionVersion {
   version: number;
   fileName: string;
-  fileSize: number;
+  fileSize: string;
   uploadedAt: string;
   notes?: string;
   filePath?: string;
@@ -143,7 +143,7 @@ export interface WeeklyReport {
 
 // ─── Week Status ──────────────────────────────────────────────────────────────
 
-export type WeekDisplayStatus = 'Not Opened' | 'Open' | 'Closed' | 'Locked';
+export type WeekDisplayStatus = 'Not Opened' | 'Open' | 'Closed' | 'Locked' | 'Upcoming';
 
 export interface WeekStatus {
   id: string;
@@ -158,6 +158,10 @@ export interface WeekStatus {
   closedAt?: string;
   lockedAt?: string;
   openedBy?: string;
+  /** Coordinator-set: when the submission window opens (ISO 8601) */
+  openAt?: string;
+  /** Coordinator-set: submission deadline / when window closes (ISO 8601) */
+  closeAt?: string;
 }
 
 // ─── Grading Schema ───────────────────────────────────────────────────────────

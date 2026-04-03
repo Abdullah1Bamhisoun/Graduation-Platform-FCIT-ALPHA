@@ -5,6 +5,7 @@ import { useAuth } from '../../lib/AuthContext';
 import { getAuditLog } from '../../services/audit';
 import { getAllCourses, getCourseById, getCourseTypeFromUUID } from '../../services/courses';
 import { getCoordinatorGroupsWithGrades } from '../../services/groups';
+import { getGradingComponents } from '../../services/grading-rubric';
 import { supabase } from '../../lib/supabase';
 import type { CoordinatorGroupWithGrades } from '../../services/groups';
 import { Button } from '../../components/ui/button';
@@ -19,16 +20,13 @@ import type { AuditLogEntry, Course } from '../../types';
 
 // ── Excel helpers ─────────────────────────────────────────────────────────────
 
-/** Convert a 0-based column index to an Excel column letter (A, B, …, Z, AA, …). */
-function colLetter(index: number): string {
-  let letter = '';
-  let n = index + 1; // 1-based
-  while (n > 0) {
-    const mod = (n - 1) % 26;
-    letter = String.fromCharCode(65 + mod) + letter;
-    n = Math.floor((n - 1) / 26);
-  }
-  return letter;
+/** Apply auto-fit column widths and row heights to a sheet in-place. */
+function autoFitSheet(ws: XLSX.WorkSheet, allRows: (string | number)[][]) {
+  if (allRows.length === 0) return;
+  ws['!cols'] = allRows[0].map((_, ci) => ({
+    wch: Math.max(...allRows.map(row => String(row[ci] ?? '').length)) + 2,
+  }));
+  ws['!rows'] = [{ hpt: 22 }, ...allRows.slice(1).map(() => ({ hpt: 18 }))];
 }
 
 function downloadXlsx(wb: XLSX.WorkBook, filename: string) {
@@ -159,35 +157,88 @@ export function AdminExportsAudit() {
           courseTypesToFetch = ['498', '499'];
         }
 
+        // Fetch grading components and group data in parallel for each courseType.
+        // Components are fetched INDEPENDENTLY from the grading scheme so column
+        // headers are always built from the live scheme, even if no groups exist.
         const allGroups: CoordinatorGroupWithGrades[] = [];
-        for (const ct of courseTypesToFetch) {
-          const gs = await getCoordinatorGroupsWithGrades(ct, user.activeRole);
-          allGroups.push(...gs);
-        }
+        const componentMetaMap = new Map<string, { name: string; maxScore: number; key: string }>();
 
-        // Collect all unique grade component names (same order across all groups)
-        const componentNames = Array.from(
-          new Set(allGroups.flatMap(g => g.gradeComponents.map(c => c.componentName)))
-        );
+        await Promise.all(courseTypesToFetch.map(async (ct) => {
+          const [components, groups] = await Promise.all([
+            getGradingComponents(ct),
+            getCoordinatorGroupsWithGrades(ct, user.activeRole),
+          ]);
 
-        const headers = [
+          // Register components from the scheme (preserves display_order)
+          for (const c of components) {
+            if (!componentMetaMap.has(c.componentKey)) {
+              componentMetaMap.set(c.componentKey, {
+                key:      c.componentKey,
+                name:     c.componentName,
+                maxScore: c.totalMarks,
+              });
+            }
+          }
+
+          allGroups.push(...groups);
+        }));
+
+        const componentMeta = Array.from(componentMetaMap.values());
+
+        // Total max = sum of all component max scores
+        const totalMax = componentMeta.reduce((s, c) => s + c.maxScore, 0);
+
+        // Headers: ComponentName/MaxScore format, Total Score/TotalMax at end
+        const headers: string[] = [
           'Course', 'Group Code', 'Project Name', 'Supervisor',
           'Student Name', 'Student ID',
-          ...componentNames.map(n => `${n} Score`),
-          'Total Score',
+          ...componentMeta.map(c => `${c.name}/${c.maxScore}`),
+          `Total Score/${totalMax}`,
         ];
 
-        // Grade component columns start at index 6 (column G)
-        const gradeStartColIdx = 6;
-        const totalScoreColIdx = gradeStartColIdx + componentNames.length;
-        const totalScoreCol   = colLetter(totalScoreColIdx);
+        // Fetch peer_evaluations per student so each student gets their own
+        // peer score (average of scores they received), not the group average.
+        const peerComp = componentMeta.find(c => c.key === 'peer_review');
+        const peerWeight = peerComp?.maxScore ?? 5;
+        const peerScoreByStudent = new Map<string, number>(); // profile UUID → normalized score
 
-        // Build data rows – grade scores formatted as "X/Y" (e.g. "18/20")
-        // Total Score column is left empty here; formulas are injected below.
-        const dataRows: string[][] = [];
+        const allGroupIds = allGroups.map(g => g.id);
+        if (peerComp && allGroupIds.length > 0) {
+          const { data: peerRows } = await supabase
+            .from('peer_evaluations')
+            .select('student_id, score')
+            .in('group_id', allGroupIds);
+
+          // Group the raw scores each student received, then average + normalize
+          const rawByStudent = new Map<string, number[]>();
+          for (const pe of peerRows ?? []) {
+            if (!rawByStudent.has(pe.student_id)) rawByStudent.set(pe.student_id, []);
+            rawByStudent.get(pe.student_id)!.push(Number(pe.score));
+          }
+          for (const [sid, scores] of rawByStudent) {
+            const avg = scores.reduce((s, v) => s + v, 0) / scores.length;
+            peerScoreByStudent.set(sid, avg);
+          }
+        }
+
+        // Build data rows — scores as plain numbers, 0 for missing.
+        // Peer evaluation uses per-student score; all other components use the
+        // group-level score returned by the API.
+        // Total is computed by summing the per-row scores — no Excel formulas.
+        const dataRows: (string | number)[][] = [];
         for (const g of allGroups) {
-          const compMap = new Map(g.gradeComponents.map(c => [c.componentName, c]));
+          // Index gradeComponents by componentKey
+          const scoreByKey = new Map(g.gradeComponents.map(c => [c.componentKey, c.score]));
           for (const student of g.students) {
+            const scores = componentMeta.map(({ key }) => {
+              if (key === 'peer_review') {
+                // Use individual peer score received by this student
+                return peerScoreByStudent.get(student.id) ?? 0;
+              }
+              const raw = scoreByKey.get(key);
+              return raw != null ? Number(raw) : 0;
+            });
+            const total = scores.reduce((s, v) => s + v, 0);
             dataRows.push([
               g.courseCode,
               g.groupCode ?? '',
@@ -195,58 +246,25 @@ export function AdminExportsAudit() {
               g.supervisorName ?? '',
               student.name,
               student.studentId ?? '',
-              ...componentNames.map(cn => {
-                const comp = compMap.get(cn);
-                return comp?.score != null ? `${comp.score}/${comp.maxScore}` : '-';
-              }),
-              '', // Total Score – filled by formula below
+              ...scores,
+              total,
             ]);
           }
         }
 
         if (selectedFormat === 'Excel (.xlsx)') {
-          // ── Build .xlsx with per-row SUMPRODUCT in the Total Score column ─
           const wb = XLSX.utils.book_new();
           const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
 
-          // SheetJS auto-parses "3/22" as a date. Force grade cells to string
-          // so LEFT/FIND work correctly when Excel evaluates the formula.
-          dataRows.forEach((row, i) => {
-            const excelRow = i + 2;
-            for (let ci = gradeStartColIdx; ci < totalScoreColIdx; ci++) {
-              ws[`${colLetter(ci)}${excelRow}`] = { t: 's', v: row[ci] as string };
-            }
-          });
-
-          // Inject formula into every data row's Total Score cell.
-          // Build one IFERROR(VALUE(LEFT(...))) term per grade cell and join with +.
-          // e.g. =IFERROR(VALUE(LEFT(G2,FIND("/",G2)-1)),0)+IFERROR(VALUE(LEFT(H2,...)),0)+...
-          // This avoids horizontal-range SUMPRODUCT issues in Excel on recalculation.
-          dataRows.forEach((row, i) => {
-            const excelRow = i + 2; // row 1 is the header
-
-            // Pre-calculate cached value from the original "X/Y" strings
-            let cached = 0;
-            const terms: string[] = [];
-            for (let ci = gradeStartColIdx; ci < totalScoreColIdx; ci++) {
-              const ref = `${colLetter(ci)}${excelRow}`;
-              terms.push(`IFERROR(VALUE(LEFT(${ref},FIND("/",${ref})-1)),0)`);
-              const slash = (row[ci] as string).indexOf('/');
-              if (slash > 0) cached += parseFloat((row[ci] as string).slice(0, slash)) || 0;
-            }
-
-            ws[`${totalScoreCol}${excelRow}`] = {
-              t: 'n',
-              v: cached,
-              f: terms.join('+'),
-            };
-          });
-
+          autoFitSheet(ws, [headers, ...dataRows]);
           XLSX.utils.book_append_sheet(wb, ws, 'Grades');
           downloadXlsx(wb, `grades-report-${courseSlug}-${dateStr}.xlsx`);
         } else {
           // CSV fallback
-          triggerDownload(toCsv([headers, ...dataRows]), `grades-report-${courseSlug}-${dateStr}.csv`);
+          triggerDownload(
+            toCsv([headers.map(String), ...dataRows.map(r => r.map(String))]),
+            `grades-report-${courseSlug}-${dateStr}.csv`
+          );
         }
       }
 
@@ -271,31 +289,39 @@ export function AdminExportsAudit() {
           return courseMatch && dateMatch;
         });
 
-        const rows: string[][] = [[
+        const subHeaders = [
           'Course', 'Group Code', 'Project Name', 'Student Name', 'Student ID',
           'Milestone', 'Status', 'Version', 'Submitted At',
-        ]];
+        ];
+        const subRows: string[][] = filtered.map((s: any) => ([
+          s.milestone?.course?.code ?? '',
+          s.group?.group_code ?? '',
+          s.group?.project_name ?? '',
+          s.student?.name ?? '',
+          s.student?.student_id ?? '',
+          s.milestone?.name ?? '',
+          s.status ?? '',
+          String(s.current_version ?? ''),
+          s.updated_at ? new Date(s.updated_at).toLocaleString() : '',
+        ]));
 
-        for (const s of filtered) {
-          rows.push([
-            (s.milestone as any)?.course?.code ?? '',
-            (s.group as any)?.group_code ?? '',
-            (s.group as any)?.project_name ?? '',
-            (s.student as any)?.name ?? '',
-            (s.student as any)?.student_id ?? '',
-            (s.milestone as any)?.name ?? '',
-            s.status ?? '',
-            String(s.current_version ?? ''),
-            s.updated_at ? new Date(s.updated_at).toLocaleString() : '',
-          ]);
+        if (selectedFormat === 'Excel (.xlsx)') {
+          const wb = XLSX.utils.book_new();
+          const ws = XLSX.utils.aoa_to_sheet([subHeaders, ...subRows]);
+          autoFitSheet(ws, [subHeaders, ...subRows]);
+          XLSX.utils.book_append_sheet(wb, ws, 'Submissions');
+          downloadXlsx(wb, `submissions-report-${courseSlug}-${dateStr}.xlsx`);
+        } else {
+          triggerDownload(
+            toCsv([subHeaders, ...subRows]),
+            `submissions-report-${courseSlug}-${dateStr}.csv`
+          );
         }
-
-        triggerDownload(toCsv(rows), `submissions-report-${courseSlug}-${dateStr}.csv`);
       }
 
       // ── Activity ──────────────────────────────────────────────────────────
       if (type === 'activity') {
-        // Pull real activity from submissions + weekly_reports
+        // Pull submissions + weekly_reports for submission-based activity rows
         const [{ data: subs }, { data: weekly }] = await Promise.all([
           supabase
             .from('submissions')
@@ -315,10 +341,10 @@ export function AdminExportsAudit() {
             .order('updated_at', { ascending: false }),
         ]);
 
-        const rows: string[][] = [[
-          'Date & Time', 'Course', 'Group', 'Actor', 'Action', 'Details',
-        ]];
+        const actHeaders = ['Date & Time', 'Course', 'Group', 'Actor', 'Action', 'Details'];
+        const actRows: string[][] = [];
 
+        // 1. Submission events
         for (const s of subs ?? []) {
           const courseMatch = !courseId || (s.milestone as any)?.course?.id === courseId;
           const t = s.updated_at ? new Date(s.updated_at) : null;
@@ -326,13 +352,13 @@ export function AdminExportsAudit() {
           if (!courseMatch || !dateMatch) continue;
 
           const action =
-            s.status === 'submitted' ? 'Submitted'
-            : s.status === 'under-review' ? 'Under Review'
-            : s.status === 'approved' ? 'Approved'
-            : s.status === 'changes-requested' ? 'Changes Requested'
+            s.status === 'submitted'          ? 'Submitted'
+            : s.status === 'under-review'     ? 'Under Review'
+            : s.status === 'approved'         ? 'Approved'
+            : s.status === 'changes-requested'? 'Changes Requested'
             : s.status ?? 'Updated';
 
-          rows.push([
+          actRows.push([
             t ? t.toLocaleString() : '',
             (s.milestone as any)?.course?.code ?? '',
             (s.group as any)?.group_code ?? '',
@@ -342,13 +368,14 @@ export function AdminExportsAudit() {
           ]);
         }
 
+        // 2. Weekly report events
         for (const w of weekly ?? []) {
           const courseMatch = !courseId || (w.group as any)?.course?.id === courseId;
           const t = w.updated_at ? new Date(w.updated_at) : null;
           const dateMatch = (!from || (t && t >= from)) && (!to || (t && t <= to));
           if (!courseMatch || !dateMatch) continue;
 
-          rows.push([
+          actRows.push([
             t ? t.toLocaleString() : '',
             (w.group as any)?.course?.code ?? '',
             (w.group as any)?.group_code ?? '',
@@ -358,12 +385,38 @@ export function AdminExportsAudit() {
           ]);
         }
 
-        // Sort combined rows by date descending (skip header)
-        const header = rows.shift()!;
-        rows.sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime());
-        rows.unshift(header);
+        // 3. All other audit log entries already loaded on this page
+        //    (grading events, evaluations, exports, etc. — everything outside submissions)
+        for (const entry of auditLog) {
+          const t = new Date(entry.timestamp);
+          const dateMatch = (!from || t >= from) && (!to || t <= to);
+          if (!dateMatch) continue;
 
-        triggerDownload(toCsv(rows), `activity-log-${courseSlug}-${dateStr}.csv`);
+          actRows.push([
+            t.toLocaleString(),
+            '',   // audit_log has no course field
+            '',   // audit_log has no group field
+            entry.actor,
+            entry.action,
+            `${entry.entity}${entry.context ? ' — ' + entry.context : ''}`,
+          ]);
+        }
+
+        // Sort all rows by date descending
+        actRows.sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime());
+
+        if (selectedFormat === 'Excel (.xlsx)') {
+          const wb = XLSX.utils.book_new();
+          const ws = XLSX.utils.aoa_to_sheet([actHeaders, ...actRows]);
+          autoFitSheet(ws, [actHeaders, ...actRows]);
+          XLSX.utils.book_append_sheet(wb, ws, 'Activity Log');
+          downloadXlsx(wb, `activity-log-${courseSlug}-${dateStr}.xlsx`);
+        } else {
+          triggerDownload(
+            toCsv([actHeaders, ...actRows]),
+            `activity-log-${courseSlug}-${dateStr}.csv`
+          );
+        }
       }
 
       // Record the export in Recent Exports

@@ -16,4 +16,8 @@ router.patch('/:id/close', authenticate, requireCoordinatorOrAdmin, controller.c
 // PATCH /api/week-statuses/:id/lock
 router.patch('/:id/lock', authenticate, requireCoordinatorOrAdmin, controller.lockWeek);
 
+// PATCH /api/week-statuses/:id/deadline
+// Body: { open_at?: ISO string, close_at?: ISO string }
+router.patch('/:id/deadline', authenticate, requireCoordinatorOrAdmin, controller.setDeadline);
+
 module.exports = router;

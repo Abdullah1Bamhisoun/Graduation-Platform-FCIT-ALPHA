@@ -1,7 +1,7 @@
 import { useLocation, Link } from 'react-router-dom';
 import {
   Home, FileText, Calendar, Bell, Settings,
-  Users, BarChart3, CheckSquare, FolderOpen, Lock, Sliders, X,
+  Users, BarChart3, CheckSquare, FolderOpen, Lock, Sliders, X, HeadphonesIcon,
 } from 'lucide-react';
 import { User, UserRole } from '../../types';
 import { useUnreadAnnouncements } from '../../hooks/useUnreadAnnouncements';
@@ -23,8 +23,9 @@ const navItems: Record<UserRole, NavItem[]> = {
     { icon: Calendar,      label: 'Presentation Time',href: '/student/presentation-selection' },
     { icon: Bell,          label: 'Announcements',         href: '/student/announcements' },
     { icon: Calendar,      label: 'Calendar',              href: '/student/calendar' },
-    { icon: FolderOpen,    label: 'Important Files',       href: '/student/important-files' },
-    { icon: Settings,      label: 'Settings',              href: '/student/settings' },
+    { icon: FolderOpen,       label: 'Important Files',       href: '/student/important-files' },
+    { icon: HeadphonesIcon,   label: 'Contact Us',            href: '/student/contact' },
+    { icon: Settings,         label: 'Settings',              href: '/student/settings' },
   ],
   supervisor: [
     { icon: Home,          label: 'Dashboard',             href: '/supervisor' },
@@ -33,8 +34,9 @@ const navItems: Record<UserRole, NavItem[]> = {
     { icon: BarChart3,     label: 'Committee Evaluation',  href: '/supervisor/committee' },
     { icon: Calendar,      label: 'Calendar',              href: '/supervisor/schedule' },
     { icon: Bell,          label: 'Announcements',         href: '/supervisor/announcements' },
-    { icon: FolderOpen,    label: 'Important Files',       href: '/supervisor/important-files' },
-    { icon: Settings,      label: 'Settings',              href: '/supervisor/settings' },
+    { icon: FolderOpen,       label: 'Important Files',       href: '/supervisor/important-files' },
+    { icon: HeadphonesIcon,   label: 'Contact Us',            href: '/supervisor/contact' },
+    { icon: Settings,         label: 'Settings',              href: '/supervisor/settings' },
   ],
   coordinator: [
     { icon: Home,          label: 'Dashboard',               href: '/coordinator' },
@@ -48,8 +50,9 @@ const navItems: Record<UserRole, NavItem[]> = {
     { icon: BarChart3,     label: 'Exports & Audit',         href: '/admin/exports' },
     { icon: Users,         label: 'User Management',         href: '/admin/users' },
     { icon: FolderOpen,    label: 'Important Files Manager', href: '/admin/important-files' },
-    { icon: Lock,          label: 'Lock Manager',            href: '/admin/locks' },
-    { icon: Settings,      label: 'Settings',                href: '/coordinator/settings' },
+    { icon: Lock,             label: 'Lock Manager',            href: '/admin/locks' },
+    { icon: HeadphonesIcon,   label: 'Contact Us',              href: '/coordinator/contact' },
+    { icon: Settings,         label: 'Settings',                href: '/coordinator/settings' },
   ],
   admin: [
     { icon: Home,          label: 'Dashboard',             href: '/admin' },
@@ -63,8 +66,9 @@ const navItems: Record<UserRole, NavItem[]> = {
     { icon: BarChart3,     label: 'Exports & Audit',       href: '/admin/exports' },
     { icon: Users,         label: 'User Management',       href: '/admin/users' },
     { icon: FolderOpen,    label: 'Important Files Manager', href: '/admin/important-files' },
-    { icon: Lock,          label: 'Lock Manager',          href: '/admin/locks' },
-    { icon: Settings,      label: 'Settings',              href: '/admin/settings' },
+    { icon: Lock,             label: 'Lock Manager',          href: '/admin/locks' },
+    { icon: HeadphonesIcon,   label: 'Contact Us',            href: '/admin/contact' },
+    { icon: Settings,         label: 'Settings',              href: '/admin/settings' },
   ],
 };
 

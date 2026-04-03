@@ -24,7 +24,6 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS trg_contact_coordinator_updated_at ON public.contact_coordinator_info;
 CREATE TRIGGER trg_contact_coordinator_updated_at
   BEFORE UPDATE ON public.contact_coordinator_info
   FOR EACH ROW EXECUTE FUNCTION public.set_contact_coordinator_updated_at();
@@ -46,7 +45,6 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS trg_contact_support_updated_at ON public.contact_support_info;
 CREATE TRIGGER trg_contact_support_updated_at
   BEFORE UPDATE ON public.contact_support_info
   FOR EACH ROW EXECUTE FUNCTION public.set_contact_support_updated_at();
@@ -54,13 +52,6 @@ CREATE TRIGGER trg_contact_support_updated_at
 -- ─── Row-Level Security ────────────────────────────────────────────────────────
 ALTER TABLE public.contact_coordinator_info ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.contact_support_info     ENABLE ROW LEVEL SECURITY;
-
--- Drop policies first so re-running the migration is safe
-DROP POLICY IF EXISTS "contact_coordinator_info_select_all"        ON public.contact_coordinator_info;
-DROP POLICY IF EXISTS "contact_coordinator_info_write_coordinator"  ON public.contact_coordinator_info;
-DROP POLICY IF EXISTS "contact_coordinator_info_write_admin"        ON public.contact_coordinator_info;
-DROP POLICY IF EXISTS "contact_support_info_select_all"            ON public.contact_support_info;
-DROP POLICY IF EXISTS "contact_support_info_write_admin"           ON public.contact_support_info;
 
 -- Everyone (authenticated) can read coordinator contact info
 CREATE POLICY "contact_coordinator_info_select_all"

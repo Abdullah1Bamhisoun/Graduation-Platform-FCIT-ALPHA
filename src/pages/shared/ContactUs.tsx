@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Mail, Phone, User, BookOpen, Edit, Trash2, Plus, HeadphonesIcon } from 'lucide-react';
+import { Mail, Phone, User, BookOpen, Edit, Trash2, Plus, HeadphonesIcon, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
-import { Card } from '../../components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
@@ -70,8 +70,8 @@ function CoordEditDialog({ contact, open, onClose, onSaved, activeRole }: CoordD
       });
       toast.success('Contact info updated');
       onClose();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save contact info');
+    } catch {
+      toast.error('Failed to save contact info');
     } finally {
       setSaving(false);
     }
@@ -79,7 +79,7 @@ function CoordEditDialog({ contact, open, onClose, onSaved, activeRole }: CoordD
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-120">
+      <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle>Edit Coordinator Contact</DialogTitle>
           <DialogDescription>
@@ -90,14 +90,14 @@ function CoordEditDialog({ contact, open, onClose, onSaved, activeRole }: CoordD
         <div className="space-y-4 py-2">
           <div>
             <Label>Email (auto-fetched, read-only)</Label>
-            <div className="mt-1.5 flex items-center gap-2 px-3 py-2 rounded-md border border-(--color-border) bg-(--color-surface-alt) text-(--color-text-600) text-sm">
+            <div className="mt-1.5 flex items-center gap-2 px-3 py-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-alt)] text-[var(--color-text-600)] text-sm">
               <Mail className="w-4 h-4 shrink-0" />
               <span>{contact.coordinatorEmail ?? '—'}</span>
             </div>
           </div>
 
           <div>
-            <Label htmlFor="coord-name">Display Name <span className="text-(--color-text-400) font-normal">(optional)</span></Label>
+            <Label htmlFor="coord-name">Display Name <span className="text-[var(--color-text-400)] font-normal">(optional)</span></Label>
             <Input
               id="coord-name"
               className="mt-1.5"
@@ -108,7 +108,7 @@ function CoordEditDialog({ contact, open, onClose, onSaved, activeRole }: CoordD
           </div>
 
           <div>
-            <Label htmlFor="coord-phone">Phone <span className="text-(--color-text-400) font-normal">(optional)</span></Label>
+            <Label htmlFor="coord-phone">Phone <span className="text-[var(--color-text-400)] font-normal">(optional)</span></Label>
             <Input
               id="coord-phone"
               className="mt-1.5"
@@ -185,8 +185,8 @@ function SupportEditDialog({ current, open, onClose, onSaved, activeRole }: Supp
       });
       toast.success('Support info updated');
       onClose();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save support info');
+    } catch {
+      toast.error('Failed to save support info');
     } finally {
       setSaving(false);
     }
@@ -194,7 +194,7 @@ function SupportEditDialog({ current, open, onClose, onSaved, activeRole }: Supp
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-120">
+      <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle>{current ? 'Edit Support Info' : 'Add Support Info'}</DialogTitle>
           <DialogDescription>
@@ -215,7 +215,7 @@ function SupportEditDialog({ current, open, onClose, onSaved, activeRole }: Supp
           </div>
 
           <div>
-            <Label htmlFor="support-phone">Phone <span className="text-(--color-text-400) font-normal">(optional)</span></Label>
+            <Label htmlFor="support-phone">Phone <span className="text-[var(--color-text-400)] font-normal">(optional)</span></Label>
             <Input
               id="support-phone"
               className="mt-1.5"
@@ -226,7 +226,7 @@ function SupportEditDialog({ current, open, onClose, onSaved, activeRole }: Supp
           </div>
 
           <div>
-            <Label htmlFor="support-description">Notes <span className="text-(--color-text-400) font-normal">(optional)</span></Label>
+            <Label htmlFor="support-description">Notes <span className="text-[var(--color-text-400)] font-normal">(optional)</span></Label>
             <Textarea
               id="support-description"
               className="mt-1.5"
@@ -264,23 +264,23 @@ function CoordCard({ contact, canEdit, canDelete, onEdit, onDelete }: CoordCardP
     <Card className="p-4 sm:p-5">
       <div className="flex items-start gap-3 sm:gap-4">
         {/* Icon */}
-        <div className="p-2.5 sm:p-3 bg-(--color-primary-100) rounded-lg shrink-0">
-          <BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-(--color-primary-700)" />
+        <div className="p-2.5 sm:p-3 bg-[var(--color-primary-100)] rounded-lg flex-shrink-0">
+          <BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-[var(--color-primary-700)]" />
         </div>
 
         {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2 mb-2">
             <div>
-              <p className="text-xs font-medium text-(--color-primary-700) uppercase tracking-wide mb-0.5">
+              <p className="text-xs font-medium text-[var(--color-primary-700)] uppercase tracking-wide mb-0.5">
                 Course Coordinator
               </p>
-              <h3 className="text-(--color-text-900) text-base font-semibold leading-snug">
+              <h3 className="text-[var(--color-text-900)] text-base font-semibold leading-snug">
                 {contact.courseCode} — {contact.courseName}
               </h3>
             </div>
             {(canEdit || canDelete) && (
-              <div className="flex gap-1.5 shrink-0">
+              <div className="flex gap-1.5 flex-shrink-0">
                 {canEdit && (
                   <Button
                     variant="outline"
@@ -307,35 +307,35 @@ function CoordCard({ contact, canEdit, canDelete, onEdit, onDelete }: CoordCardP
             )}
           </div>
 
-          <div className="space-y-1.5 text-sm text-(--color-text-700)">
+          <div className="space-y-1.5 text-sm text-[var(--color-text-700)]">
             {contact.customName && (
               <div className="flex items-center gap-2">
-                <User className="w-4 h-4 shrink-0 text-(--color-text-500)" />
+                <User className="w-4 h-4 shrink-0 text-[var(--color-text-500)]" />
                 <span>{contact.customName}</span>
               </div>
             )}
             {contact.coordinatorEmail ? (
               <div className="flex items-center gap-2">
-                <Mail className="w-4 h-4 shrink-0 text-(--color-text-500)" />
+                <Mail className="w-4 h-4 shrink-0 text-[var(--color-text-500)]" />
                 <a
                   href={`mailto:${contact.coordinatorEmail}`}
-                  className="hover:text-(--color-primary-600) hover:underline truncate"
+                  className="hover:text-[var(--color-primary-600)] hover:underline truncate"
                 >
                   {contact.coordinatorEmail}
                 </a>
               </div>
             ) : (
-              <div className="flex items-center gap-2 text-(--color-text-400)">
+              <div className="flex items-center gap-2 text-[var(--color-text-400)]">
                 <Mail className="w-4 h-4 shrink-0" />
                 <span className="italic">No email on record</span>
               </div>
             )}
             {contact.phone && (
               <div className="flex items-center gap-2">
-                <Phone className="w-4 h-4 shrink-0 text-(--color-text-500)" />
+                <Phone className="w-4 h-4 shrink-0 text-[var(--color-text-500)]" />
                 <a
                   href={`tel:${contact.phone}`}
-                  className="hover:text-(--color-primary-600) hover:underline"
+                  className="hover:text-[var(--color-primary-600)] hover:underline"
                 >
                   {contact.phone}
                 </a>
@@ -361,12 +361,12 @@ function SupportCard({ info, isAdmin, onEdit }: SupportCardProps) {
     return (
       <Card className="p-4 sm:p-5">
         <div className="flex items-start gap-3 sm:gap-4">
-          <div className="p-2.5 sm:p-3 bg-(--color-primary-100) rounded-lg shrink-0">
-            <HeadphonesIcon className="w-5 h-5 sm:w-6 sm:h-6 text-(--color-primary-700)" />
+          <div className="p-2.5 sm:p-3 bg-[var(--color-primary-100)] rounded-lg flex-shrink-0">
+            <HeadphonesIcon className="w-5 h-5 sm:w-6 sm:h-6 text-[var(--color-primary-700)]" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-2">
-              <h3 className="text-(--color-text-900) text-base font-semibold">Support Team</h3>
+              <h3 className="text-[var(--color-text-900)] text-base font-semibold">Support Team</h3>
               {isAdmin && (
                 <Button
                   variant="primary"
@@ -379,7 +379,7 @@ function SupportCard({ info, isAdmin, onEdit }: SupportCardProps) {
                 </Button>
               )}
             </div>
-            <p className="text-sm text-(--color-text-500) mt-1 italic">
+            <p className="text-sm text-[var(--color-text-500)] mt-1 italic">
               No support contact info has been configured yet.
             </p>
           </div>
@@ -391,17 +391,17 @@ function SupportCard({ info, isAdmin, onEdit }: SupportCardProps) {
   return (
     <Card className="p-4 sm:p-5">
       <div className="flex items-start gap-3 sm:gap-4">
-        <div className="p-2.5 sm:p-3 bg-(--color-primary-100) rounded-lg shrink-0">
-          <HeadphonesIcon className="w-5 h-5 sm:w-6 sm:h-6 text-(--color-primary-700)" />
+        <div className="p-2.5 sm:p-3 bg-[var(--color-primary-100)] rounded-lg flex-shrink-0">
+          <HeadphonesIcon className="w-5 h-5 sm:w-6 sm:h-6 text-[var(--color-primary-700)]" />
         </div>
 
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2 mb-2">
             <div>
-              <p className="text-xs font-medium text-(--color-primary-700) uppercase tracking-wide mb-0.5">
+              <p className="text-xs font-medium text-[var(--color-primary-700)] uppercase tracking-wide mb-0.5">
                 Technical Support
               </p>
-              <h3 className="text-(--color-text-900) text-base font-semibold">Support Team</h3>
+              <h3 className="text-[var(--color-text-900)] text-base font-semibold">Support Team</h3>
             </div>
             {isAdmin && (
               <Button
@@ -416,29 +416,29 @@ function SupportCard({ info, isAdmin, onEdit }: SupportCardProps) {
             )}
           </div>
 
-          <div className="space-y-1.5 text-sm text-(--color-text-700)">
+          <div className="space-y-1.5 text-sm text-[var(--color-text-700)]">
             <div className="flex items-center gap-2">
-              <Mail className="w-4 h-4 shrink-0 text-(--color-text-500)" />
+              <Mail className="w-4 h-4 shrink-0 text-[var(--color-text-500)]" />
               <a
                 href={`mailto:${info.supportEmail}`}
-                className="hover:text-(--color-primary-600) hover:underline truncate"
+                className="hover:text-[var(--color-primary-600)] hover:underline truncate"
               >
                 {info.supportEmail}
               </a>
             </div>
             {info.phone && (
               <div className="flex items-center gap-2">
-                <Phone className="w-4 h-4 shrink-0 text-(--color-text-500)" />
+                <Phone className="w-4 h-4 shrink-0 text-[var(--color-text-500)]" />
                 <a
                   href={`tel:${info.phone}`}
-                  className="hover:text-(--color-primary-600) hover:underline"
+                  className="hover:text-[var(--color-primary-600)] hover:underline"
                 >
                   {info.phone}
                 </a>
               </div>
             )}
             {info.description && (
-              <p className="text-(--color-text-600) text-xs mt-2 leading-relaxed">
+              <p className="text-[var(--color-text-600)] text-xs mt-2 leading-relaxed">
                 {info.description}
               </p>
             )}
@@ -453,11 +453,12 @@ function SupportCard({ info, isAdmin, onEdit }: SupportCardProps) {
 
 export function ContactUs() {
   const { user } = useAuth();
-  const [contacts, setContacts]       = useState<CoordinatorContact[]>([]);
-  const [supportInfo, setSupportInfo] = useState<SupportInfo | null>(null);
-  const [loading, setLoading]         = useState(true);
+  const [contacts, setContacts]           = useState<CoordinatorContact[]>([]);
+  const [supportInfo, setSupportInfo]     = useState<SupportInfo | null>(null);
+  const [loading, setLoading]             = useState(true);
 
-  const [editingCoord, setEditingCoord]             = useState<CoordinatorContact | null>(null);
+  // Dialog state
+  const [editingCoord, setEditingCoord]         = useState<CoordinatorContact | null>(null);
   const [editingSupportOpen, setEditingSupportOpen] = useState(false);
 
   const isAdmin       = user?.activeRole === 'admin';
@@ -497,24 +498,28 @@ export function ContactUs() {
         )
       );
       toast.success('Contact info cleared');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to clear contact info');
+    } catch {
+      toast.error('Failed to clear contact info');
     }
   };
 
+  // Determine edit/delete rights per card
   const canEditCoord = (c: CoordinatorContact) => {
     if (isAdmin) return true;
     if (isCoordinator && user.coordinatorCourseId === c.courseId) return true;
     return false;
   };
 
-  const canDeleteCoord = (c: CoordinatorContact) =>
-    isAdmin && !!(c.phone || c.customName);
+  const canDeleteCoord = (c: CoordinatorContact) => {
+    if (!isAdmin) return false;
+    return !!(c.phone || c.customName); // only show delete when there's extra info to clear
+  };
 
   return (
     <Layout user={user} pageTitle="Contact Us">
+      {/* Page header */}
       <div className="mb-6">
-        <p className="text-(--color-text-600)">
+        <p className="text-[var(--color-text-600)]">
           Get in touch with your course coordinator or the platform support team.
         </p>
       </div>
@@ -524,11 +529,11 @@ export function ContactUs() {
           {[1, 2, 3].map((i) => (
             <Card key={i} className="p-5">
               <div className="animate-pulse flex gap-4">
-                <div className="w-12 h-12 rounded-lg bg-(--color-surface-alt)" />
+                <div className="w-12 h-12 rounded-lg bg-[var(--color-surface-alt)]" />
                 <div className="flex-1 space-y-2 py-1">
-                  <div className="h-3 bg-(--color-surface-alt) rounded w-1/4" />
-                  <div className="h-4 bg-(--color-surface-alt) rounded w-1/2" />
-                  <div className="h-3 bg-(--color-surface-alt) rounded w-2/3" />
+                  <div className="h-3 bg-[var(--color-surface-alt)] rounded w-1/4" />
+                  <div className="h-4 bg-[var(--color-surface-alt)] rounded w-1/2" />
+                  <div className="h-3 bg-[var(--color-surface-alt)] rounded w-2/3" />
                 </div>
               </div>
             </Card>
@@ -539,7 +544,7 @@ export function ContactUs() {
           {/* ── Section 1: Course Coordinators ── */}
           <section>
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-(--color-text-900) font-semibold text-lg">
+              <h2 className="text-[var(--color-text-900)] font-semibold text-lg">
                 Course Coordinators
               </h2>
             </div>
@@ -560,12 +565,12 @@ export function ContactUs() {
             ) : (
               <Card className="p-8">
                 <div className="text-center">
-                  <BookOpen className="w-12 h-12 mx-auto mb-3 text-(--color-text-300)" />
-                  <p className="text-(--color-text-600)">
+                  <BookOpen className="w-12 h-12 mx-auto mb-3 text-[var(--color-text-300)]" />
+                  <p className="text-[var(--color-text-600)]">
                     No coordinator contacts available yet.
                   </p>
                   {isAdmin && (
-                    <p className="text-(--color-text-500) text-sm mt-1">
+                    <p className="text-[var(--color-text-500)] text-sm mt-1">
                       Assign coordinators to courses via User Management.
                     </p>
                   )}
@@ -577,7 +582,7 @@ export function ContactUs() {
           {/* ── Section 2: Support Team ── */}
           <section>
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-(--color-text-900) font-semibold text-lg">
+              <h2 className="text-[var(--color-text-900)] font-semibold text-lg">
                 Support Team
               </h2>
             </div>

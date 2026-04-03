@@ -22,6 +22,7 @@ const WEEK_STATUS_STYLES: Record<WeekDisplayStatus, string> = {
   'Closed':     'bg-gray-100 text-gray-600 border-gray-200',
   'Locked':     'bg-red-100 text-red-700 border-red-200',
   'Not Opened': 'bg-slate-100 text-slate-400 border-slate-200',
+  'Upcoming':   'bg-blue-100 text-blue-700 border-blue-200',
 };
 
 export function SupervisorWeeklyReports() {

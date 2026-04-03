@@ -179,14 +179,12 @@ async function upsertSupportInfo(req, res) {
     }
 
     // Fetch existing row (if any) so we can reuse its id for upsert
-    const { data: existing, error: selectErr } = await supabaseAdmin
+    const { data: existing } = await supabaseAdmin
       .from('contact_support_info')
       .select('id')
       .order('updated_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-
-    if (selectErr) throw selectErr;
 
     const payload = {
       support_email: supportEmail.trim(),
@@ -210,14 +208,6 @@ async function upsertSupportInfo(req, res) {
     res.json({ success: true });
   } catch (error) {
     console.error('Error upserting support info:', error);
-    // 42P01 = PostgreSQL "relation does not exist" — migration not yet applied
-    if (error?.code === '42P01') {
-      return res.status(503).json({ error: 'Database table not found. Please run migration 013 in the Supabase SQL Editor.' });
-    }
-    // Pass through Supabase error messages for other DB issues
-    if (error?.message) {
-      return res.status(500).json({ error: error.message });
-    }
     res.status(500).json({ error: 'Failed to save support info' });
   }
 }

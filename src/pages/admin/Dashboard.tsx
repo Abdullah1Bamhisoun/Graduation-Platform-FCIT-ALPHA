@@ -2,40 +2,22 @@ import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { DashboardCard } from '../../features/dashboard/components/DashboardCard';
 import { MetricCard } from '../../features/dashboard/components/MetricCard';
-import { Settings, Bell, BarChart3, Users, AlertTriangle, CheckCircle, Clock, FileText, CalendarDays } from 'lucide-react';
+import { BarChart3, Users, AlertTriangle, CheckCircle, Clock, FileText, CalendarDays, UserCheck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../lib/AuthContext';
+import { getPendingRegistrationsViaAPI, type PendingRegistration } from '../../lib/pending-registrations';
 import {
   getAdminStats,
   getSubmissionVolumeLastWeek,
   getEvaluationProgressByCourse,
-  getRecentActivity,
   getUpcomingEvents,
 } from '../../services/dashboard';
 import type {
   AdminStats,
   SubmissionVolumeDay,
   EvaluationProgress,
-  ActivityEntry,
   UpcomingEvent,
 } from '../../services/dashboard';
-
-// ── Quick-action definitions ──────────────────────────────────────────────────
-const QUICK_ACTIONS = [
-  { icon: Settings,  label: 'Configure Milestones',  path: '/admin/milestones' },
-  { icon: Bell,      label: 'Create Announcement',   path: '/admin/announcements' },
-  { icon: BarChart3, label: 'Export Reports',         path: '/admin/exports' },
-  { icon: Users,     label: 'Manage Users',           path: '/admin/users' },
-] as const;
-
-// ── Color maps ────────────────────────────────────────────────────────────────
-const ACTIVITY_BAR: Record<string, string> = {
-  blue:   'bg-blue-400',
-  green:  'bg-emerald-400',
-  purple: 'bg-purple-400',
-  amber:  'bg-amber-400',
-  gray:   'bg-gray-300',
-};
 
 const EVENT_CARD: Record<string, string> = {
   blue:   'border-blue-400   bg-white/10',
@@ -51,11 +33,9 @@ const EVENT_LABEL: Record<string, string> = {
   amber:  'text-amber-600',
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-
 export function AdminDashboard() {
-  const navigate = useNavigate();
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   const [stats, setStats] = useState<AdminStats>({
     totalStudents: 0, overdueSubmissions: 0, upcomingDeadlines: 0, completedProjects: 0, completionRate: 0,
@@ -64,8 +44,8 @@ export function AdminDashboard() {
   const [evalProgress, setEvalProgress] = useState<EvaluationProgress>({
     courses: [], overallEvaluated: 0, overallTotal: 0, overallPercent: 0,
   });
-  const [recentActivity, setRecentActivity] = useState<ActivityEntry[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
+  const [pendingUsers, setPendingUsers] = useState<PendingRegistration[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -73,14 +53,14 @@ export function AdminDashboard() {
       getAdminStats(),
       getSubmissionVolumeLastWeek(),
       getEvaluationProgressByCourse(),
-      getRecentActivity(5),
-      getUpcomingEvents(3),
-    ]).then(([s, vol, eval_, activity, events]) => {
+      getUpcomingEvents(),
+      getPendingRegistrationsViaAPI('admin'),
+    ]).then(([s, vol, eval_, events, regs]) => {
       setStats(s);
       setSubmissionVolume(vol);
       setEvalProgress(eval_);
-      setRecentActivity(activity);
       setUpcomingEvents(events);
+      setPendingUsers(regs);
     }).finally(() => setLoading(false));
   }, []);
 
@@ -95,7 +75,7 @@ export function AdminDashboard() {
           ))}
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {Array.from({ length: 4 }).map((_, i) => (
+          {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="!bg-white rounded-xl border border-[var(--color-border)] h-64 animate-pulse" />
           ))}
         </div>
@@ -108,7 +88,7 @@ export function AdminDashboard() {
   return (
     <Layout user={user} pageTitle="Admin Dashboard">
 
-      {/* ── KPI Cards ──────────────────────────────────────────────────────── */}
+      {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
         <MetricCard label="Total Students"       value={stats.totalStudents}       icon={Users}          color="primary" />
         <MetricCard label="Overdue Submissions"  value={stats.overdueSubmissions}  icon={AlertTriangle}  color="danger"  />
@@ -122,28 +102,10 @@ export function AdminDashboard() {
         />
       </div>
 
-      {/* ── Main grid ──────────────────────────────────────────────────────── */}
+      {/* Main grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-        {/* Quick Actions ──────────────────────────────────────────────────── */}
-        <DashboardCard title="Quick Actions" icon={Settings}>
-          <div className="space-y-2">
-            {QUICK_ACTIONS.map(({ icon: ActionIcon, label, path }) => (
-              <button
-                key={path}
-                onClick={() => navigate(path)}
-                className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-[var(--color-text-700)] hover:bg-[var(--color-surface-alt)] hover:text-[var(--color-text-900)] transition-colors text-left group"
-              >
-                <div className="w-8 h-8 rounded-lg bg-[var(--color-primary-100)] flex items-center justify-center shrink-0 group-hover:bg-[var(--color-primary-600)] transition-colors">
-                  <ActionIcon className="w-4 h-4 text-[var(--color-primary-600)] group-hover:text-white transition-colors" />
-                </div>
-                {label}
-              </button>
-            ))}
-          </div>
-        </DashboardCard>
-
-        {/* Submission Volume ──────────────────────────────────────────────── */}
+        {/* Submission Volume */}
         <DashboardCard title="Submission Volume (Last 7 Days)" icon={FileText}>
           {submissionVolume.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-center">
@@ -173,7 +135,54 @@ export function AdminDashboard() {
           )}
         </DashboardCard>
 
-        {/* Evaluation Progress ────────────────────────────────────────────── */}
+        {/* Pending User Approvals */}
+        <DashboardCard
+          title="Pending User Approvals"
+          icon={UserCheck}
+          actions={
+            <button
+              onClick={() => navigate('/admin/users')}
+              className="text-xs text-[var(--color-primary-600)] hover:underline"
+            >
+              View All
+            </button>
+          }
+        >
+          {pendingUsers.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+              <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center mb-3">
+                <UserCheck className="w-5 h-5 text-green-500" />
+              </div>
+              <p className="text-sm font-medium text-[var(--color-text-900)]">No pending approvals</p>
+              <p className="text-xs text-[var(--color-text-600)] mt-1">All user registrations have been reviewed</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-[var(--color-border)]">
+              {pendingUsers.slice(0, 6).map((reg) => (
+                <div
+                  key={reg.id}
+                  className="flex items-center justify-between py-3 first:pt-0 last:pb-0 cursor-pointer hover:bg-[var(--color-surface-alt)] rounded px-2 -mx-2 transition-colors"
+                  onClick={() => navigate('/admin/users')}
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-[var(--color-text-900)] truncate">{reg.name}</p>
+                    <p className="text-xs text-[var(--color-text-600)] capitalize">{reg.accountType}{reg.course ? ` · ${reg.course}` : ''}</p>
+                  </div>
+                  <span className="ml-3 shrink-0 px-2 py-0.5 rounded-full text-xs font-medium !bg-white border-[1.5px] border-amber-400 text-amber-700">
+                    Pending
+                  </span>
+                </div>
+              ))}
+              {pendingUsers.length > 6 && (
+                <p className="text-xs text-[var(--color-text-500)] pt-3 text-center">
+                  +{pendingUsers.length - 6} more pending
+                </p>
+              )}
+            </div>
+          )}
+        </DashboardCard>
+
+        {/* Evaluation Progress */}
         <DashboardCard title="Evaluation Progress by Course" icon={BarChart3}>
           {evalProgress.courses.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-center">
@@ -215,35 +224,8 @@ export function AdminDashboard() {
           )}
         </DashboardCard>
 
-        {/* System Activity ────────────────────────────────────────────────── */}
-        <DashboardCard title="System Activity" icon={Clock}>
-          {recentActivity.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 text-center">
-              <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center mb-3">
-                <Clock className="w-5 h-5 text-gray-400" />
-              </div>
-              <p className="text-sm font-medium text-[var(--color-text-900)]">No recent activity</p>
-              <p className="text-xs text-[var(--color-text-600)] mt-1">System events will be logged here</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-[var(--color-border)]">
-              {recentActivity.map((entry) => (
-                <div key={entry.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
-                  <div className={`w-1 self-stretch rounded-full shrink-0 ${ACTIVITY_BAR[entry.color] ?? 'bg-gray-300'}`} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-[var(--color-text-900)] leading-snug">
-                      {typeof entry.message === 'string' ? entry.message : JSON.stringify(entry.message)}
-                    </p>
-                    <p className="text-xs text-[var(--color-text-600)] mt-0.5">{entry.time}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </DashboardCard>
-
-        {/* Upcoming Events ────────────────────────────────────────────────── */}
-        <DashboardCard title="Upcoming Events" icon={CalendarDays} className="lg:col-span-2">
+        {/* Upcoming Events */}
+        <DashboardCard title="Upcoming Events" icon={CalendarDays}>
           {upcomingEvents.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-center">
               <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center mb-3">
@@ -253,14 +235,14 @@ export function AdminDashboard() {
               <p className="text-xs text-[var(--color-text-600)] mt-1">Upcoming milestones and deadlines will appear here</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="space-y-3">
               {upcomingEvents.map((event, index) => (
                 <div
                   key={index}
                   className={`p-4 rounded-lg border-l-4 ${EVENT_CARD[event.color] ?? 'border-gray-300 bg-white/10'} hover:shadow-sm transition-shadow`}
                 >
-                  <h3 className="text-sm font-semibold text-[var(--color-text-900)] mb-1.5 leading-snug">{event.title}</h3>
-                  <p className="text-xs text-[var(--color-text-600)] mb-1">{event.date}</p>
+                  <h3 className="text-sm font-semibold text-[var(--color-text-900)] mb-1 leading-snug">{event.title}</h3>
+                  <p className="text-xs text-[var(--color-text-600)] mb-0.5">{event.date}</p>
                   <p className={`text-xs font-medium ${EVENT_LABEL[event.color] ?? 'text-gray-600'}`}>{event.detail}</p>
                 </div>
               ))}

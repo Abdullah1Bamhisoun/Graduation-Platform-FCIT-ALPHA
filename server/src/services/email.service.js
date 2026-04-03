@@ -421,6 +421,42 @@ function sendWeekOpened(studentEmails, data) {
   );
 }
 
+/**
+ * 9. Submission deadline reminder (1 day before close_at) → students
+ *
+ * @param {string[]} studentEmails
+ * @param {{ weekNumber: number, courseType: string, closeAt: string, appUrl?: string }} data
+ */
+function sendDeadlineReminder(studentEmails, data) {
+  const { weekNumber, courseType, closeAt, appUrl = '' } = data;
+  const courseName = `CPIS-${courseType}`;
+  const deadline = new Date(closeAt).toLocaleString('en-US', {
+    dateStyle: 'long', timeStyle: 'short',
+  });
+
+  const body = `
+    ${heading(`⏰ Deadline Tomorrow — Week ${weekNumber} Report`)}
+    ${paragraph(`Your weekly report for <strong>Week ${weekNumber}</strong> in <strong>${courseName}</strong> is due in less than 24 hours.`)}
+    ${infoTable([
+      ['Course',   courseName],
+      ['Week',     `Week ${weekNumber}`],
+      ['Deadline', `<strong style="color:#dc2626;">${deadline}</strong>`],
+    ])}
+    ${paragraph('Please submit your report before the deadline. Late submissions may not be accepted.')}
+    ${appUrl ? ctaButton('Submit Weekly Report Now', appUrl) : ''}
+  `;
+
+  return Promise.allSettled(
+    studentEmails.filter(Boolean).map((email) =>
+      sendEmail(
+        email,
+        `[${courseName}] Reminder: Week ${weekNumber} Report Due Tomorrow`,
+        layout(body, 'Deadline Reminder')
+      )
+    )
+  );
+}
+
 // ─── Exports ───────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -434,4 +470,5 @@ module.exports = {
   sendCommitteeSchedule,
   sendMilestoneCreated,
   sendWeekOpened,
+  sendDeadlineReminder,
 };

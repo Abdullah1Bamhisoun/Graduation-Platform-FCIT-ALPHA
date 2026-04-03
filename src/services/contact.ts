@@ -1,5 +1,4 @@
 import { supabase } from '../lib/supabase';
-import { apiUrl } from '@/lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -39,7 +38,7 @@ function authHeaders(token: string, activeRole?: string): Record<string, string>
 export async function getCoordinatorContacts(activeRole?: string): Promise<CoordinatorContact[]> {
   try {
     const token = await getToken();
-    const res = await fetch(apiUrl('/api/contact/coordinators'), {
+    const res = await fetch('/api/contact/coordinators', {
       headers: authHeaders(token, activeRole),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -56,7 +55,7 @@ export async function upsertCoordinatorContact(
   activeRole?: string
 ): Promise<void> {
   const token = await getToken();
-  const res = await fetch(apiUrl(`/api/contact/coordinators/${courseId}`), {
+  const res = await fetch(`/api/contact/coordinators/${courseId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...authHeaders(token, activeRole) },
     body: JSON.stringify(data),
@@ -69,7 +68,7 @@ export async function upsertCoordinatorContact(
 
 export async function deleteCoordinatorContact(courseId: string, activeRole?: string): Promise<void> {
   const token = await getToken();
-  const res = await fetch(apiUrl(`/api/contact/coordinators/${courseId}`), {
+  const res = await fetch(`/api/contact/coordinators/${courseId}`, {
     method: 'DELETE',
     headers: authHeaders(token, activeRole),
   });
@@ -84,7 +83,7 @@ export async function deleteCoordinatorContact(courseId: string, activeRole?: st
 export async function getSupportInfo(activeRole?: string): Promise<SupportInfo | null> {
   try {
     const token = await getToken();
-    const res = await fetch(apiUrl('/api/contact/support'), {
+    const res = await fetch('/api/contact/support', {
       headers: authHeaders(token, activeRole),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -100,7 +99,7 @@ export async function upsertSupportInfo(
   activeRole?: string
 ): Promise<void> {
   const token = await getToken();
-  const res = await fetch(apiUrl('/api/contact/support'), {
+  const res = await fetch('/api/contact/support', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...authHeaders(token, activeRole) },
     body: JSON.stringify(data),

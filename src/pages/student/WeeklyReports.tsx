@@ -6,9 +6,9 @@ import { Textarea } from '../../components/ui/textarea';
 import { Label } from '../../components/ui/label';
 import { useAuth } from '../../lib/AuthContext';
 import { getWeeklyReportsByGroup, submitStudentWeeklyReport } from '../../services/weekly-reports';
-import { getWeekStatuses, getDisplayStatus } from '../../services/week-statuses';
+import { getWeekStatuses, getDisplayStatus, isSubmissionOpen } from '../../services/week-statuses';
 import { getGroupForStudent } from '../../services/groups';
-import { Eye, Plus, Lock, AlertTriangle, Clock, CheckCircle } from 'lucide-react';
+import { Eye, Plus, Lock, AlertTriangle, Clock, CheckCircle, Calendar } from 'lucide-react';
 import { useLockStatus } from '../../hooks/useLockStatus';
 import { LockedBanner } from '../../components/ui/LockedBanner';
 import type { WeeklyReport, WeekStatus } from '../../types';
@@ -21,6 +21,7 @@ const WEEK_STATUS_STYLES: Record<string, string> = {
   'Closed':     'bg-gray-100 text-gray-600 border-gray-200',
   'Locked':     'bg-red-100 text-red-700 border-red-200',
   'Not Opened': 'bg-slate-100 text-slate-400 border-slate-200',
+  'Upcoming':   'bg-blue-100 text-blue-700 border-blue-200',
 };
 
 function courseTypeFromCode(code: string): '498' | '499' {
@@ -61,8 +62,6 @@ export function StudentWeeklyReports() {
         const group = await getGroupForStudent(user.id);
         if (!group) { setLoading(false); return; }
 
-        // courseCode may be empty if the courses join is blocked by RLS for students.
-        // Fall back to courseNumber, then groupCode, then the generic default.
         const cc = group.courseCode || group.courseNumber || group.groupCode || 'CPIS-498';
         const ct = courseTypeFromCode(cc);
 
@@ -144,7 +143,7 @@ export function StudentWeeklyReports() {
       {isAdminLocked && <LockedBanner />}
       <div className="mb-6">
         <p className="text-[var(--color-text-600)] text-sm">
-          16-week progress tracking — submit your weekly report when the week is open.
+          16-week progress tracking — submit your weekly report during the open window.
         </p>
       </div>
 
@@ -161,17 +160,19 @@ export function StudentWeeklyReports() {
           const report    = getReportForWeek(wn);
           const ws        = getStatusForWeek(wn);
           const display   = ws ? getDisplayStatus(ws) : 'Not Opened';
-          const isOpen    = ws?.isOpen ?? false;
           const isLocked  = ws?.isLocked ?? false;
           const wasOpened = ws?.wasOpened ?? false;
+          const hasWindow = !!(ws?.openAt || ws?.closeAt);
+          // A week is "active" (not dimmed) if it was manually opened or has a scheduled window that has started
+          const isActive  = wasOpened || (hasWindow && ws?.openAt ? new Date() >= new Date(ws.openAt) : hasWindow);
 
-          const canSubmit = isOpen && !report;
+          const canSubmit = isSubmissionOpen(ws) && !report && !isAdminLocked;
 
           return (
             <div
               key={wn}
               className={`bg-[var(--color-surface-white)] rounded-xl border shadow-sm p-5 transition-all ${
-                !wasOpened ? 'opacity-50' : 'border-[var(--color-border)] hover:shadow-md'
+                !isActive ? 'opacity-50' : 'border-[var(--color-border)] hover:shadow-md'
               }`}
             >
               {/* Header */}
@@ -179,12 +180,37 @@ export function StudentWeeklyReports() {
                 <span className="text-lg font-bold text-[var(--color-text-900)]">Week {wn}</span>
                 <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full border ${WEEK_STATUS_STYLES[display]}`}>
                   {isLocked && <Lock className="w-3 h-3" />}
+                  {display === 'Upcoming' && <Calendar className="w-3 h-3" />}
                   {display}
                 </span>
               </div>
 
+              {/* Submission window (shown when coordinator has configured one) */}
+              {hasWindow && (
+                <div className="mb-3 text-xs bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5 text-blue-700 space-y-0.5">
+                  {ws?.openAt && (
+                    <p className="flex items-center gap-1">
+                      <Calendar className="w-3 h-3" />
+                      <span>
+                        <span className="font-medium">Opens:</span>{' '}
+                        {new Date(ws.openAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                      </span>
+                    </p>
+                  )}
+                  {ws?.closeAt && (
+                    <p className="flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      <span>
+                        <span className="font-medium">Deadline:</span>{' '}
+                        {new Date(ws.closeAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                      </span>
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Report marks */}
-              {wasOpened && (
+              {isActive && (
                 <div className="flex gap-2 mb-3">
                   <span className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${
                     report?.studentMark === 1 ? 'bg-green-50 text-green-600 border-green-200' : 'bg-gray-50 text-gray-400 border-gray-200'
@@ -223,11 +249,14 @@ export function StudentWeeklyReports() {
                     <Plus className="w-4 h-4 mr-2" />
                     Submit Report
                   </Button>
-                ) : wasOpened && !isOpen && !report ? (
+                ) : isActive && !canSubmit && !report ? (
                   <span className="text-xs text-red-600 text-center block">Missed — 0/2</span>
                 ) : (
                   <span className="text-xs text-gray-400 text-center block">
-                    {display === 'Not Opened' ? 'Not activated' : 'No action available'}
+                    {display === 'Not Opened'  ? 'Not activated'            :
+                     display === 'Upcoming'    ? 'Submission not open yet'  :
+                     display === 'Closed'      ? 'Submission window closed' :
+                     'No action available'}
                   </span>
                 )}
               </div>

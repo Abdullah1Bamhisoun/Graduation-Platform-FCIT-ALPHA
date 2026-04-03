@@ -22,6 +22,7 @@ const GROUP_WEEK_STATUS_STYLES: Record<WeekDisplayStatus, string> = {
   'Closed':     'bg-gray-100 text-gray-600 border-gray-200',
   'Locked':     'bg-red-100 text-red-700 border-red-200',
   'Not Opened': 'bg-slate-100 text-slate-400 border-slate-200',
+  'Upcoming':   'bg-blue-100 text-blue-700 border-blue-200',
 };
 
 type CourseTab = '498' | '499';
@@ -286,17 +287,16 @@ $$;`}</pre>
                     <div
                       key={wn}
                       className={`flex flex-col items-center gap-1.5 p-2 rounded-lg border bg-[var(--color-surface-alt)] transition-colors ${
-                        display === 'Open'
-                          ? 'border-green-300 bg-green-50'
-                          : display === 'Locked'
-                          ? 'border-red-200'
-                          : 'border-[var(--color-border)]'
+                        display === 'Open'     ? 'border-green-300 bg-green-50' :
+                        display === 'Upcoming' ? 'border-blue-300 bg-blue-50'  :
+                        display === 'Locked'   ? 'border-red-200'              :
+                        'border-[var(--color-border)]'
                       }`}
                     >
                       <span className="text-xs font-semibold text-[var(--color-text-700)]">W{wn}</span>
-                      {ws?.isOpen && !ws?.isLocked && (
-                        <span className="text-xs px-1.5 py-0.5 rounded-full border font-medium leading-tight text-center bg-green-100 text-green-700 border-green-300">
-                          Open
+                      {display !== 'Not Opened' && (
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full border font-medium leading-tight text-center ${GROUP_WEEK_STATUS_STYLES[display]}`}>
+                          {display}
                         </span>
                       )}
 

@@ -136,6 +136,10 @@ async function approveRegistration(req, res) {
       return res.status(404).json({ error: 'User account not found. The user may not have completed registration.' });
     }
 
+    if (!existingUser.email_confirmed_at) {
+      return res.status(400).json({ error: 'User has not confirmed their email address yet. Please ask them to check their inbox and confirm before approving.' });
+    }
+
     const authUser = { user: existingUser };
 
     // Ensure the auth user's display name is set (may be blank if signUp didn't include metadata)
@@ -618,7 +622,25 @@ async function listRegistrations(req, res) {
     const { data, error } = await query.range(from, to);
     if (error) throw error;
 
-    res.json(data || []);
+    const registrations = data || [];
+
+    // Only show pending registrations where the user has confirmed their email.
+    // Approved/rejected records are shown regardless (email was confirmed at approval time).
+    const nonPending = registrations.filter(r => r.status !== 'pending');
+    const unconfirmedPending = registrations.filter(r => r.status === 'pending');
+
+    let confirmedPending = [];
+    if (unconfirmedPending.length > 0) {
+      const { data: { users: authUsers } = { users: [] } } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
+      const confirmedEmails = new Set(
+        (authUsers || [])
+          .filter(u => u.email_confirmed_at)
+          .map(u => u.email?.toLowerCase())
+      );
+      confirmedPending = unconfirmedPending.filter(r => confirmedEmails.has(r.email?.toLowerCase()));
+    }
+
+    res.json([...confirmedPending, ...nonPending]);
   } catch (error) {
     console.error('Error listing registrations:', error);
     res.status(500).json({ error: 'Failed to fetch registrations. Please try again.' });

@@ -62,6 +62,7 @@ import { Calendar } from './pages/shared/Calendar';
 import { Settings } from './pages/shared/Settings';
 import { Announcements } from './pages/shared/Announcements';
 import { ImportantFiles } from './pages/shared/ImportantFiles';
+import { ContactUs } from './pages/shared/ContactUs';
 
 // Coordinator can access its own routes; admin has full override
 const COORDINATOR_ROLES = ['coordinator', 'admin'] as const;
@@ -92,7 +93,8 @@ export default function App() {
           <Route path="/student/announcements" element={<ProtectedRoute allowedRoles={['student']}><Announcements /></ProtectedRoute>} />
           <Route path="/student/calendar" element={<ProtectedRoute allowedRoles={['student']}><Calendar /></ProtectedRoute>} />
           <Route path="/student/important-files" element={<ProtectedRoute allowedRoles={['student']}><ImportantFiles /></ProtectedRoute>} />
-          <Route path="/student/settings" element={<ProtectedRoute allowedRoles={['student']}><Settings /></ProtectedRoute>} />
+          <Route path="/student/settings"      element={<ProtectedRoute allowedRoles={['student']}><Settings /></ProtectedRoute>} />
+          <Route path="/student/contact"       element={<ProtectedRoute allowedRoles={['student']}><ContactUs /></ProtectedRoute>} />
 
           {/* ── Supervisor Routes ── */}
           <Route path="/supervisor" element={<ProtectedRoute allowedRoles={[...SUPERVISOR_ROLES]}><SupervisorDashboard /></ProtectedRoute>} />
@@ -109,7 +111,8 @@ export default function App() {
           <Route path="/supervisor/my-availability" element={<ProtectedRoute allowedRoles={[...SUPERVISOR_ROLES]}><SupervisorMyAvailability /></ProtectedRoute>} />
           <Route path="/supervisor/grading-evaluation" element={<ProtectedRoute allowedRoles={[...SUPERVISOR_ROLES]}><SupervisorGradingEvaluation /></ProtectedRoute>} />
           <Route path="/supervisor/evaluate-group/:groupId" element={<ProtectedRoute allowedRoles={[...SUPERVISOR_ROLES]}><SupervisorEvaluateGroup /></ProtectedRoute>} />
-          <Route path="/supervisor/settings" element={<ProtectedRoute allowedRoles={[...SUPERVISOR_ROLES]}><Settings /></ProtectedRoute>} />
+          <Route path="/supervisor/settings"  element={<ProtectedRoute allowedRoles={[...SUPERVISOR_ROLES]}><Settings /></ProtectedRoute>} />
+          <Route path="/supervisor/contact"  element={<ProtectedRoute allowedRoles={[...SUPERVISOR_ROLES]}><ContactUs /></ProtectedRoute>} />
 
           {/* ── Coordinator Routes ── */}
           <Route path="/coordinator" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><CoordinatorDashboard /></ProtectedRoute>} />
@@ -125,6 +128,7 @@ export default function App() {
           <Route path="/coordinator/announcements" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><AnnouncementsManager /></ProtectedRoute>} />
           <Route path="/coordinator/calendar" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><Calendar /></ProtectedRoute>} />
           <Route path="/coordinator/settings" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><Settings /></ProtectedRoute>} />
+          <Route path="/coordinator/contact" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><ContactUs /></ProtectedRoute>} />
 
           {/* ── Admin Routes ── */}
           <Route path="/admin" element={<ProtectedRoute allowedRoles={['admin']}><AdminDashboard /></ProtectedRoute>} />
@@ -140,6 +144,7 @@ export default function App() {
           <Route path="/admin/important-files" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><ImportantFilesManager /></ProtectedRoute>} />
           <Route path="/admin/locks" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><AdminLockManager /></ProtectedRoute>} />
           <Route path="/admin/settings" element={<ProtectedRoute allowedRoles={['admin']}><Settings /></ProtectedRoute>} />
+          <Route path="/admin/contact"  element={<ProtectedRoute allowedRoles={['admin']}><ContactUs /></ProtectedRoute>} />
 
           {/* Legacy / catch-all */}
           <Route path="/settings" element={<Navigate to="/login" replace />} />

@@ -271,37 +271,79 @@ export async function getRecentActivity(limit = 5): Promise<ActivityEntry[]> {
   }
 }
 
-export async function getUpcomingEvents(limit = 3, courseId?: string): Promise<UpcomingEvent[]> {
-  try {
-    const now = new Date().toISOString();
+const calendarTypeColor: Record<string, UpcomingEvent['color']> = {
+  deadline: 'amber',
+  demo: 'purple',
+  presentation: 'blue',
+  meeting: 'green',
+};
 
-    let query = supabase
+const calendarTypeLabel: Record<string, string> = {
+  deadline: 'Deadline',
+  demo: 'Demo',
+  presentation: 'Presentation',
+  meeting: 'Meeting',
+};
+
+export async function getUpcomingEvents(limit?: number, courseId?: string): Promise<UpcomingEvent[]> {
+  try {
+    const now = new Date();
+    const nowIso = now.toISOString();
+
+    // Fetch milestones
+    let milestoneQuery = supabase
       .from('milestones')
       .select('id, name, due_date, course:courses!course_id(code)')
       .eq('visible', true)
-      .gt('due_date', now)
-      .order('due_date')
-      .limit(limit);
+      .gt('due_date', nowIso)
+      .order('due_date');
 
     if (courseId) {
-      query = (query as any).eq('course_id', courseId);
+      milestoneQuery = (milestoneQuery as any).eq('course_id', courseId);
     }
 
-    const { data, error } = await query;
+    // Fetch calendar events via API
+    const { data: session } = await supabase.auth.getSession();
+    const token = session.session?.access_token ?? '';
+    const calendarPromise = fetch('/api/calendar-events', {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(r => r.ok ? r.json() : []).catch(() => []);
+
+    const [{ data: milestoneData, error }, calendarData] = await Promise.all([
+      milestoneQuery,
+      calendarPromise,
+    ]);
 
     if (error) throw error;
 
-    const colors: ('blue' | 'purple' | 'green' | 'amber')[] = ['blue', 'purple', 'green', 'amber'];
-    return (data || []).map((m: any, index: number) => ({
+    const milestoneEvents: (UpcomingEvent & { _sortDate: Date })[] = (milestoneData || []).map((m: any) => ({
       title: m.name,
-      date: new Date(m.due_date).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      }),
-      detail: m.course?.code?.replace('_', '-') ?? '',
-      color: colors[index % colors.length],
+      date: new Date(m.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+      detail: m.course?.code?.replace('_', '-') ?? 'Milestone',
+      color: 'amber' as const,
+      _sortDate: new Date(m.due_date),
     }));
+
+    const calendarEvents: (UpcomingEvent & { _sortDate: Date })[] = (calendarData as any[])
+      .filter((e: any) => {
+        const eventDate = new Date(e.date);
+        if (eventDate < now) return false;
+        if (courseId && e.courseId && e.courseId !== courseId) return false;
+        return true;
+      })
+      .map((e: any) => ({
+        title: e.title,
+        date: new Date(e.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        detail: [calendarTypeLabel[e.type] ?? e.type, e.time, e.location].filter(Boolean).join(' · '),
+        color: calendarTypeColor[e.type] ?? 'blue',
+        _sortDate: new Date(e.date),
+      }));
+
+    const merged = [...milestoneEvents, ...calendarEvents]
+      .sort((a, b) => a._sortDate.getTime() - b._sortDate.getTime())
+      .map(({ _sortDate: _d, ...event }) => event);
+
+    return limit !== undefined ? merged.slice(0, limit) : merged;
   } catch (error) {
     console.error('Error fetching upcoming events:', error);
     return [];

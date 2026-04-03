@@ -1,6 +1,5 @@
 const { supabaseAdmin } = require('../config/supabase');
 const emailService = require('../services/email.service');
-const notificationService = require('../services/notification.service');
 
 /**
  * Seed closed rows for a course type if the table is empty for it.
@@ -122,28 +121,8 @@ async function openWeek(req, res) {
           weekNumber: weekRow.week_number,
           courseType: weekRow.course_type,
         });
-
-        // ── Trigger 3: announcement + calendar for students ───────────────────
-        const firstCourseId = courseIds[0] ?? null;
-        const today = new Date().toISOString().slice(0, 10);
-
-        await Promise.all([
-          notificationService.createAnnouncement({
-            title:       `Weekly Report #${weekRow.week_number} is Now Open`,
-            content:     `Week ${weekRow.week_number} report submission is now open for CPIS-${weekRow.course_type}.\nPlease submit your progress report on time.`,
-            targetRoles: ['student'],
-            courseId:    firstCourseId,
-            authorId:    updatedBy ?? null,
-          }),
-          notificationService.createCalendarEvent({
-            title:    `Weekly Report #${weekRow.week_number} Submission Open`,
-            date:     today,
-            type:     'deadline',
-            courseId: firstCourseId,
-          }),
-        ]);
       } catch (e) {
-        console.error('[weekStatuses] Failed to send week-opened notifications:', e);
+        console.error('[weekStatuses] Failed to send week-opened emails:', e);
       }
     })();
   } catch (err) {
@@ -232,4 +211,106 @@ async function lockWeek(req, res) {
   }
 }
 
-module.exports = { getWeekStatuses, openWeek, closeWeek, lockWeek };
+/**
+ * PATCH /api/week-statuses/:id/deadline
+ * Sets open_at and/or close_at for a week's submission window.
+ * Only coordinators and admins may call this.
+ *
+ * Body: { open_at?: string (ISO 8601), close_at?: string (ISO 8601) }
+ */
+async function setDeadline(req, res) {
+  try {
+    const { id } = req.params;
+    const { open_at, close_at } = req.body;
+    const updatedBy = req.user?.id;
+
+    if (!open_at && !close_at) {
+      return res.status(400).json({ error: 'Provide at least one of open_at or close_at.' });
+    }
+
+    if (open_at && close_at && new Date(open_at) >= new Date(close_at)) {
+      return res.status(400).json({ error: 'open_at must be before close_at.' });
+    }
+
+    const payload = { updated_by: updatedBy };
+    if (open_at  !== undefined) payload.open_at  = open_at  || null;
+    if (close_at !== undefined) payload.close_at = close_at || null;
+
+    const { error } = await supabaseAdmin
+      .from('week_statuses')
+      .update(payload)
+      .eq('id', id);
+
+    if (error) throw error;
+
+    res.json({ success: true });
+
+    // Schedule pre-deadline reminder email (best-effort, non-blocking)
+    if (close_at) {
+      ;(async () => {
+        try {
+          const deadline = new Date(close_at);
+          const reminderTime = new Date(deadline.getTime() - 24 * 60 * 60 * 1000);
+          const msUntilReminder = reminderTime.getTime() - Date.now();
+
+          if (msUntilReminder <= 0) return; // deadline already within 24 h or passed
+
+          const { data: weekRow } = await supabaseAdmin
+            .from('week_statuses')
+            .select('week_number, course_type')
+            .eq('id', id)
+            .single();
+
+          if (!weekRow) return;
+
+          setTimeout(async () => {
+            try {
+              const emails = await getStudentEmailsForCourseType(weekRow.course_type);
+              if (emails.length === 0) return;
+              await emailService.sendDeadlineReminder(emails, {
+                weekNumber: weekRow.week_number,
+                courseType: weekRow.course_type,
+                closeAt: close_at,
+              });
+            } catch (e) {
+              console.error('[weekStatuses] Failed to send deadline-reminder emails:', e);
+            }
+          }, msUntilReminder);
+        } catch (e) {
+          console.error('[weekStatuses] Error scheduling deadline reminder:', e);
+        }
+      })();
+    }
+  } catch (err) {
+    console.error('Error setting deadline:', err);
+    res.status(500).json({ error: 'Failed to set deadline' });
+  }
+}
+
+/**
+ * Resolves all student emails for a given course type (498 or 499).
+ * @param {string} courseType
+ * @returns {Promise<string[]>}
+ */
+async function getStudentEmailsForCourseType(courseType) {
+  const { data: courses } = await supabaseAdmin
+    .from('courses').select('id').ilike('code', `%${courseType}%`);
+  const courseIds = (courses || []).map((c) => c.id);
+  if (courseIds.length === 0) return [];
+
+  const { data: groups } = await supabaseAdmin
+    .from('groups').select('id').in('course_id', courseIds);
+  const groupIds = (groups || []).map((g) => g.id);
+  if (groupIds.length === 0) return [];
+
+  const { data: members } = await supabaseAdmin
+    .from('group_members').select('student_id').in('group_id', groupIds);
+  const studentIds = (members || []).map((m) => m.student_id);
+  if (studentIds.length === 0) return [];
+
+  const { data: profiles } = await supabaseAdmin
+    .from('profiles').select('email').in('id', studentIds);
+  return (profiles || []).map((p) => p.email).filter(Boolean);
+}
+
+module.exports = { getWeekStatuses, openWeek, closeWeek, lockWeek, setDeadline };

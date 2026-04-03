@@ -83,7 +83,7 @@ interface CriterionRowProps {
   isDeleting?: boolean;
 }
 
-function CriterionRow({ criterion, isDeliverable, onEdit, onDelete, isDeleting }: CriterionRowProps) {
+function CriterionRow({ criterion, onEdit, onDelete, isDeleting }: CriterionRowProps) {
   return (
     <tr className="border-b border-[var(--color-border)] hover:bg-gray-50 text-sm">
       <td className="py-3 px-4 text-[var(--color-text-900)] font-medium">
@@ -92,16 +92,14 @@ function CriterionRow({ criterion, isDeliverable, onEdit, onDelete, isDeleting }
       <td className="py-3 px-4 text-center text-[var(--color-text-900)] font-semibold tabular-nums">
         {criterion.maxRawScore}
       </td>
-      {!isDeliverable && (
-        <td className="py-3 px-4 text-[var(--color-text-600)] text-xs max-w-[300px]">
-          <div className="space-y-0.5">
-            {[1,2,3,4,5].map(n => {
-              const desc = (criterion as any)[`description${n}`];
-              return desc ? <div key={n}><span className="font-semibold text-[var(--color-text-800)]">{n}:</span> {desc}</div> : null;
-            })}
-          </div>
-        </td>
-      )}
+      <td className="py-3 px-4 text-[var(--color-text-600)] text-xs max-w-[300px]">
+        <div className="space-y-0.5">
+          {[1,2,3,4,5].map(n => {
+            const desc = (criterion as any)[`description${n}`];
+            return desc ? <div key={n}><span className="font-semibold text-[var(--color-text-800)]">{n}:</span> {desc}</div> : null;
+          })}
+        </div>
+      </td>
       <td className="py-3 px-4 text-right flex items-center justify-end gap-1.5">
         <Button
           size="sm"
@@ -181,6 +179,11 @@ export function CoordinatorGradeSchemeEditor() {
   // Criterion delete dialog
   const [deleteCriterionTarget, setDeleteCriterionTarget] = useState<RubricCriterion | null>(null);
   const [deletingCriterion, setDeletingCriterion] = useState(false);
+
+  // Active component for create/edit dialogs (tracks which component's "Add Criterion" was clicked)
+  const [activeComponentKey, setActiveComponentKey] = useState<string>('supervisor_eval');
+  const [activeComponentName, setActiveComponentName] = useState<string>('Supervisor Evaluation');
+  const [activeComponentCourseType, setActiveComponentCourseType] = useState<'498' | '499'>('498');
 
   // ── Load data ──────────────────────────────────────────────────────────────
 
@@ -305,13 +308,6 @@ export function CoordinatorGradeSchemeEditor() {
   };
 
   // ── Create/Delete Criterion handlers ────────────────────────────────────────
-  // These are set to work primarily with supervisor_eval for now.
-  // In future, can be extended to support other component types.
-
-  const activeComponentKey = 'supervisor_eval';
-  const activeComponentName = 'Supervisor Evaluation';
-  // Determine active course type from which criteria set has items
-  const activeCourseType: '498' | '499' = criteria498.some(c => c.componentKey === activeComponentKey) ? '498' : '499';
 
   const handleCreateCriterion = async () => {
     if (!createDraft.criterionName.trim()) {
@@ -331,7 +327,7 @@ export function CoordinatorGradeSchemeEditor() {
     setCreatingCriterion(true);
     try {
       const newCrit = await createRubricCriterion({
-        courseType: activeCourseType,
+        courseType: activeComponentCourseType,
         componentKey: activeComponentKey,
         criterionKey,
         criterionName: createDraft.criterionName.trim(),
@@ -345,7 +341,7 @@ export function CoordinatorGradeSchemeEditor() {
       });
 
       // Optimistic update: add to local state
-      if (activeCourseType === '498') {
+      if (activeComponentCourseType === '498') {
         setCriteria498(prev => [...prev, newCrit].sort((a, b) => a.displayOrder - b.displayOrder));
       } else {
         setCriteria499(prev => [...prev, newCrit].sort((a, b) => a.displayOrder - b.displayOrder));
@@ -378,7 +374,7 @@ export function CoordinatorGradeSchemeEditor() {
       await deleteRubricCriterion(deleteCriterionTarget.id);
 
       // Optimistic update: remove from local state
-      if (activeCourseType === '498') {
+      if (activeComponentCourseType === '498') {
         setCriteria498(prev => prev.filter(c => c.id !== deleteCriterionTarget.id));
       } else {
         setCriteria499(prev => prev.filter(c => c.id !== deleteCriterionTarget.id));
@@ -535,7 +531,12 @@ export function CoordinatorGradeSchemeEditor() {
                     </div>
                     <Button
                       size="sm"
-                      onClick={() => setCreateCriterionOpen(true)}
+                      onClick={() => {
+                        setActiveComponentKey(comp.componentKey);
+                        setActiveComponentName(draft[comp.componentKey]?.name ?? comp.componentName);
+                        setActiveComponentCourseType(courseType);
+                        setCreateCriterionOpen(true);
+                      }}
                       className="bg-purple-600 text-white hover:bg-purple-700 gap-1.5 h-7"
                     >
                       <Plus className="w-3.5 h-3.5" />
@@ -554,11 +555,9 @@ export function CoordinatorGradeSchemeEditor() {
                         <tr>
                           <th className="py-2 px-4 text-left text-xs text-[var(--color-text-700)]">Criterion</th>
                           <th className="py-2 px-4 text-center text-xs text-[var(--color-text-700)] w-24">
-                            {isDeliverable ? 'Max Score' : 'Max Raw (1–5)'}
+                            Max Score
                           </th>
-                          {!isDeliverable && (
-                            <th className="py-2 px-4 text-left text-xs text-[var(--color-text-700)]">Scale Descriptions</th>
-                          )}
+                          <th className="py-2 px-4 text-left text-xs text-[var(--color-text-700)]">Scale Descriptions</th>
                           <th className="py-2 px-4 text-right text-xs text-[var(--color-text-700)] w-20">Edit</th>
                         </tr>
                       </thead>
@@ -569,7 +568,10 @@ export function CoordinatorGradeSchemeEditor() {
                             criterion={c}
                             isDeliverable={isDeliverable}
                             onEdit={openCriterionEditor}
-                            onDelete={setDeleteCriterionTarget}
+                            onDelete={crit => {
+                              setActiveComponentCourseType(courseType);
+                              setDeleteCriterionTarget(crit);
+                            }}
                             isDeleting={deletingCriterion && deleteCriterionTarget?.id === c.id}
                           />
                         ))}
@@ -580,7 +582,7 @@ export function CoordinatorGradeSchemeEditor() {
                           <td className="py-2 px-4 text-center text-xs font-bold tabular-nums">
                             {compCriteria.reduce((s, c) => s + c.maxRawScore, 0)}
                           </td>
-                          {!isDeliverable && <td />}
+                          <td />
                           <td />
                         </tr>
                       </tfoot>
@@ -709,39 +711,35 @@ export function CoordinatorGradeSchemeEditor() {
                 <Label className="mb-1 block">
                   Max Score{' '}
                   <span className="text-xs text-[var(--color-text-600)]">
-                    {editCriterion.componentKey === 'coordinator_deliverables'
-                      ? '(max points for this deliverable)'
-                      : '(typically 5 for Likert scale)'}
+                    (max points for this criterion)
                   </span>
                 </Label>
                 <Input
                   type="number"
                   min={1}
-                  max={10}
+                  max={100}
                   value={criterionDraft.maxRawScore ?? editCriterion.maxRawScore}
                   onChange={e => setCriterionDraft(p => ({ ...p, maxRawScore: parseInt(e.target.value) || 1 }))}
                   className="w-28"
                 />
               </div>
 
-              {editCriterion.componentKey !== 'coordinator_deliverables' && (
-                <div className="space-y-3">
-                  <Label className="block">Scale Descriptions (1–5)</Label>
-                  {[1,2,3,4,5].map(n => (
-                    <div key={n} className="flex items-start gap-3">
-                      <span className="mt-2 w-6 h-6 shrink-0 flex items-center justify-center rounded-full bg-(--color-primary-100) text-xs font-bold text-(--color-primary-700)">
-                        {n}
-                      </span>
-                      <Textarea
-                        value={(criterionDraft as any)[`description${n}`] ?? (editCriterion as any)[`description${n}`] ?? ''}
-                        onChange={e => setCriterionDraft(p => ({ ...p, [`description${n}`]: e.target.value }))}
-                        className="flex-1 min-h-[60px] text-sm"
-                        placeholder={`Description for score ${n}…`}
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
+              <div className="space-y-3">
+                <Label className="block">Scale Descriptions (1–5) <span className="text-xs text-[var(--color-text-600)] font-normal">— optional rubric criteria</span></Label>
+                {[1,2,3,4,5].map(n => (
+                  <div key={n} className="flex items-start gap-3">
+                    <span className="mt-2 w-6 h-6 shrink-0 flex items-center justify-center rounded-full bg-[var(--color-primary-100)] text-xs font-bold text-[var(--color-primary-700)]">
+                      {n}
+                    </span>
+                    <Textarea
+                      value={(criterionDraft as any)[`description${n}`] ?? (editCriterion as any)[`description${n}`] ?? ''}
+                      onChange={e => setCriterionDraft(p => ({ ...p, [`description${n}`]: e.target.value }))}
+                      className="flex-1 min-h-[60px] text-sm"
+                      placeholder={`Description for score ${n}…`}
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -798,35 +796,30 @@ export function CoordinatorGradeSchemeEditor() {
               </div>
             </div>
 
-            {/* Scale Descriptions (conditionally shown) */}
-            {/* Only show for non-deliverable components */}
-            {activeComponentKey === 'supervisor_eval' && (
-              <>
-                <div className="border-t border-[var(--color-border)] pt-3 mt-3">
-                  <p className="text-xs font-medium text-[var(--color-text-600)] mb-2">
-                    Scale Descriptions (Optional)
-                  </p>
-                  {[1, 2, 3, 4, 5].map(level => (
-                    <div key={level} className="mb-2">
-                      <Label className="text-xs mb-0.5 block">
-                        Level {level} Description
-                      </Label>
-                      <Textarea
-                        placeholder={`e.g., "Excellent work showing mastery"`}
-                        value={createDraft.descriptions[level] || ''}
-                        onChange={e =>
-                          setCreateDraft(p => ({
-                            ...p,
-                            descriptions: { ...p.descriptions, [level]: e.target.value },
-                          }))
-                        }
-                        className="min-h-[50px] text-xs"
-                      />
-                    </div>
-                  ))}
+            {/* Scale Descriptions — shown for all components */}
+            <div className="border-t border-[var(--color-border)] pt-3 mt-3">
+              <p className="text-xs font-medium text-[var(--color-text-600)] mb-2">
+                Scale Descriptions (Optional) — rubric criteria for each score level
+              </p>
+              {[1, 2, 3, 4, 5].map(level => (
+                <div key={level} className="mb-2">
+                  <Label className="text-xs mb-0.5 block">
+                    Level {level} Description
+                  </Label>
+                  <Textarea
+                    placeholder={`e.g., "Excellent work showing mastery"`}
+                    value={createDraft.descriptions[level] || ''}
+                    onChange={e =>
+                      setCreateDraft(p => ({
+                        ...p,
+                        descriptions: { ...p.descriptions, [level]: e.target.value },
+                      }))
+                    }
+                    className="min-h-[50px] text-xs"
+                  />
                 </div>
-              </>
-            )}
+              ))}
+            </div>
 
             {/* Display Order */}
             <div>
