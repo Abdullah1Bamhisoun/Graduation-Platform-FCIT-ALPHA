@@ -400,7 +400,8 @@ function sendMilestoneCreated(studentEmails, data) {
  */
 function sendWeekOpened(studentEmails, data) {
   const { weekNumber, courseType, appUrl = '' } = data;
-  const courseName = `SE ${courseType}`;
+  const courseName = `CPIS-${courseType}`;
+  const submitUrl = appUrl || (APP_URL ? `${APP_URL}/student/weekly-reports` : '');
 
   const body = `
     ${heading(`Week ${weekNumber} Report Now Open`)}
@@ -411,7 +412,7 @@ function sendWeekOpened(studentEmails, data) {
       ['Status', 'Open for Submissions'],
     ])}
     ${paragraph('Please submit your weekly report before the week is closed.')}
-    ${appUrl ? ctaButton('Submit Weekly Report', appUrl) : ''}
+    ${submitUrl ? ctaButton('Submit Weekly Report', submitUrl) : ''}
   `;
 
   return Promise.allSettled(
@@ -422,7 +423,40 @@ function sendWeekOpened(studentEmails, data) {
 }
 
 /**
- * 9. Submission deadline reminder (1 day before close_at) → students
+ * 9. Weekly report submitted → supervisor
+ *
+ * @param {string} supervisorEmail
+ * @param {{ studentName: string, weekNumber: number, courseType: string, groupName?: string, appUrl?: string }} data
+ */
+function sendWeeklyReportSubmitted(supervisorEmail, data) {
+  const { studentName, weekNumber, courseType, groupName = '', appUrl = '' } = data;
+  const courseName = `CPIS-${courseType}`;
+  const reviewUrl = appUrl || (APP_URL ? `${APP_URL}/supervisor/weekly-reports` : '');
+
+  const rows = [
+    ['Student', studentName],
+    ['Course',  courseName],
+    ['Week',    `Week ${weekNumber}`],
+  ];
+  if (groupName) rows.push(['Group', groupName]);
+
+  const body = `
+    ${heading(`Weekly Report #${weekNumber} Submitted`)}
+    ${paragraph('A student has submitted their weekly report and it is ready for your review.')}
+    ${infoTable(rows)}
+    ${paragraph('Please log in to the platform to review the report and provide feedback.')}
+    ${reviewUrl ? ctaButton('Review Weekly Report', reviewUrl) : ''}
+  `;
+
+  return sendEmail(
+    supervisorEmail,
+    `[${courseName}] Weekly Report #${weekNumber} Submitted`,
+    layout(body, 'Weekly Report')
+  );
+}
+
+/**
+ * 10. Submission deadline reminder (1 day before close_at) → students
  *
  * @param {string[]} studentEmails
  * @param {{ weekNumber: number, courseType: string, closeAt: string, appUrl?: string }} data
@@ -470,5 +504,6 @@ module.exports = {
   sendCommitteeSchedule,
   sendMilestoneCreated,
   sendWeekOpened,
+  sendWeeklyReportSubmitted,
   sendDeadlineReminder,
 };

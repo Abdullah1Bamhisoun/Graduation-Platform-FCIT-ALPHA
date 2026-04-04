@@ -94,33 +94,19 @@ async function openWeek(req, res) {
 
     if (!weekRow) { console.warn('[weekStatuses] weekRow not found for id:', id); return; }
 
-    // Send email to students in this course type (best-effort, non-blocking)
+    // Send email to students on every open/reopen (best-effort, non-blocking)
     ;(async () => {
       try {
-        const { data: courses } = await supabaseAdmin
-          .from('courses').select('id').ilike('code', `%${weekRow.course_type}%`);
-        const courseIds = (courses || []).map((c) => c.id);
-        if (courseIds.length === 0) return;
-
-        const { data: groups } = await supabaseAdmin
-          .from('groups').select('id').in('course_id', courseIds);
-        const groupIds = (groups || []).map((g) => g.id);
-        if (groupIds.length === 0) return;
-
-        const { data: members } = await supabaseAdmin
-          .from('group_members').select('student_id').in('group_id', groupIds);
-        const studentIds = (members || []).map((m) => m.student_id);
-        if (studentIds.length === 0) return;
-
-        const { data: profiles } = await supabaseAdmin
-          .from('profiles').select('email').in('id', studentIds);
-        const emails = (profiles || []).map((p) => p.email).filter(Boolean);
-        if (emails.length === 0) return;
-
+        const emails = await getStudentEmailsForCourseType(weekRow.course_type);
+        if (emails.length === 0) {
+          console.warn('[weekStatuses] No student emails found for course type:', weekRow.course_type);
+          return;
+        }
         await emailService.sendWeekOpened(emails, {
           weekNumber: weekRow.week_number,
           courseType: weekRow.course_type,
         });
+        console.log(`[weekStatuses] Week-opened email sent to ${emails.length} student(s) for week ${weekRow.week_number}`);
       } catch (e) {
         console.error('[weekStatuses] Failed to send week-opened emails:', e);
       }
@@ -295,23 +281,33 @@ async function setDeadline(req, res) {
  * @returns {Promise<string[]>}
  */
 async function getStudentEmailsForCourseType(courseType) {
+  // Try scoped lookup: courses → groups → group_members → profiles
   const { data: courses } = await supabaseAdmin
     .from('courses').select('id').ilike('code', `%${courseType}%`);
   const courseIds = (courses || []).map((c) => c.id);
-  if (courseIds.length === 0) return [];
 
-  const { data: groups } = await supabaseAdmin
-    .from('groups').select('id').in('course_id', courseIds);
-  const groupIds = (groups || []).map((g) => g.id);
-  if (groupIds.length === 0) return [];
+  if (courseIds.length > 0) {
+    const { data: groups } = await supabaseAdmin
+      .from('groups').select('id').in('course_id', courseIds);
+    const groupIds = (groups || []).map((g) => g.id);
 
-  const { data: members } = await supabaseAdmin
-    .from('group_members').select('student_id').in('group_id', groupIds);
-  const studentIds = (members || []).map((m) => m.student_id);
-  if (studentIds.length === 0) return [];
+    if (groupIds.length > 0) {
+      const { data: members } = await supabaseAdmin
+        .from('group_members').select('student_id').in('group_id', groupIds);
+      const studentIds = (members || []).map((m) => m.student_id);
 
+      if (studentIds.length > 0) {
+        const { data: profiles } = await supabaseAdmin
+          .from('profiles').select('email').in('id', studentIds);
+        const emails = (profiles || []).map((p) => p.email).filter(Boolean);
+        if (emails.length > 0) return emails;
+      }
+    }
+  }
+
+  // Fallback: query all students by role (mirrors announcements controller pattern)
   const { data: profiles } = await supabaseAdmin
-    .from('profiles').select('email').in('id', studentIds);
+    .from('profiles').select('email').eq('role', 'student');
   return (profiles || []).map((p) => p.email).filter(Boolean);
 }
 

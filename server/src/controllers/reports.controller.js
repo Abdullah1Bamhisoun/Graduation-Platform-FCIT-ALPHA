@@ -13,6 +13,7 @@
 
 const { supabaseAdmin } = require('../config/supabase');
 const notificationService = require('../services/notification.service');
+const emailService = require('../services/email.service');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -114,6 +115,15 @@ async function submitWeeklyReport(req, res) {
 
         const today       = new Date().toISOString().slice(0, 10);
         const studentName = req.user.name || 'A student';
+
+        // Send email to supervisor (fire-and-forget)
+        if (supervisor.email) {
+          emailService.sendWeeklyReportSubmitted(supervisor.email, {
+            studentName,
+            weekNumber,
+            courseType,
+          }).catch((e) => console.error('[reports] Failed to send weekly-report-submitted email:', e.message));
+        }
 
         await Promise.all([
           notificationService.createAnnouncement({
