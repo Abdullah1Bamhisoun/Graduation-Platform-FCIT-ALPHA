@@ -13,6 +13,7 @@ import {
   setWeekDeadline,
 } from '../../services/week-statuses';
 import { Button } from '../../components/ui/button';
+import { DatePicker } from '../../components/ui/DatePicker';
 import {
   Eye, ChevronDown, ChevronRight, Unlock, EyeOff,
   Lock, ChevronUp, CheckCircle, Clock, Calendar, X,
@@ -625,12 +626,21 @@ $$;`}</pre>
                   <label className="block text-sm font-medium text-[var(--color-text-700)]">
                     Submission Opens
                   </label>
-                  <input
-                    type="datetime-local"
-                    value={dlOpenAt}
-                    onChange={e => setDlOpenAt(e.target.value)}
-                    className="w-full rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm text-[var(--color-text-900)] bg-[var(--color-surface-white)] focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <DatePicker
+                        value={dlOpenAt.split('T')[0] ?? ''}
+                        onChange={date => setDlOpenAt(date + 'T' + (dlOpenAt.split('T')[1] ?? '00:00'))}
+                        placeholder="Select date"
+                      />
+                    </div>
+                    <input
+                      type="time"
+                      value={dlOpenAt.split('T')[1] ?? ''}
+                      onChange={e => setDlOpenAt((dlOpenAt.split('T')[0] ?? '') + 'T' + e.target.value)}
+                      className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm text-[var(--color-text-900)] bg-[var(--color-surface-white)] focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
                 </div>
 
                 {/* Close date/time */}
@@ -638,12 +648,21 @@ $$;`}</pre>
                   <label className="block text-sm font-medium text-[var(--color-text-700)]">
                     Submission Deadline <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="datetime-local"
-                    value={dlCloseAt}
-                    onChange={e => setDlCloseAt(e.target.value)}
-                    className="w-full rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm text-[var(--color-text-900)] bg-[var(--color-surface-white)] focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <DatePicker
+                        value={dlCloseAt.split('T')[0] ?? ''}
+                        onChange={date => setDlCloseAt(date + 'T' + (dlCloseAt.split('T')[1] ?? '00:00'))}
+                        placeholder="Select date"
+                      />
+                    </div>
+                    <input
+                      type="time"
+                      value={dlCloseAt.split('T')[1] ?? ''}
+                      onChange={e => setDlCloseAt((dlCloseAt.split('T')[0] ?? '') + 'T' + e.target.value)}
+                      className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm text-[var(--color-text-900)] bg-[var(--color-surface-white)] focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
                   <p className="text-xs text-[var(--color-text-500)]">
                     Students will be notified by email 24 hours before this deadline.
                   </p>

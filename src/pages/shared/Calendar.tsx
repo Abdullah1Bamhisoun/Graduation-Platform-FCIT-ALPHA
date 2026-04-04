@@ -2,6 +2,7 @@ import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
+import { DatePicker } from '../../components/ui/DatePicker';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
@@ -114,14 +115,14 @@ export function Calendar() {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="eventDate">Date *</Label>
-                  <Input
-                    id="eventDate"
-                    type="date"
-                    value={formData.date}
-                    onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                    className="mt-1.5"
-                  />
+                  <Label>Date *</Label>
+                  <div className="mt-1.5">
+                    <DatePicker
+                      value={formData.date}
+                      onChange={(date) => setFormData({ ...formData, date })}
+                      placeholder="Select event date"
+                    />
+                  </div>
                 </div>
                 <div>
                   <Label htmlFor="eventType">Event Type *</Label>

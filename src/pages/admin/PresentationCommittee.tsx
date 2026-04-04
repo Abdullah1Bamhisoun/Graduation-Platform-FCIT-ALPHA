@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import { Layout } from '../../components/layout/Layout';
 import { getProfilesByRole } from '../../services/profiles';
 import { getAllGroups } from '../../services/groups';
-import { getAuditLog } from '../../services/audit';
 import {
   assignPresentationSchedule,
   computeScheduledAt,
@@ -11,11 +11,11 @@ import {
   getPresentationsByCourse,
   getServerTime,
 } from '../../services/presentations';
-import type { AuditLogEntry } from '../../types';
 import { Button } from '../../components/ui/button';
+import { WeekPicker } from '../../components/ui/WeekPicker';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
+import { Tabs, TabsContent } from '../../components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Switch } from '../../components/ui/switch';
 import {
@@ -59,6 +59,8 @@ interface TimeSlot {
   projectId?: string;
   course?: '498' | '499';
   conflicts?: string[];
+  /** ISO week this slot belongs to, e.g. "2026-W15". Used to filter by selected week. */
+  week?: string;
   /** True once the admin has explicitly saved this slot's supervisor fields via the dialog. */
   supervisorsModified?: boolean;
 }
@@ -113,15 +115,7 @@ export function AdminPresentationCommittee() {
   // Coordinators are locked to their assigned course; admins choose explicitly.
   const [course, setCourse] = useState<'498' | '499' | null>(null);
   const [weekStart, setWeekStart] = useState(() => dateToIsoWeek(new Date()));
-  const weekInputRef = useRef<HTMLInputElement>(null);
 
-  // Planning inputs (will be populated from DB)
-  const [numStudents498, setNumStudents498] = useState(0);
-  const [numStudents499, setNumStudents499] = useState(0);
-  const [numSupervisors, setNumSupervisors] = useState(0);
-  const [maxSessionsPerDay, setMaxSessionsPerDay] = useState(4);
-  const [sessionDuration, setSessionDuration] = useState(30);
-  const [bufferDuration, setBufferDuration] = useState(10);
 
   // Schedule slots (start empty)
   const [slots, setSlots] = useState<TimeSlot[]>([]);
@@ -135,7 +129,6 @@ export function AdminPresentationCommittee() {
   const [committeePool, setCommitteePool] = useState<Set<string>>(new Set());
   const [poolOpen, setPoolOpen] = useState(true);
   const [unassignedOpen, setUnassignedOpen] = useState(true);
-  const [changesLog, setChangesLog] = useState<AuditLogEntry[]>([]);
 
   const isCoordinator = user?.activeRole === 'coordinator';
 
@@ -143,11 +136,10 @@ export function AdminPresentationCommittee() {
     if (!user) return;
 
     async function init() {
-      const [sups, groups, auditEntries] = await Promise.all([
+      const [sups, groups] = await Promise.all([
         getProfilesByRole('supervisor'),
         // Pass activeRole so the backend applies coordinator course-scoping
         getAllGroups(user!.activeRole),
-        getAuditLog(),
       ]);
 
       setSupervisors(sups.map(s => ({
@@ -170,12 +162,6 @@ export function AdminPresentationCommittee() {
         supervisor: g.supervisorName || undefined,
         students: g.members.map(m => ({ id: m.id, name: m.name })),
       }));
-      setChangesLog(auditEntries.slice(0, 20));
-      const count498 = groups.filter(g => !isCourse499(g)).length;
-      const count499 = groups.filter(g => isCourse499(g)).length;
-      setNumStudents498(count498);
-      setNumStudents499(count499);
-      setNumSupervisors(sups.length);
 
       // For coordinators: auto-detect their course from loaded groups
       if (isCoordinator && mappedProjects.length > 0) {
@@ -204,6 +190,7 @@ export function AdminPresentationCommittee() {
         const reconstructed: TimeSlot[] = allSaved.map((s, i) => {
           const timeInfo = TIME_SLOTS.find(t => t.start === s.timeSlot);
           const project = mappedProjects.find(p => p.id === s.groupId);
+          const slotWeek = s.scheduledAt ? dateToIsoWeek(new Date(s.scheduledAt)) : undefined;
           return {
             id: `slot-${Date.now()}-${i}`,
             day: s.day as TimeSlot['day'],
@@ -216,6 +203,7 @@ export function AdminPresentationCommittee() {
             projectName: s.projectName,
             projectId: s.groupId,
             course: project?.course,
+            week: slotWeek,
           };
         });
         setSlots(reconstructed);
@@ -255,18 +243,6 @@ export function AdminPresentationCommittee() {
 
   if (!user) return null;
 
-  // Calculations
-  const requiredSlots498 = numStudents498;
-  const requiredSlots499 = numStudents499;
-  const totalRequired = requiredSlots498 + requiredSlots499;
-  const availableSlots = supervisors.reduce((sum, s) => sum + s.total, 0);
-  const coverage = totalRequired > 0 ? (availableSlots / totalRequired) * 100 : 0;
-  
-  const getCoverageColor = () => {
-    if (coverage < 90) return 'bg-red-500';
-    if (coverage < 100) return 'bg-amber-500';
-    return 'bg-green-500';
-  };
 
   // Add to history
   const addToHistory = (newSlots: TimeSlot[]) => {
@@ -304,6 +280,7 @@ export function AdminPresentationCommittee() {
       supervisor: '',
       status: 'empty',
       course: course ?? undefined,
+      week: weekStart,
     };
     setEditingSlot(newSlot);
     setSelectedSlot(null);
@@ -319,16 +296,28 @@ export function AdminPresentationCommittee() {
 
   // Save slot
   const handleSaveSlot = () => {
+    // Guard: if the currently-set supervisor(s) happen to be the group's own
+    // supervisor (e.g. set before the project was selected), strip them out.
+    const assignedProject = editingSlot.projectId
+      ? projects.find(p => p.id === editingSlot.projectId)
+      : null;
+    const groupSupLower = assignedProject?.supervisor?.trim().toLowerCase();
+    const slot = { ...editingSlot };
+    if (groupSupLower) {
+      if (slot.supervisor?.trim().toLowerCase() === groupSupLower) slot.supervisor = '';
+      if (slot.supervisor2?.trim().toLowerCase() === groupSupLower) slot.supervisor2 = undefined;
+    }
+
     if (selectedSlot) {
       // Update existing — mark supervisorsModified so handlePublish knows the
       // admin explicitly reviewed (and potentially changed) the supervisor fields.
-      const newSlots = slots.map(s => s.id === selectedSlot.id ? { ...selectedSlot, ...editingSlot, supervisorsModified: true } as TimeSlot : s);
+      const newSlots = slots.map(s => s.id === selectedSlot.id ? { ...selectedSlot, ...slot, supervisorsModified: true } as TimeSlot : s);
       setSlots(newSlots);
       addToHistory(newSlots);
 
       // Sync projects: unassign old project, assign new project
       const oldProjectId = selectedSlot.projectId;
-      const newProjectId = (editingSlot as Partial<TimeSlot>).projectId;
+      const newProjectId = slot.projectId;
       if (oldProjectId !== newProjectId) {
         setProjects(projects.map(p => {
           if (p.id === oldProjectId) return { ...p, status: 'unassigned' as const };
@@ -341,12 +330,12 @@ export function AdminPresentationCommittee() {
     } else {
       // Create new — mark supervisorsModified so handlePublish knows the admin
       // explicitly reviewed the supervisor fields for this new slot.
-      const newSlots = [...slots, { ...editingSlot, supervisorsModified: true } as TimeSlot];
+      const newSlots = [...slots, { ...slot, week: slot.week ?? weekStart, supervisorsModified: true } as TimeSlot];
       setSlots(newSlots);
       addToHistory(newSlots);
 
       // Mark the selected project as assigned
-      const newProjectId = (editingSlot as Partial<TimeSlot>).projectId;
+      const newProjectId = slot.projectId;
       if (newProjectId) {
         setProjects(projects.map(p =>
           p.id === newProjectId ? { ...p, status: 'assigned' as const } : p
@@ -421,9 +410,10 @@ export function AdminPresentationCommittee() {
   // Automatically creates slots for every unassigned project — no manual slot creation needed.
   // Rule: a committee member may have AT MOST 4 consecutive sessions in a single day.
   const handleAutoAssign = () => {
-    const unassigned = projects.filter(
-      p => p.status === 'unassigned' && (course === null || p.course === course)
-    );
+    const unassigned = projects
+      .filter(p => p.status === 'unassigned' && (course === null || p.course === course))
+      // Sort by groupId (IS_01 < IS_02 ...) so IS_01 always gets the first slot
+      .sort((a, b) => a.groupId.localeCompare(b.groupId, undefined, { numeric: true }));
 
     if (committeePool.size === 0) {
       toast.error('No supervisors selected in the committee pool. Please select supervisors before running auto-assign.');
@@ -493,17 +483,24 @@ export function AdminPresentationCommittee() {
     const newProjects = projects.map(p => ({ ...p }));
     let assigned = 0;
     const unplaceable: string[] = [];
+    // Track which newly-created slot indices belong to each day (for rotation later)
+    const newSlotsByDay: Record<string, number[]> = {};
 
-    for (const project of unassigned) {
+    for (let pi = 0; pi < unassigned.length; pi++) {
+      const project = unassigned[pi];
       const chosenGroupSupervisor = project.supervisor?.trim().toLowerCase();
+      const isFirstProject = pi === 0;
 
       // Build day priority order
       let dayOrder = [...DAYS];
-      if (autoBalanceLoad) {
+      if (isFirstProject) {
+        // Force IS_01 (first group) to Sunday first
+        dayOrder = ['Sun', ...DAYS.filter(d => d !== 'Sun')];
+      } else if (autoBalanceLoad) {
         dayOrder.sort((a, b) => dayLoad[a] - dayLoad[b]);
       }
-      // If preferred day is set, always try it first
-      if (autoPreferDay && project.preferredDay) {
+      // If preferred day is set, always try it first (except for IS_01)
+      if (!isFirstProject && autoPreferDay && project.preferredDay) {
         const preferred = DAYS.find(d => d.toLowerCase() === project.preferredDay!.toLowerCase());
         if (preferred) {
           dayOrder = [preferred, ...dayOrder.filter(d => d !== preferred)];
@@ -554,6 +551,7 @@ export function AdminPresentationCommittee() {
             projectName: project.name,
             projectId: project.id,
             course: project.course,
+            week: weekStart,
             supervisorsModified: true,
           });
 
@@ -567,6 +565,10 @@ export function AdminPresentationCommittee() {
           groupSessionsInDay[project.id][day] ??= [];
           groupSessionsInDay[project.id][day].push(timeIdx);
 
+          // Track newly-created slot index per day for committee rotation
+          newSlotsByDay[day] ??= [];
+          newSlotsByDay[day].push(newSlots.length - 1);
+
           const projIdx = newProjects.findIndex(p => p.id === project.id);
           if (projIdx !== -1) newProjects[projIdx] = { ...newProjects[projIdx], status: 'assigned' };
 
@@ -578,6 +580,54 @@ export function AdminPresentationCommittee() {
 
       if (!placed) {
         unplaceable.push(project.name);
+      }
+    }
+
+    // ── Committee rotation pass ─────────────────────────────────────────────
+    // For each day, sort newly-placed slots by time and process in blocks of 4.
+    // Each slot's committee members are drawn from the supervisors of the OTHER
+    // groups in the same block (rotating), so no group is evaluated by its own supervisor.
+    for (const day of DAYS) {
+      const dayIndices = (newSlotsByDay[day] ?? [])
+        .sort((a, b) =>
+          TIME_SLOTS.findIndex(t => t.start === newSlots[a].startTime) -
+          TIME_SLOTS.findIndex(t => t.start === newSlots[b].startTime)
+        );
+
+      for (let blockStart = 0; blockStart < dayIndices.length; blockStart += 4) {
+        const block = dayIndices.slice(blockStart, blockStart + 4);
+
+        block.forEach((slotIdx, i) => {
+          const s = newSlots[slotIdx];
+          const ownProj = newProjects.find(p => p.id === s.projectId);
+          const ownSupLower = ownProj?.supervisor?.trim().toLowerCase();
+
+          // Collect supervisors from the other slots in this block (rotating order)
+          const rotatedCandidates: string[] = [];
+          for (let offset = 1; offset < block.length; offset++) {
+            const neighborIdx = block[(i + offset) % block.length];
+            const neighborSlot = newSlots[neighborIdx];
+            const neighborProj = newProjects.find(p => p.id === neighborSlot.projectId);
+            const supName = neighborProj?.supervisor;
+            if (
+              supName &&
+              supName.trim().toLowerCase() !== ownSupLower &&
+              !rotatedCandidates.includes(supName) &&
+              (committeePool.size === 0 || committeePool.has(supName))
+            ) {
+              rotatedCandidates.push(supName);
+            }
+          }
+
+          // Apply rotated members; fall back to originally picked members if not enough candidates
+          if (rotatedCandidates.length > 0) {
+            newSlots[slotIdx] = {
+              ...s,
+              supervisor: rotatedCandidates[0],
+              supervisor2: rotatedCandidates[1] ?? s.supervisor2,
+            };
+          }
+        });
       }
     }
 
@@ -693,7 +743,50 @@ export function AdminPresentationCommittee() {
 
   // Download schedule
   const handleDownload = () => {
-    toast.success('Downloading schedule...');
+    const assignedSlots = slots.filter(s => s.status === 'assigned' && s.projectId);
+    if (assignedSlots.length === 0) {
+      toast.error('No assigned slots to download.');
+      return;
+    }
+
+    const rows = assignedSlots
+      .sort((a, b) => {
+        const dayOrder = DAYS.indexOf(a.day as typeof DAYS[number]) - DAYS.indexOf(b.day as typeof DAYS[number]);
+        if (dayOrder !== 0) return dayOrder;
+        return TIME_SLOTS.findIndex(t => t.start === a.startTime) - TIME_SLOTS.findIndex(t => t.start === b.startTime);
+      })
+      .map(slot => {
+        const proj = slot.projectId ? projects.find(p => p.id === slot.projectId) : null;
+        const students = proj?.students?.map(s => s.name).join(', ') ?? '';
+        return {
+          'Group ID': proj?.groupId ?? '',
+          'Project Name': slot.projectName ?? '',
+          'Course': slot.course ? `CPIS-${slot.course}` : '',
+          'Day': DAY_NAMES[slot.day as typeof DAYS[number]] ?? slot.day,
+          'Time Slot': `${slot.startTime} – ${slot.endTime}`,
+          'Room': slot.room,
+          'Committee Member 1': slot.supervisor,
+          'Committee Member 2': slot.supervisor2 ?? '',
+          'Supervisor': proj?.supervisor ?? '',
+          'Students': students,
+        };
+      });
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+
+    // Auto-width columns
+    const colWidths = Object.keys(rows[0] ?? {}).map(key => ({
+      wch: Math.max(key.length, ...rows.map(r => String(r[key as keyof typeof r] ?? '').length)) + 2,
+    }));
+    ws['!cols'] = colWidths;
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Schedule');
+
+    const label = course ? `CPIS-${course}` : 'All';
+    const week = weekStart.replace('-', '_');
+    XLSX.writeFile(wb, `Presentation_Schedule_${label}_${week}.xlsx`);
+    toast.success('Schedule downloaded.');
   };
 
   // Reset schedule — clears UI state and deletes published DB records so
@@ -722,7 +815,10 @@ export function AdminPresentationCommittee() {
     }
   };
 
-  const courseSlots = course ? slots.filter(s => !s.course || s.course === course) : slots;
+  const courseSlots = slots.filter(s =>
+    (!s.week || s.week === weekStart) &&
+    (!course || !s.course || s.course === course)
+  );
 
   const getSlotForDayTime = (day: typeof DAYS[number], time: string) => {
     return courseSlots.find(s => s.day === day && s.startTime === time);
@@ -743,67 +839,36 @@ export function AdminPresentationCommittee() {
       <div className="mb-6 flex flex-col sm:flex-row flex-wrap items-start sm:items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex rounded-lg border border-[var(--color-border)] overflow-hidden">
-            <button
-              onClick={() => !isCoordinator && setCourse('498')}
-              disabled={isCoordinator && course !== '498'}
-              className={`px-4 py-2 text-sm transition-colors ${
-                course === '498' ? 'bg-[var(--color-primary-600)] text-white' : 'bg-white text-[var(--color-text-600)] hover:bg-gray-50'
-              } disabled:opacity-40 disabled:cursor-not-allowed`}
-            >
-              CPIS-498
-            </button>
-            <button
-              onClick={() => !isCoordinator && setCourse('499')}
-              disabled={isCoordinator && course !== '499'}
-              className={`px-4 py-2 text-sm border-l border-[var(--color-border)] transition-colors ${
-                course === '499' ? 'bg-[var(--color-primary-600)] text-white' : 'bg-white text-[var(--color-text-600)] hover:bg-gray-50'
-              } disabled:opacity-40 disabled:cursor-not-allowed`}
-            >
-              CPIS-499
-            </button>
+            {(!isCoordinator || course === '498') && (
+              <button
+                onClick={() => !isCoordinator && setCourse('498')}
+                className={`px-4 py-2 text-sm transition-colors ${
+                  course === '498' ? 'bg-[var(--color-primary-600)] text-white' : 'bg-white text-[var(--color-text-600)] hover:bg-gray-50'
+                }`}
+              >
+                CPIS-498
+              </button>
+            )}
+            {(!isCoordinator || course === '499') && (
+              <button
+                onClick={() => !isCoordinator && setCourse('499')}
+                className={`px-4 py-2 text-sm ${!isCoordinator ? 'border-l border-[var(--color-border)]' : ''} transition-colors ${
+                  course === '499' ? 'bg-[var(--color-primary-600)] text-white' : 'bg-white text-[var(--color-text-600)] hover:bg-gray-50'
+                }`}
+              >
+                CPIS-499
+              </button>
+            )}
           </div>
 
-          {/* Hidden native week picker — triggered by the button below */}
-          <input
-            ref={weekInputRef}
-            type="week"
-            value={weekStart}
-            onChange={(e) => setWeekStart(e.target.value)}
-            style={{ position: 'absolute', width: 0, height: 0, opacity: 0, pointerEvents: 'none' }}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              try { weekInputRef.current?.showPicker(); }
-              catch { weekInputRef.current?.click(); }
-            }}
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            {/^\d{4}-W\d{2}$/.test(weekStart)
-              ? `Week ${parseInt(weekStart.split('-W')[1], 10)} · ${weekStart.split('-W')[0]}`
-              : 'Add Week'}
-          </Button>
+
+          <WeekPicker value={weekStart} onChange={setWeekStart} />
 
           <Button variant="outline" size="sm" onClick={handleDownload}>
             <Download className="w-4 h-4 mr-2" />
             Download
           </Button>
 
-          <TabsList className="border border-(--color-border) bg-(--color-surface-white) rounded-xl p-1">
-            <TabsTrigger
-              value="schedule"
-              className="rounded-lg px-4 data-[state=active]:bg-(--color-primary-600)! data-[state=active]:text-white data-[state=active]:border-(--color-primary-600) data-[state=inactive]:text-(--color-text-600) data-[state=inactive]:border-transparent"
-            >
-              Schedule
-            </TabsTrigger>
-            <TabsTrigger
-              value="audit"
-              className="rounded-lg px-4 data-[state=active]:bg-(--color-primary-600)! data-[state=active]:text-white data-[state=active]:border-(--color-primary-600) data-[state=inactive]:text-(--color-text-600) data-[state=inactive]:border-transparent"
-            >
-              Changes Log
-            </TabsTrigger>
-          </TabsList>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -839,108 +904,8 @@ export function AdminPresentationCommittee() {
       </div>
 
         <TabsContent value="schedule">
-          <div className="grid grid-cols-1 xl:grid-cols-[320px_1fr_380px] gap-6">
-            {/* Left Panel - Planning & Capacity ONLY */}
-            <div>
-              <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
-                <h3 className="text-[var(--color-text-900)] mb-4">Planning & Capacity</h3>
-                
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <Label className="text-xs">Students (498)</Label>
-                      <Input
-                        type="number"
-                        value={numStudents498}
-                        onChange={(e) => setNumStudents498(parseInt(e.target.value) || 0)}
-                        className="mt-1"
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Students (499)</Label>
-                      <Input
-                        type="number"
-                        value={numStudents499}
-                        onChange={(e) => setNumStudents499(parseInt(e.target.value) || 0)}
-                        className="mt-1"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <Label className="text-xs">Number of Supervisors</Label>
-                    <Input
-                      type="number"
-                      value={numSupervisors}
-                      onChange={(e) => setNumSupervisors(parseInt(e.target.value) || 0)}
-                      className="mt-1"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <Label className="text-xs">Max Sessions/Day</Label>
-                      <Input
-                        type="number"
-                        value={maxSessionsPerDay}
-                        onChange={(e) => setMaxSessionsPerDay(parseInt(e.target.value) || 0)}
-                        className="mt-1"
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Session Duration</Label>
-                      <Input
-                        type="number"
-                        value={sessionDuration}
-                        onChange={(e) => setSessionDuration(parseInt(e.target.value) || 0)}
-                        className="mt-1"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <Label className="text-xs">Buffer</Label>
-                    <Input
-                      type="number"
-                      value={bufferDuration}
-                      onChange={(e) => setBufferDuration(parseInt(e.target.value) || 0)}
-                      className="mt-1"
-                    />
-                  </div>
-                </div>
-
-                {/* Computed Metrics */}
-                <div className="mt-6 space-y-3">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-[var(--color-text-600)]">Required Slots</span>
-                    <span className="px-2 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                      {totalRequired}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-[var(--color-text-600)]">Available Slots</span>
-                    <span className="px-2 py-1 rounded-full bg-green-50 text-green-700 border border-green-200">
-                      {availableSlots}
-                    </span>
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between text-sm mb-2">
-                      <span className="text-[var(--color-text-600)]">Coverage</span>
-                      <span className="text-[var(--color-text-900)]">{coverage.toFixed(0)}%</span>
-                    </div>
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full ${getCoverageColor()} transition-all duration-300`}
-                        style={{ width: `${Math.min(coverage, 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-            </div>
-
-            {/* Middle Panel - Week Schedule */}
+          <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-6">
+            {/* Left Panel - Week Schedule */}
             <div>
               <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-6">
                 <div className="flex items-center justify-between mb-4">
@@ -1006,6 +971,14 @@ export function AdminPresentationCommittee() {
                                         <div className="text-xs text-[var(--color-text-900)] mb-1 truncate">
                                           {slot.projectName}
                                         </div>
+                                        {(() => {
+                                          const proj = slot.projectId ? projects.find(p => p.id === slot.projectId) : null;
+                                          return proj?.groupId ? (
+                                            <div className="text-xs font-mono text-[var(--color-text-600)] mb-1 truncate">
+                                              {proj.groupId}
+                                            </div>
+                                          ) : null;
+                                        })()}
                                         <div className="flex items-center gap-1 text-xs text-[var(--color-text-600)]">
                                           <Users className="w-3 h-3" />
                                           <span className="truncate">
@@ -1069,7 +1042,12 @@ export function AdminPresentationCommittee() {
                   className="w-full flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition-colors"
                 >
                   <div className="text-left">
-                    <h3 className="text-[var(--color-text-900)]">Committee Supervisors</h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-[var(--color-text-900)]">Committee Supervisors</h3>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--color-surface-alt)] border border-[var(--color-border)] text-[var(--color-text-600)]">
+                        {supervisors.length}
+                      </span>
+                    </div>
                     {!poolOpen && committeePool.size > 0 && (
                       <p className="text-xs text-[var(--color-text-600)] mt-0.5">{committeePool.size} selected</p>
                     )}
@@ -1122,7 +1100,12 @@ export function AdminPresentationCommittee() {
                   className="w-full flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition-colors"
                 >
                   <div className="text-left">
-                    <h3 className="text-[var(--color-text-900)]">Unassigned Projects</h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-[var(--color-text-900)]">Unassigned Projects</h3>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--color-surface-alt)] border border-[var(--color-border)] text-[var(--color-text-600)]">
+                        {getUnassignedProjects().length}
+                      </span>
+                    </div>
                     {!unassignedOpen && (
                       <p className="text-xs text-[var(--color-text-600)] mt-0.5">{getUnassignedProjects().length} remaining</p>
                     )}
@@ -1187,32 +1170,6 @@ export function AdminPresentationCommittee() {
           </div>
         </TabsContent>
 
-        <TabsContent value="audit">
-          <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-8">
-            <h3 className="text-[var(--color-text-900)] mb-6">Changes Log</h3>
-            <div className="space-y-4">
-              {changesLog.length > 0 ? changesLog.map((entry) => (
-                <div key={entry.id} className="flex gap-4 pb-4 border-b border-[var(--color-border)] last:border-0">
-                  <div className="w-2 h-2 rounded-full bg-blue-600 mt-2 flex-shrink-0"></div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-[var(--color-text-900)]">{entry.action}</span>
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">{entry.entity}</span>
-                    </div>
-                    <p className="text-[var(--color-text-600)] text-sm">{entry.context || '—'}</p>
-                    <p className="text-[var(--color-text-600)] text-xs mt-1">
-                      {entry.actor} • {new Date(entry.timestamp).toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-              )) : (
-                <div className="text-center py-8 text-[var(--color-text-600)]">
-                  <p>No changes logged yet</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </TabsContent>
       </Tabs>
 
       {/* Slot Dialog */}
@@ -1342,22 +1299,26 @@ export function AdminPresentationCommittee() {
                         key={project.id}
                         type="button"
                         onClick={() => {
-                          setEditingSlot({ 
-                            ...editingSlot, 
-                            projectId: project.id, 
-                            projectName: project.name, 
+                          const groupSupLower = project.supervisor?.trim().toLowerCase();
+                          setEditingSlot({
+                            ...editingSlot,
+                            projectId: project.id,
+                            projectName: project.name,
                             course: project.course,
-                            status: 'assigned'
+                            status: 'assigned',
+                            // Clear any committee member that is this group's own supervisor
+                            supervisor: groupSupLower && editingSlot.supervisor?.trim().toLowerCase() === groupSupLower ? '' : editingSlot.supervisor,
+                            supervisor2: groupSupLower && editingSlot.supervisor2?.trim().toLowerCase() === groupSupLower ? undefined : editingSlot.supervisor2,
                           });
                         }}
-                        className={`w-full p-3 border rounded-lg text-left transition-all hover:border-[var(--color-primary-600)] hover:bg-blue-50 ${
-                          editingSlot.projectId === project.id 
-                            ? 'border-[var(--color-primary-600)] bg-blue-50' 
+                        className={`w-full p-3 border rounded-lg text-left transition-all hover:border-[var(--color-primary-600)] hover:bg-blue-50 hover:[&_*]:text-gray-900 ${
+                          editingSlot.projectId === project.id
+                            ? 'border-[var(--color-primary-600)] bg-blue-50'
                             : 'border-[var(--color-border)]'
                         }`}
                       >
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-sm text-[var(--color-text-900)] truncate">{project.name}</span>
+                          <span className={`text-sm truncate ${editingSlot.projectId === project.id ? 'text-gray-900' : 'text-[var(--color-text-900)]'}`}>{project.name}</span>
                           <span className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ml-2 ${
                             project.course === '498'
                               ? 'bg-blue-100 text-blue-700 border border-blue-200'
@@ -1366,7 +1327,7 @@ export function AdminPresentationCommittee() {
                             CPIS-{project.course}
                           </span>
                         </div>
-                        <div className="text-xs text-[var(--color-text-600)]">{project.groupId}</div>
+                        <div className={`text-xs ${editingSlot.projectId === project.id ? 'text-gray-600' : 'text-[var(--color-text-600)]'}`}>{project.groupId}</div>
                       </button>
                     ))
                   ) : (

@@ -10,6 +10,7 @@ import { supabase } from '../../lib/supabase';
 import type { CoordinatorGroupWithGrades } from '../../services/groups';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
+import { DatePicker } from '../../components/ui/DatePicker';
 import { Label } from '../../components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { MetricCard } from '../../features/dashboard/components/MetricCard';
@@ -606,8 +607,8 @@ export function AdminExportsAudit() {
                   <option>Published</option>
                   <option>Updated</option>
                 </select>
-                <Input type="date" className="hidden sm:block w-32 h-8 text-sm" />
-                <Input type="date" className="hidden sm:block w-32 h-8 text-sm" />
+                <div className="hidden sm:block"><DatePicker value="" onChange={() => {}} placeholder="From date" /></div>
+                <div className="hidden sm:block"><DatePicker value="" onChange={() => {}} placeholder="To date" /></div>
               </div>
             }
           >
@@ -683,24 +684,24 @@ export function AdminExportsAudit() {
               <div className="p-6 space-y-6">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="from">From Date</Label>
-                    <Input
-                      id="from"
-                      type="date"
-                      value={dateRange.from}
-                      onChange={(e) => setDateRange({ ...dateRange, from: e.target.value })}
-                      className="mt-2"
-                    />
+                    <Label>From Date</Label>
+                    <div className="mt-2">
+                      <DatePicker
+                        value={dateRange.from}
+                        onChange={(date) => setDateRange({ ...dateRange, from: date })}
+                        placeholder="Select start date"
+                      />
+                    </div>
                   </div>
                   <div>
-                    <Label htmlFor="to">To Date</Label>
-                    <Input
-                      id="to"
-                      type="date"
-                      value={dateRange.to}
-                      onChange={(e) => setDateRange({ ...dateRange, to: e.target.value })}
-                      className="mt-2"
-                    />
+                    <Label>To Date</Label>
+                    <div className="mt-2">
+                      <DatePicker
+                        value={dateRange.to}
+                        onChange={(date) => setDateRange({ ...dateRange, to: date })}
+                        placeholder="Select end date"
+                      />
+                    </div>
                   </div>
                 </div>
 

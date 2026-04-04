@@ -9,6 +9,7 @@ import { getCourseTypeFromUUID } from '../../services/courses';
 import { supabase } from '../../lib/supabase';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
+import { DatePicker } from '../../components/ui/DatePicker';
 import { Label } from '../../components/ui/label';
 import { Switch } from '../../components/ui/switch';
 import { Textarea } from '../../components/ui/textarea';
@@ -263,24 +264,24 @@ export function AdminMilestonesConfig() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="openDate">Open Date</Label>
-                      <Input
-                        id="openDate"
-                        type="date"
-                        value={config.openDate}
-                        onChange={(e) => updateConfigField(config.id, 'openDate', e.target.value)}
-                        className="mt-2"
-                      />
+                      <Label>Open Date</Label>
+                      <div className="mt-2">
+                        <DatePicker
+                          value={config.openDate}
+                          onChange={(date) => updateConfigField(config.id, 'openDate', date)}
+                          placeholder="Select open date"
+                        />
+                      </div>
                     </div>
                     <div>
-                      <Label htmlFor="closeDate">Close Date</Label>
-                      <Input
-                        id="closeDate"
-                        type="date"
-                        value={config.closeDate}
-                        onChange={(e) => updateConfigField(config.id, 'closeDate', e.target.value)}
-                        className="mt-2"
-                      />
+                      <Label>Close Date</Label>
+                      <div className="mt-2">
+                        <DatePicker
+                          value={config.closeDate}
+                          onChange={(date) => updateConfigField(config.id, 'closeDate', date)}
+                          placeholder="Select close date"
+                        />
+                      </div>
                     </div>
                   </div>
 
