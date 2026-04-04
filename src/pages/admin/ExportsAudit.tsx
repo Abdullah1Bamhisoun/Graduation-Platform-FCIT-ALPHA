@@ -9,7 +9,6 @@ import { getGradingComponents } from '../../services/grading-rubric';
 import { supabase } from '../../lib/supabase';
 import type { CoordinatorGroupWithGrades } from '../../services/groups';
 import { Button } from '../../components/ui/button';
-import { Input } from '../../components/ui/input';
 import { DatePicker } from '../../components/ui/DatePicker';
 import { Label } from '../../components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
