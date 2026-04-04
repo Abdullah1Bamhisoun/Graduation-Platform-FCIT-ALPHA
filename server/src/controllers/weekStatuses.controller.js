@@ -224,7 +224,8 @@ async function setDeadline(req, res) {
     const { open_at, close_at } = req.body;
     const updatedBy = req.user?.id;
 
-    if (!open_at && !close_at) {
+    // Both undefined means no body fields at all — reject
+    if (open_at === undefined && close_at === undefined) {
       return res.status(400).json({ error: 'Provide at least one of open_at or close_at.' });
     }
 
@@ -232,6 +233,7 @@ async function setDeadline(req, res) {
       return res.status(400).json({ error: 'open_at must be before close_at.' });
     }
 
+    // Explicit null clears the column; omitted fields are left unchanged
     const payload = { updated_by: updatedBy };
     if (open_at  !== undefined) payload.open_at  = open_at  || null;
     if (close_at !== undefined) payload.close_at = close_at || null;

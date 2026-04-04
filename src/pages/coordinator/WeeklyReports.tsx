@@ -14,6 +14,7 @@ import {
 } from '../../services/week-statuses';
 import { Button } from '../../components/ui/button';
 import { DatePicker } from '../../components/ui/DatePicker';
+import { TimePicker } from '../../components/ui/TimePicker';
 import {
   Eye, ChevronDown, ChevronRight, Unlock, EyeOff,
   Lock, ChevronUp, CheckCircle, Clock, Calendar, X,
@@ -154,21 +155,33 @@ export function CoordinatorWeeklyReports() {
 
   const handleSaveDeadline = async () => {
     if (!deadlineWeek) return;
-    if (!dlOpenAt && !dlCloseAt) {
-      toast.error('Provide at least one date/time');
+
+    // A valid combined value needs both a non-empty date part and a time part
+    const isValidDt = (s: string) => {
+      const [datePart] = s.split('T');
+      return !!datePart && !isNaN(new Date(s).getTime());
+    };
+
+    const openAtISO  = dlOpenAt  && isValidDt(dlOpenAt)  ? new Date(dlOpenAt).toISOString()  : null;
+    const closeAtISO = dlCloseAt && isValidDt(dlCloseAt) ? new Date(dlCloseAt).toISOString() : null;
+
+    if (!openAtISO && !closeAtISO) {
+      toast.error('Select at least one valid date and time');
       return;
     }
-    if (dlOpenAt && dlCloseAt && new Date(dlOpenAt) >= new Date(dlCloseAt)) {
+    if (openAtISO && closeAtISO && new Date(openAtISO) >= new Date(closeAtISO)) {
       toast.error('Open date must be before close date');
       return;
     }
     setDlSaving(true);
     try {
-      await setWeekDeadline(
-        deadlineWeek.id,
-        dlOpenAt ? new Date(dlOpenAt).toISOString() : null,
-        dlCloseAt ? new Date(dlCloseAt).toISOString() : null,
-      );
+      await setWeekDeadline(deadlineWeek.id, openAtISO, closeAtISO);
+
+      // Automatically open the week whenever a deadline is saved
+      if (user) {
+        await openWeek(deadlineWeek.id, user.id);
+      }
+
       if (courseType) await loadWeekStatuses(courseType);
       toast.success(`Deadline saved for Week ${deadlineWeek.weekNumber}`);
       setDeadlineWeek(null);
@@ -343,8 +356,8 @@ $$;`}</pre>
                           </span>
                         )}
 
-                        {/* Manual open/close — only shown when no datetime window is set */}
-                        {ws && !ws.isLocked && !ws.isOpen && !ws.openAt && (
+                        {/* Open — fresh week, never opened, no deadline */}
+                        {ws && !ws.isLocked && !ws.isOpen && !ws.wasOpened && !ws.openAt && (
                           <button
                             disabled={busy}
                             onClick={() => handleOpen(ws)}
@@ -354,7 +367,21 @@ $$;`}</pre>
                             Open
                           </button>
                         )}
-                        {ws && !ws.isLocked && ws.isOpen && !ws.openAt && (
+
+                        {/* Reopen — was opened before OR has a deadline window (closed/past) */}
+                        {ws && !ws.isLocked && !ws.isOpen && (ws.wasOpened || ws.openAt) && (
+                          <button
+                            disabled={busy}
+                            onClick={() => handleOpen(ws)}
+                            className="w-full text-xs flex items-center justify-center gap-1 px-1.5 py-1 rounded border border-green-300 text-green-700 bg-white hover:bg-green-50 disabled:opacity-50 transition-colors"
+                          >
+                            <Unlock className="w-2.5 h-2.5" />
+                            Reopen
+                          </button>
+                        )}
+
+                        {/* Close — week is currently open */}
+                        {ws && !ws.isLocked && ws.isOpen && (
                           <button
                             disabled={busy}
                             onClick={() => handleClose(ws)}
@@ -365,7 +392,7 @@ $$;`}</pre>
                           </button>
                         )}
 
-                        {/* Deadline config button */}
+                        {/* Deadline config button — always available for non-locked weeks */}
                         {ws && !ws.isLocked && (
                           <button
                             onClick={() => openDeadlineDialog(ws)}
@@ -630,15 +657,14 @@ $$;`}</pre>
                     <div className="flex-1">
                       <DatePicker
                         value={dlOpenAt.split('T')[0] ?? ''}
-                        onChange={date => setDlOpenAt(date + 'T' + (dlOpenAt.split('T')[1] ?? '00:00'))}
+                        onChange={date => setDlOpenAt(date + 'T' + (dlOpenAt.split('T')[1] ?? '08:00'))}
                         placeholder="Select date"
                       />
                     </div>
-                    <input
-                      type="time"
+                    <TimePicker
                       value={dlOpenAt.split('T')[1] ?? ''}
-                      onChange={e => setDlOpenAt((dlOpenAt.split('T')[0] ?? '') + 'T' + e.target.value)}
-                      className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm text-[var(--color-text-900)] bg-[var(--color-surface-white)] focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      onChange={time => setDlOpenAt((dlOpenAt.split('T')[0] ?? '') + 'T' + time)}
+                      placeholder="Time"
                     />
                   </div>
                 </div>
@@ -652,15 +678,14 @@ $$;`}</pre>
                     <div className="flex-1">
                       <DatePicker
                         value={dlCloseAt.split('T')[0] ?? ''}
-                        onChange={date => setDlCloseAt(date + 'T' + (dlCloseAt.split('T')[1] ?? '00:00'))}
+                        onChange={date => setDlCloseAt(date + 'T' + (dlCloseAt.split('T')[1] ?? '23:59'))}
                         placeholder="Select date"
                       />
                     </div>
-                    <input
-                      type="time"
+                    <TimePicker
                       value={dlCloseAt.split('T')[1] ?? ''}
-                      onChange={e => setDlCloseAt((dlCloseAt.split('T')[0] ?? '') + 'T' + e.target.value)}
-                      className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm text-[var(--color-text-900)] bg-[var(--color-surface-white)] focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      onChange={time => setDlCloseAt((dlCloseAt.split('T')[0] ?? '') + 'T' + time)}
+                      placeholder="Time"
                     />
                   </div>
                   <p className="text-xs text-[var(--color-text-500)]">
