@@ -1,15 +1,8 @@
 import { supabase } from '../lib/supabase';
 import type { WeekStatus, WeekDisplayStatus } from '../types';
 
-async function getToken(): Promise<string> {
-  const { data } = await supabase.auth.getSession();
-  return data.session?.access_token ?? '';
-}
-
 /**
  * Maps a raw DB row to the WeekStatus interface.
- * Handles the minimal real schema (course_type, week_number, is_open,
- * was_opened, updated_by, updated_at) plus optional extra columns.
  */
 function mapRow(row: any): WeekStatus {
   return {
@@ -70,67 +63,100 @@ export function isSubmissionOpen(ws: WeekStatus | undefined): boolean {
 }
 
 /**
- * Fetch all 16 week statuses via the server API (bypasses RLS, auto-seeds).
- * The semester and department params are accepted for API compatibility but
- * are not sent to the server — the DB currently filters by course_type only.
+ * Seeds missing week rows for a course type (weeks 1–16).
+ * Best-effort — silently ignores errors if RLS prevents insertion.
+ */
+async function ensureSeeded(courseType: '498' | '499'): Promise<void> {
+  const { data: existing } = await supabase
+    .from('week_statuses')
+    .select('week_number')
+    .eq('course_type', courseType);
+
+  const existingNums = new Set((existing || []).map((r: any) => r.week_number));
+  const missing = Array.from({ length: 16 }, (_, i) => i + 1).filter((n) => !existingNums.has(n));
+
+  if (missing.length === 0) return;
+
+  const rows = missing.map((n) => ({
+    course_type: courseType,
+    week_number: n,
+    is_open:     false,
+    was_opened:  false,
+  }));
+
+  // Best-effort — ignore errors (e.g. RLS may prevent this for non-admin users)
+  await supabase.from('week_statuses').insert(rows);
+}
+
+/**
+ * Fetch all 16 week statuses for a course type. Auto-seeds rows on first access.
  */
 export async function getWeekStatuses(
   courseType: '498' | '499',
   _semester?: string,
   _department?: string
 ): Promise<WeekStatus[]> {
-  const token = await getToken();
-  const res = await fetch(`/api/week-statuses?courseType=${courseType}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || body.message || `Failed to fetch week statuses: HTTP ${res.status}`);
-  }
-  const rows: any[] = await res.json();
-  return rows.map(mapRow);
+  await ensureSeeded(courseType);
+
+  const { data, error } = await supabase
+    .from('week_statuses')
+    .select('*')
+    .eq('course_type', courseType)
+    .order('week_number');
+
+  if (error) throw new Error(error.message || 'Failed to fetch week statuses');
+  return (data || []).map(mapRow);
 }
 
 /** Open a week (sets is_open = true, was_opened = true). */
 export async function openWeek(
   weekStatusId: string,
-  _openedBy?: string
+  openedBy?: string
 ): Promise<void> {
-  const token = await getToken();
-  const res = await fetch(`/api/week-statuses/${weekStatusId}/open`, {
-    method: 'PATCH',
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Failed to open week: HTTP ${res.status}`);
-  }
+  const { error } = await supabase
+    .from('week_statuses')
+    .update({ is_open: true, was_opened: true, updated_by: openedBy ?? null })
+    .eq('id', weekStatusId);
+
+  if (error) throw new Error(error.message || 'Failed to open week');
 }
 
 /** Close a week (sets is_open = false). Cannot close a locked week. */
 export async function closeWeek(weekStatusId: string): Promise<void> {
-  const token = await getToken();
-  const res = await fetch(`/api/week-statuses/${weekStatusId}/close`, {
-    method: 'PATCH',
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Failed to close week: HTTP ${res.status}`);
-  }
+  const { data: row, error: readErr } = await supabase
+    .from('week_statuses')
+    .select('is_locked')
+    .eq('id', weekStatusId)
+    .single();
+
+  if (readErr) throw new Error(readErr.message || 'Failed to fetch week status');
+  if ((row as any)?.is_locked) throw new Error('Cannot close a locked week.');
+
+  const { error } = await supabase
+    .from('week_statuses')
+    .update({ is_open: false })
+    .eq('id', weekStatusId);
+
+  if (error) throw new Error(error.message || 'Failed to close week');
 }
 
 /** Lock a week permanently (must have been opened before). */
 export async function lockWeek(weekStatusId: string): Promise<void> {
-  const token = await getToken();
-  const res = await fetch(`/api/week-statuses/${weekStatusId}/lock`, {
-    method: 'PATCH',
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Failed to lock week: HTTP ${res.status}`);
-  }
+  const { data, error: readErr } = await supabase
+    .from('week_statuses')
+    .select('was_opened')
+    .eq('id', weekStatusId)
+    .single();
+
+  if (readErr) throw new Error(readErr.message || 'Failed to fetch week status');
+  if (!(data as any)?.was_opened) throw new Error('Cannot lock a week that was never opened.');
+
+  const { error } = await supabase
+    .from('week_statuses')
+    .update({ is_open: false, is_locked: true })
+    .eq('id', weekStatusId);
+
+  if (error) throw new Error(error.message || 'Failed to lock week');
 }
 
 /**
@@ -142,19 +168,21 @@ export async function setWeekDeadline(
   openAt: string | null,
   closeAt: string | null
 ): Promise<void> {
-  const token = await getToken();
-  const res = await fetch(`/api/week-statuses/${weekStatusId}/deadline`, {
-    method: 'PATCH',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ open_at: openAt, close_at: closeAt }),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Failed to set deadline: HTTP ${res.status}`);
+  if (!openAt && !closeAt) throw new Error('Provide at least one of open_at or close_at.');
+  if (openAt && closeAt && new Date(openAt) >= new Date(closeAt)) {
+    throw new Error('open_at must be before close_at.');
   }
+
+  const payload: Record<string, string | null> = {};
+  if (openAt  !== undefined) payload.open_at  = openAt;
+  if (closeAt !== undefined) payload.close_at = closeAt;
+
+  const { error } = await supabase
+    .from('week_statuses')
+    .update(payload)
+    .eq('id', weekStatusId);
+
+  if (error) throw new Error(error.message || 'Failed to set deadline');
 }
 
 /** Returns the number of weeks that were opened (for grade calculation). */

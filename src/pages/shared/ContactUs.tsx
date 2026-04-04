@@ -38,10 +38,9 @@ interface CoordDialogProps {
   open: boolean;
   onClose: () => void;
   onSaved: (updated: Pick<CoordinatorContact, 'courseId' | 'phone' | 'customName'>) => void;
-  activeRole: string;
 }
 
-function CoordEditDialog({ contact, open, onClose, onSaved, activeRole }: CoordDialogProps) {
+function CoordEditDialog({ contact, open, onClose, onSaved }: CoordDialogProps) {
   const [form, setForm] = useState<CoordEditForm>({
     phone: contact.phone ?? '',
     customName: contact.customName ?? '',
@@ -60,8 +59,7 @@ function CoordEditDialog({ contact, open, onClose, onSaved, activeRole }: CoordD
         {
           phone: form.phone.trim() || null,
           customName: form.customName.trim() || null,
-        },
-        activeRole
+        }
       );
       onSaved({
         courseId: contact.courseId,
@@ -137,7 +135,6 @@ interface SupportDialogProps {
   open: boolean;
   onClose: () => void;
   onSaved: (info: SupportInfo) => void;
-  activeRole: string;
 }
 
 interface SupportForm {
@@ -146,7 +143,7 @@ interface SupportForm {
   description: string;
 }
 
-function SupportEditDialog({ current, open, onClose, onSaved, activeRole }: SupportDialogProps) {
+function SupportEditDialog({ current, open, onClose, onSaved }: SupportDialogProps) {
   const [form, setForm] = useState<SupportForm>({
     supportEmail: current?.supportEmail ?? '',
     phone: current?.phone ?? '',
@@ -174,8 +171,7 @@ function SupportEditDialog({ current, open, onClose, onSaved, activeRole }: Supp
           supportEmail: form.supportEmail.trim(),
           phone: form.phone.trim() || null,
           description: form.description.trim() || null,
-        },
-        activeRole
+        }
       );
       onSaved({
         id: current?.id ?? null,
@@ -468,8 +464,8 @@ export function ContactUs() {
     if (!user) return;
     setLoading(true);
     Promise.all([
-      getCoordinatorContacts(user.activeRole),
-      getSupportInfo(user.activeRole),
+      getCoordinatorContacts(),
+      getSupportInfo(),
     ]).then(([coords, support]) => {
       setContacts(coords);
       setSupportInfo(support);
@@ -491,7 +487,7 @@ export function ContactUs() {
   const handleDeleteCoord = async (contact: CoordinatorContact) => {
     if (!confirm(`Clear the optional contact info for ${contact.courseCode}? The coordinator's email will still be shown.`)) return;
     try {
-      await deleteCoordinatorContact(contact.courseId, user.activeRole);
+      await deleteCoordinatorContact(contact.courseId);
       setContacts((prev) =>
         prev.map((c) =>
           c.courseId === contact.courseId ? { ...c, phone: null, customName: null } : c
@@ -602,7 +598,6 @@ export function ContactUs() {
           open={!!editingCoord}
           onClose={() => setEditingCoord(null)}
           onSaved={handleCoordSaved}
-          activeRole={user.activeRole}
         />
       )}
 
@@ -612,7 +607,6 @@ export function ContactUs() {
         open={editingSupportOpen}
         onClose={() => setEditingSupportOpen(false)}
         onSaved={setSupportInfo}
-        activeRole={user.activeRole}
       />
     </Layout>
   );
