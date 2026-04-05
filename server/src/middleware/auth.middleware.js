@@ -1,9 +1,13 @@
 const { supabase, supabaseAdmin } = require('../config/supabase');
+const { cacheGet, cacheSet, cacheDel, TTL } = require('../utils/cache');
 
 /**
  * Verify Supabase JWT, load full user profile + all roles from user_roles table.
  * Attaches req.user with:
  *   id, email, name, role (primary), roles[] (all), activeRole, coordinatorCourseId
+ *
+ * The profile + roles object is cached in Redis for AUTH_TTL seconds, keyed by
+ * the raw JWT token. Cache is invalidated on logout (auth.controller → cacheDel).
  */
 async function authenticate(req, res, next) {
   try {
@@ -13,14 +17,28 @@ async function authenticate(req, res, next) {
     }
 
     const token = authHeader.substring(7);
+    const requestedRole = req.headers['x-active-role'];
 
-    // 1. Verify token with Supabase
+    // ── 1. Check Redis cache (skips 3 DB round-trips on hit) ─────────────────
+    const cacheKey = `auth:token:${token}`;
+    const cached = await cacheGet(cacheKey);
+    if (cached) {
+      // Re-validate the requested active role against the cached roles list
+      const activeRole =
+        requestedRole && cached.roles.includes(requestedRole)
+          ? requestedRole
+          : cached.role;
+      req.user = { ...cached, activeRole };
+      return next();
+    }
+
+    // ── 2. Verify token with Supabase ─────────────────────────────────────────
     const { data: { user }, error } = await supabase.auth.getUser(token);
     if (error || !user) {
       return res.status(401).json({ error: 'Invalid or expired token' });
     }
 
-    // 2. Fetch base profile (use supabaseAdmin to bypass RLS)
+    // ── 3. Fetch base profile (use supabaseAdmin to bypass RLS) ───────────────
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
       .select('*')
@@ -31,7 +49,7 @@ async function authenticate(req, res, next) {
       return res.status(404).json({ error: 'User profile not found' });
     }
 
-    // 3. Fetch all roles from user_roles (use supabaseAdmin to bypass RLS)
+    // ── 4. Fetch all roles from user_roles ────────────────────────────────────
     const { data: userRoles } = await supabaseAdmin
       .from('user_roles')
       .select('coordinator_course_id, roles(name)')
@@ -44,9 +62,8 @@ async function authenticate(req, res, next) {
       ? Array.from(new Set([profile.role, ...roles]))
       : [profile.role];
 
-    // 4. Determine coordinatorCourseId
+    // ── 5. Determine coordinatorCourseId ──────────────────────────────────────
     //    Priority: user_roles.coordinator_course_id → profiles.coordinator_course_id → platform_locks
-    //    (matches the same fallback chain used in the frontend AuthContext)
     const coordinatorEntry = (userRoles || []).find((ur) => ur.roles?.name === 'coordinator');
     let coordinatorCourseId = coordinatorEntry?.coordinator_course_id
       ?? profile.coordinator_course_id
@@ -65,29 +82,29 @@ async function authenticate(req, res, next) {
       coordinatorCourseId = lockRow?.entity_id ?? null;
     }
 
-    // 5. Determine active role
-    //    Client sends X-Active-Role header when the user has switched roles.
-    //    Validate it against the user's actual roles to prevent spoofing.
-    const requestedRole = req.headers['x-active-role'];
-    const activeRole =
-      requestedRole && allRoles.includes(requestedRole)
-        ? requestedRole
-        : profile.role;
-
-    // 6. Attach to request
-    req.user = {
+    // ── 6. Build cacheable user object (no activeRole — it depends on header) ─
+    const userBase = {
       id:                  profile.id,
       email:               profile.email,
       name:                profile.name,
-      role:                profile.role,       // primary role (profiles table)
-      roles:               allRoles,           // all roles (user_roles table)
-      activeRole,                              // currently active role
-      coordinatorCourseId,                     // null unless coordinator
+      role:                profile.role,
+      roles:               allRoles,
+      coordinatorCourseId,
       studentId:           profile.student_id,
       employeeNumber:      profile.employee_number,
       department:          profile.department,
     };
 
+    // Cache for AUTH_TTL seconds — invalidated on logout
+    await cacheSet(cacheKey, userBase, TTL.AUTH);
+
+    // ── 7. Determine active role and attach to request ────────────────────────
+    const activeRole =
+      requestedRole && allRoles.includes(requestedRole)
+        ? requestedRole
+        : profile.role;
+
+    req.user = { ...userBase, activeRole };
     next();
   } catch (error) {
     console.error('Authentication error:', error);

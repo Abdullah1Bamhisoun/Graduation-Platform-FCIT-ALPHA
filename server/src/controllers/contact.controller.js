@@ -1,4 +1,8 @@
 const { supabaseAdmin } = require('../config/supabase');
+const { cacheGet, cacheSet, cacheDel, TTL } = require('../utils/cache');
+
+const COORD_CONTACTS_KEY = 'contact:coordinators';
+const SUPPORT_INFO_KEY   = 'contact:support';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -78,7 +82,13 @@ async function buildCoordinatorContacts() {
 // ─── GET /api/contact/coordinators ───────────────────────────────────────────
 async function listCoordinatorContacts(req, res) {
   try {
+    const cached = await cacheGet(COORD_CONTACTS_KEY);
+    if (cached) {
+      res.set('Cache-Control', 'private, max-age=30');
+      return res.json(cached);
+    }
     const contacts = await buildCoordinatorContacts();
+    await cacheSet(COORD_CONTACTS_KEY, contacts, TTL.MEDIUM);
     res.set('Cache-Control', 'private, max-age=30');
     res.json(contacts);
   } catch (error) {
@@ -113,6 +123,7 @@ async function upsertCoordinatorContact(req, res) {
       );
 
     if (error) throw error;
+    await cacheDel(COORD_CONTACTS_KEY);
     res.json({ success: true });
   } catch (error) {
     console.error('Error upserting coordinator contact:', error);
@@ -132,6 +143,7 @@ async function deleteCoordinatorContact(req, res) {
       .eq('course_id', courseId);
 
     if (error) throw error;
+    await cacheDel(COORD_CONTACTS_KEY);
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting coordinator contact:', error);
@@ -142,6 +154,12 @@ async function deleteCoordinatorContact(req, res) {
 // ─── GET /api/contact/support ─────────────────────────────────────────────────
 async function getSupportInfo(req, res) {
   try {
+    const cached = await cacheGet(SUPPORT_INFO_KEY);
+    if (cached !== null) {
+      res.set('Cache-Control', 'private, max-age=60');
+      return res.json(cached);
+    }
+
     const { data, error } = await supabaseAdmin
       .from('contact_support_info')
       .select('id, support_email, phone, description, updated_at')
@@ -151,17 +169,13 @@ async function getSupportInfo(req, res) {
 
     if (error) throw error;
 
+    const result = data
+      ? { id: data.id, supportEmail: data.support_email, phone: data.phone ?? null, description: data.description ?? null }
+      : null;
+
+    await cacheSet(SUPPORT_INFO_KEY, result, TTL.MEDIUM);
     res.set('Cache-Control', 'private, max-age=60');
-    res.json(
-      data
-        ? {
-            id:           data.id,
-            supportEmail: data.support_email,
-            phone:        data.phone        ?? null,
-            description:  data.description  ?? null,
-          }
-        : null
-    );
+    res.json(result);
   } catch (error) {
     console.error('Error fetching support info:', error);
     res.status(500).json({ error: 'Failed to fetch support info' });
@@ -205,6 +219,7 @@ async function upsertSupportInfo(req, res) {
       if (error) throw error;
     }
 
+    await cacheDel(SUPPORT_INFO_KEY);
     res.json({ success: true });
   } catch (error) {
     console.error('Error upserting support info:', error);

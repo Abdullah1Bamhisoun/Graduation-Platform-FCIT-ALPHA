@@ -1,4 +1,5 @@
 const { supabaseAdmin } = require('../config/supabase');
+const { cacheGet, cacheSet, TTL } = require('../utils/cache');
 
 /**
  * Grading Scheme Controller
@@ -86,56 +87,73 @@ async function getGradingScheme(req, res) {
     }
     // Admin role: no restriction, can access both courses
 
-    let componentsQuery = supabaseAdmin
-      .from('grading_components')
-      .select('*')
-      .eq('is_active', true)
-      .order('display_order');
+    // Cache key: grading data is the same for all roles reading same courseType.
+    // readOnly is computed per-user and not cached — it's cheap.
+    const schemeCk = `grading:scheme:${courseType ?? 'all'}`;
+    const cachedScheme = await cacheGet(schemeCk);
 
-    let criteriaQuery = supabaseAdmin
-      .from('grading_rubric_criteria')
-      .select('*')
-      .eq('is_active', true)
-      .order('component_key')
-      .order('display_order');
+    let components, criteria;
 
-    if (courseType && ['498', '499'].includes(courseType)) {
-      componentsQuery = componentsQuery.eq('course_type', courseType);
-      criteriaQuery = criteriaQuery.eq('course_type', courseType);
+    if (cachedScheme) {
+      ({ components, criteria } = cachedScheme);
+    } else {
+      let componentsQuery = supabaseAdmin
+        .from('grading_components')
+        .select('*')
+        .eq('is_active', true)
+        .order('display_order');
+
+      let criteriaQuery = supabaseAdmin
+        .from('grading_rubric_criteria')
+        .select('*')
+        .eq('is_active', true)
+        .order('component_key')
+        .order('display_order');
+
+      if (courseType && ['498', '499'].includes(courseType)) {
+        componentsQuery = componentsQuery.eq('course_type', courseType);
+        criteriaQuery = criteriaQuery.eq('course_type', courseType);
+      }
+
+      const [{ data: compData, error: cError }, { data: critData, error: crError }] =
+        await Promise.all([componentsQuery, criteriaQuery]);
+
+      if (cError) throw cError;
+      if (crError) throw crError;
+
+      const mapComponent = (row) => ({
+        id: row.id,
+        courseType: row.course_type,
+        componentKey: row.component_key,
+        componentName: row.component_name,
+        totalMarks: Number(row.total_marks),
+        evaluatorRole: row.evaluator_role,
+        displayOrder: row.display_order,
+        isActive: row.is_active,
+      });
+
+      const mapCriterion = (row) => ({
+        id: row.id,
+        courseType: row.course_type,
+        componentKey: row.component_key,
+        criterionKey: row.criterion_key,
+        criterionName: row.criterion_name,
+        maxRawScore: Number(row.max_raw_score),
+        description1: row.description_1 ?? null,
+        description2: row.description_2 ?? null,
+        description3: row.description_3 ?? null,
+        description4: row.description_4 ?? null,
+        description5: row.description_5 ?? null,
+        displayOrder: row.display_order,
+        isActive: row.is_active,
+      });
+
+      components = (compData || []).map(mapComponent);
+      criteria   = (critData || []).map(mapCriterion);
+
+      // Grading scheme changes very rarely — cache for LONG_TTL (5 min)
+      await cacheSet(schemeCk, { components, criteria }, TTL.LONG);
     }
-
-    const [{ data: components, error: cError }, { data: criteria, error: crError }] =
-      await Promise.all([componentsQuery, criteriaQuery]);
-
-    if (cError) throw cError;
-    if (crError) throw crError;
-
-    const mapComponent = (row) => ({
-      id: row.id,
-      courseType: row.course_type,
-      componentKey: row.component_key,
-      componentName: row.component_name,
-      totalMarks: Number(row.total_marks),
-      evaluatorRole: row.evaluator_role,
-      displayOrder: row.display_order,
-      isActive: row.is_active,
-    });
-
-    const mapCriterion = (row) => ({
-      id: row.id,
-      courseType: row.course_type,
-      componentKey: row.component_key,
-      criterionKey: row.criterion_key,
-      criterionName: row.criterion_name,
-      maxRawScore: Number(row.max_raw_score),
-      description1: row.description_1 ?? null,
-      description2: row.description_2 ?? null,
-      description3: row.description_3 ?? null,
-      description4: row.description_4 ?? null,
-      description5: row.description_5 ?? null,
-      displayOrder: row.display_order,
-      isActive: row.is_active,
-    });
 
     /**
      * readOnly flag — consumers use this to conditionally render edit controls.
@@ -143,11 +161,7 @@ async function getGradingScheme(req, res) {
      */
     const readOnly = !['coordinator', 'admin'].includes(req.user.activeRole);
 
-    res.json({
-      components: (components || []).map(mapComponent),
-      criteria: (criteria || []).map(mapCriterion),
-      readOnly,
-    });
+    res.json({ components, criteria, readOnly });
   } catch (error) {
     console.error('Error fetching grading scheme:', error);
     res.status(500).json({ error: 'Failed to fetch grading scheme' });

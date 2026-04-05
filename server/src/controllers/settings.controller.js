@@ -1,7 +1,9 @@
 const { supabaseAdmin } = require('../config/supabase');
+const { cacheGet, cacheSet, cacheDel, TTL } = require('../utils/cache');
 
 const TERM_NAMES = ['First Semester', 'Second Semester', 'Summer'];
 const TERM_CODES = ['01', '02', '03'];
+const TERM_CACHE_KEY = 'settings:current-term';
 
 /**
  * GET /api/settings/current-term  (public)
@@ -9,6 +11,9 @@ const TERM_CODES = ['01', '02', '03'];
  */
 async function getCurrentTerm(req, res) {
   try {
+    const cached = await cacheGet(TERM_CACHE_KEY);
+    if (cached) return res.json(cached);
+
     const { data, error } = await supabaseAdmin
       .from('platform_locks')
       .select('reason, updated_at')
@@ -19,14 +24,14 @@ async function getCurrentTerm(req, res) {
 
     if (error) throw error;
 
+    let result;
     if (data && data.reason) {
-      try {
-        return res.json(JSON.parse(data.reason));
-      } catch (_) {}
+      try { result = JSON.parse(data.reason); } catch (_) {}
     }
+    if (!result) result = { term: 'Second Semester', year: 2026, term_code: '02' };
 
-    // Default fallback
-    return res.json({ term: 'Second Semester', year: 2026, term_code: '02' });
+    await cacheSet(TERM_CACHE_KEY, result, TTL.MEDIUM);
+    return res.json(result);
   } catch (err) {
     console.error('getCurrentTerm error:', err);
     res.status(500).json({ error: 'Failed to fetch current term' });
@@ -71,6 +76,9 @@ async function setCurrentTerm(req, res) {
       });
 
     if (insertError) throw insertError;
+
+    // Invalidate cached term so next GET returns fresh data
+    await cacheDel(TERM_CACHE_KEY);
 
     // ── Auto-migration: CPIS-498 → CPIS-499 when changing TO Second Semester ──
     let migratedGroups = 0;

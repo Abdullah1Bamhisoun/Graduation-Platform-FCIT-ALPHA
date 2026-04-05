@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const { supabaseAdmin } = require('../config/supabase');
+const { isRedisReady } = require('../config/redis');
 
 /**
  * GET /health
@@ -9,10 +10,11 @@ const { supabaseAdmin } = require('../config/supabase');
  */
 router.get('/', async (req, res) => {
   const status = {
-    api: 'ok',
-    database: 'unknown',
+    api:       'ok',
+    database:  'unknown',
+    cache:     isRedisReady() ? 'ok' : 'unavailable',
     timestamp: new Date().toISOString(),
-    uptime: Math.floor(process.uptime()),
+    uptime:    Math.floor(process.uptime()),
   };
 
   try {

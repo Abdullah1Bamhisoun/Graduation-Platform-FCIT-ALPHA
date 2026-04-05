@@ -1,4 +1,5 @@
 const { supabaseAdmin } = require('../config/supabase');
+const { cacheGet, cacheSet, cacheDelPattern, TTL } = require('../utils/cache');
 
 /** True when a Supabase/PostgREST error is caused by a missing column */
 function isMissingCourseIdColumn(err) {
@@ -30,6 +31,12 @@ async function listEvents(req, res) {
     const isStudent = !isAdmin && req.user.roles && req.user.roles.includes('student');
     const isSupervisor = !isAdmin && req.user.roles && req.user.roles.includes('supervisor');
     const coordinatorCourseId = req.user.coordinatorCourseId;
+
+    // Calendar events are scoped per-user (students get personal events too),
+    // so cache per userId to avoid cross-user data leaks.
+    const calendarCk = `calendar:${req.user.id}`;
+    const cachedEvents = await cacheGet(calendarCk);
+    if (cachedEvents) return res.json(cachedEvents);
 
     // ── Attempt 1: with course_id column ─────────────────────────────────────
     let query = supabaseAdmin
@@ -141,7 +148,7 @@ async function listEvents(req, res) {
       // Non-fatal — personal events are best-effort
     }
 
-    res.json(events.map((e) => ({
+    const calendarPayload = events.map((e) => ({
       id: e.id,
       title: e.title,
       date: e.date,
@@ -149,7 +156,10 @@ async function listEvents(req, res) {
       time: e.time ?? undefined,
       location: e.location ?? undefined,
       courseId: e.course_id ?? undefined,
-    })));
+    }));
+
+    await cacheSet(calendarCk, calendarPayload, TTL.SHORT);
+    res.json(calendarPayload);
   } catch (error) {
     console.error('Error listing calendar events:', error);
     res.status(500).json({ error: 'Failed to fetch calendar events' });
@@ -243,6 +253,7 @@ async function createEvent(req, res) {
       console.warn('Failed to auto-create announcement for event:', annErr);
     }
 
+    await cacheDelPattern('calendar:*');
     res.json({ success: true, id: data.id });
   } catch (error) {
     console.error('Error creating calendar event:', error);
@@ -300,6 +311,7 @@ async function deleteEvent(req, res) {
 
     const { error } = await supabaseAdmin.from('calendar_events').delete().eq('id', id);
     if (error) throw error;
+    await cacheDelPattern('calendar:*');
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting calendar event:', error);

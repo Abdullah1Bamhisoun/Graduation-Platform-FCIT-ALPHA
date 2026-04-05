@@ -1,6 +1,16 @@
 const { supabaseAdmin } = require('../config/supabase');
-const emailService = require('../services/email.service');
 const { normalizeCourseCode } = require('../utils/helpers');
+const { cacheGet, cacheSet, cacheDelPattern, TTL } = require('../utils/cache');
+const { queueAnnouncementEmail } = require('../services/queue.service');
+
+/**
+ * Build a deterministic cache key for the announcements list.
+ * Incorporates courseId, role filter, and pagination range so different
+ * users / pages never share the wrong data.
+ */
+function announcementCacheKey(courseId, role, from, to) {
+  return `announcements:${courseId ?? 'null'}:${role ?? 'all'}:${from}-${to}`;
+}
 
 /**
  * Resolve recipient emails for an announcement blast.
@@ -103,6 +113,19 @@ async function resolveRecipientEmails(targetRoles, coordinatorCourseId) {
 async function listAnnouncements(req, res) {
   try {
     const { role } = req.query;
+    const { from, to } = req.pagination;
+
+    // Coordinators always see fresh data; other roles can use cache
+    const isManager = req.user?.activeRole === 'coordinator' || req.user?.activeRole === 'admin';
+
+    if (!isManager) {
+      const ck = announcementCacheKey(req.user?.coordinatorCourseId ?? null, role, from, to);
+      const cached = await cacheGet(ck);
+      if (cached) {
+        res.set('Cache-Control', 'private, max-age=60');
+        return res.json(cached);
+      }
+    }
 
     let query = supabaseAdmin
       .from('announcements')
@@ -146,7 +169,6 @@ async function listAnnouncements(req, res) {
       query = query.eq('author_id', req.user.id);
     }
 
-    const { from, to } = req.pagination;
     let { data, error } = await query.range(from, to);
 
     // Fallback when course_id column doesn't exist yet (pre-migration):
@@ -198,12 +220,9 @@ async function listAnnouncements(req, res) {
       for (const p of (profiles || [])) authorMap[p.id] = p.name;
     }
 
-    // Coordinators manage content and must always see fresh data.
-    // Other roles can tolerate a 60-second cache.
-    const isManager = req.user?.activeRole === 'coordinator' || req.user?.activeRole === 'admin';
     res.set('Cache-Control', isManager ? 'no-store' : 'private, max-age=60');
 
-    res.json((data || []).map((a) => ({
+    const payload = (data || []).map((a) => ({
       id: a.id,
       title: a.title,
       content: a.content,
@@ -211,7 +230,15 @@ async function listAnnouncements(req, res) {
       publishedAt: a.published_at,
       expiresAt: a.expires_at ?? undefined,
       targetRoles: a.target_roles ?? [],
-    })));
+    }));
+
+    // Cache for non-manager roles
+    if (!isManager) {
+      const viewerCourseIdForKey = req.user?.coordinatorCourseId ?? null;
+      await cacheSet(announcementCacheKey(viewerCourseIdForKey, role, from, to), payload, TTL.SHORT);
+    }
+
+    res.json(payload);
   } catch (error) {
     console.error('Error listing announcements:', error);
     res.status(500).json({ error: 'Failed to fetch announcements' });
@@ -257,19 +284,19 @@ async function createAnnouncement(req, res) {
     const { data, error } = insertResult;
     if (error) throw error;
 
-    // ── Fire-and-forget email blast ───────────────────────────────────────────
+    // Bust all announcement list caches so new entry appears immediately
+    await cacheDelPattern('announcements:*');
+
+    // ── Queue email blast (retries automatically on SMTP failure) ─────────────
     const coordinatorCourseId = req.user.coordinatorCourseId ?? null;
     const publishedAt = new Date().toISOString();
 
-    (async () => {
-      try {
-        const { emails, courseName } = await resolveRecipientEmails(targetRoles, coordinatorCourseId);
+    resolveRecipientEmails(targetRoles, coordinatorCourseId)
+      .then(({ emails, courseName }) => {
         if (emails.length === 0) return;
-        await emailService.sendAnnouncement(emails, { title, content, courseName, publishedAt });
-      } catch (emailErr) {
-        console.error('[announcements] Failed to send announcement emails:', emailErr.message);
-      }
-    })();
+        return queueAnnouncementEmail(emails, { title, content, courseName, publishedAt });
+      })
+      .catch((err) => console.error('[announcements] Failed to queue announcement emails:', err.message));
 
     res.json({ success: true, id: data.id });
   } catch (error) {
@@ -323,9 +350,10 @@ async function updateAnnouncement(req, res) {
       .eq('id', id);
 
     if (error) throw error;
+    await cacheDelPattern('announcements:*');
     res.json({ success: true });
 
-    // ── Fire-and-forget email blast on update ─────────────────────────────────
+    // ── Queue email blast on update ───────────────────────────────────────────
     const coordinatorCourseId = req.user.coordinatorCourseId ?? null;
     const publishedAt = new Date().toISOString();
 
@@ -348,14 +376,14 @@ async function updateAnnouncement(req, res) {
 
         const { emails, courseName } = await resolveRecipientEmails(effectiveRoles, coordinatorCourseId);
         if (emails.length === 0) return;
-        await emailService.sendAnnouncement(emails, {
+        await queueAnnouncementEmail(emails, {
           title: effectiveTitle,
           content: effectiveContent,
           courseName,
           publishedAt,
         });
       } catch (emailErr) {
-        console.error('[announcements] Failed to send update emails:', emailErr.message);
+        console.error('[announcements] Failed to queue update emails:', emailErr.message);
       }
     })();
   } catch (error) {
@@ -397,6 +425,7 @@ async function deleteAnnouncement(req, res) {
 
     const { error } = await supabaseAdmin.from('announcements').delete().eq('id', id);
     if (error) throw error;
+    await cacheDelPattern('announcements:*');
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting announcement:', error);

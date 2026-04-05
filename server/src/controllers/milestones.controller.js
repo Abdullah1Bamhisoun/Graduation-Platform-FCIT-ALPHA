@@ -2,6 +2,7 @@ const { supabaseAdmin } = require('../config/supabase');
 const emailService = require('../services/email.service');
 const { normalizeCourseCode } = require('../utils/helpers');
 const notificationService = require('../services/notification.service');
+const { cacheGet, cacheSet, cacheDelPattern, TTL } = require('../utils/cache');
 
 /**
  * GET /api/milestones
@@ -25,6 +26,10 @@ async function listMilestones(req, res) {
       courseId = req.query.course_id;
     }
 
+    const ck = `milestones:${courseId ?? 'all'}`;
+    const cached = await cacheGet(ck);
+    if (cached) return res.json(cached);
+
     let query = supabaseAdmin
       .from('milestones')
       .select('*, course:courses!course_id(id, code, name), rubric_criteria(id, name, max_score, sort_order), grading_criterion:grading_rubric_criteria!grading_criterion_id(id, criterion_key, criterion_name, max_raw_score)')
@@ -37,7 +42,7 @@ async function listMilestones(req, res) {
     const { data, error } = await query;
     if (error) throw error;
 
-    res.json((data || []).map((m) => ({
+    const payload = (data || []).map((m) => ({
       id:                       m.id,
       name:                     m.name,
       type:                     m.type,
@@ -55,7 +60,10 @@ async function listMilestones(req, res) {
       gradingCriterionMax:      m.grading_criterion?.max_raw_score ?? null,
       includeInCommitteeEval:   m.include_in_committee_eval ?? false,
       allowedFileType:          m.allowed_file_type ?? undefined,
-    })));
+    }));
+
+    await cacheSet(ck, payload, TTL.SHORT);
+    res.json(payload);
   } catch (error) {
     console.error('Error listing milestones:', error);
     res.status(500).json({ error: 'Failed to fetch milestones' });
@@ -193,6 +201,7 @@ async function createMilestone(req, res) {
       }
     })();
 
+    await cacheDelPattern('milestones:*');
     res.status(201).json({ success: true, id: milestone.id });
 
     // ── Trigger 6: supervisor announcement + calendar event ───────────────────
@@ -274,6 +283,7 @@ async function updateMilestone(req, res) {
 
     if (uErr) throw uErr;
 
+    await cacheDelPattern('milestones:*');
     res.json({ success: true });
   } catch (error) {
     console.error('Error updating milestone:', error);
@@ -325,6 +335,7 @@ async function deleteMilestone(req, res) {
 
     if (dErr) throw dErr;
 
+    await cacheDelPattern('milestones:*');
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting milestone:', error);

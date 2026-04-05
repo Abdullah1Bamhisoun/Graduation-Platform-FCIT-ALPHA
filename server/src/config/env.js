@@ -26,8 +26,9 @@ const schema = Joi.object({
   EMAIL_FROM: Joi.string().required(),
 
   // ── Redis (optional — used by BullMQ job queue) ───────────────────────────
-  REDIS_HOST: Joi.string().default('localhost'),
-  REDIS_PORT: Joi.number().integer().default(6379),
+  REDIS_HOST:     Joi.string().default('localhost'),
+  REDIS_PORT:     Joi.number().integer().default(6379),
+  REDIS_PASSWORD: Joi.string().optional().allow(''),
 
   // ── MinIO (optional — used for file storage if enabled) ──────────────────
   MINIO_ENDPOINT:   Joi.string().optional().allow(''),
