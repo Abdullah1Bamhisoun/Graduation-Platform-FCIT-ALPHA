@@ -3,7 +3,9 @@ import { useAuth } from '../../lib/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { getWeekStatuses, getDisplayStatus } from '../../services/week-statuses';
 import { getAllRubricCriteria } from '../../services/grading-rubric';
+import { getStudentGrade } from '../../services/grades';
 import type { RubricCriterion } from '../../services/grading-rubric';
+import type { StudentGrade, WeekStatus } from '../../types';
 import {
   CheckCircle,
   Info,
@@ -15,9 +17,9 @@ import {
   FileText,
   RefreshCw,
   MessageSquare,
+  X,
 } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
-import type { WeekStatus } from '../../types';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -454,6 +456,12 @@ export function StudentGradesOverview() {
   const [criterionScores, setCriterionScores] = useState<Record<string, number>>({});
   const [expandedCriteria, setExpandedCriteria] = useState<Set<string>>(new Set());
 
+  // Student marks dialog (click group member name)
+  const [memberDialogOpen, setMemberDialogOpen]   = useState(false);
+  const [memberDialogLoading, setMemberDialogLoading] = useState(false);
+  const [memberDialogData, setMemberDialogData]   = useState<StudentGrade | null>(null);
+  const [memberDialogName, setMemberDialogName]   = useState('');
+
   const loadData = useCallback(async () => {
     if (!user) return;
     try {
@@ -579,15 +587,24 @@ export function StudentGradesOverview() {
       if (!groupRow) throw new Error('Group not found');
       const courseId = (groupRow as any).course_id;
 
-      const rows = peers.map((s) => ({
-        student_id:   s.id,
-        evaluator_id: user.id,
-        group_id:     groupId,
-        course_id:    courseId,
-        score:        Number(peerRatings[s.id]),
-        max_score:    5,
-        comment:      null,
-      }));
+      // Build one row per peer being rated.
+      // student_id  = the peer being evaluated (evaluatee)
+      // evaluator_id = the logged-in student giving the rating
+      // Safety filter: never create a row where a student would rate themselves.
+      const rows = peers
+        .filter((s) => s.id !== user.id)
+        .map((s) => ({
+          student_id:   s.id,
+          evaluator_id: user.id,
+          group_id:     groupId,
+          course_id:    courseId,
+          score:        Number(peerRatings[s.id]),
+          max_score:    5,
+          comment:      null,
+        }))
+        .filter((r) => r.student_id !== r.evaluator_id);
+
+      if (rows.length === 0) throw new Error('No valid peers to rate');
 
       const { error } = await supabase
         .from('peer_evaluations')
@@ -618,6 +635,21 @@ export function StudentGradesOverview() {
     setPeerRatings(loaded);
     setPeerSubmitError(null);
     setPeerEditing(true);
+  }
+
+  async function openMemberDetail(studentId: string, studentName: string, courseCode: string) {
+    setMemberDialogName(studentName);
+    setMemberDialogData(null);
+    setMemberDialogOpen(true);
+    setMemberDialogLoading(true);
+    try {
+      const grade = await getStudentGrade(studentId, courseCode);
+      setMemberDialogData(grade);
+    } catch {
+      setMemberDialogData(null);
+    } finally {
+      setMemberDialogLoading(false);
+    }
   }
 
   if (!user) return null;
@@ -712,19 +744,21 @@ export function StudentGradesOverview() {
                 <> &middot; Supervisor: <span className="font-medium">{g.supervisorName}</span></>
               )}
             </p>
-            {/* Group members with "you" highlight */}
+            {/* Group members with "you" highlight — click to see marks */}
             <div className="flex flex-wrap gap-1.5 mt-2">
               {g.students.map((s) => (
-                <span
+                <button
                   key={s.id}
-                  className={`text-xs px-2 py-0.5 rounded-full border ${
+                  type="button"
+                  onClick={() => openMemberDetail(s.id, s.name, g.courseCode)}
+                  className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
                     s.id === user.id
-                      ? 'bg-[var(--color-primary-100)] text-[var(--color-primary-700)] border-[var(--color-primary-300)] font-semibold'
-                      : 'bg-[var(--color-surface-alt)] text-[var(--color-text-600)] border-[var(--color-border)]'
+                      ? 'bg-[var(--color-primary-100)] text-[var(--color-primary-700)] border-[var(--color-primary-300)] font-semibold hover:bg-(--color-primary-200)'
+                      : 'bg-[var(--color-surface-alt)] text-[var(--color-text-600)] border-[var(--color-border)] hover:bg-(--color-border)'
                   }`}
                 >
                   {s.name}{s.id === user.id ? ' (you)' : ''}
-                </span>
+                </button>
               ))}
             </div>
           </div>
@@ -1366,6 +1400,116 @@ export function StudentGradesOverview() {
       )}
 
 
+      {/* ── Member Marks Dialog ─────────────────────────────────────────────── */}
+      {memberDialogOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setMemberDialogOpen(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[80vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+              <div>
+                <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                  <Users className="w-4 h-4 text-blue-600" />
+                  {memberDialogName} — Marks
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMemberDialogOpen(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="px-5 py-4">
+              {memberDialogLoading ? (
+                <p className="text-center text-sm text-gray-500 py-8">Loading marks…</p>
+              ) : !memberDialogData ? (
+                <p className="text-center text-sm text-gray-400 py-8">No grade data available.</p>
+              ) : (
+                <div className="space-y-3">
+                  <table className="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700">Component</th>
+                        <th className="px-4 py-2 text-right text-xs font-semibold text-gray-700">Score</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      <tr>
+                        <td className="px-4 py-2 text-gray-800">Supervisor Evaluation</td>
+                        <td className="px-4 py-2 text-right font-mono text-sm">
+                          {memberDialogData.supervisorAssessment.score != null
+                            ? `${Number(memberDialogData.supervisorAssessment.score).toFixed(1)} / ${memberDialogData.supervisorAssessment.maxScore}`
+                            : '—'}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="px-4 py-2 text-gray-800">Committee Evaluation</td>
+                        <td className="px-4 py-2 text-right font-mono text-sm">
+                          {memberDialogData.committeeEvaluation.score != null
+                            ? `${Number(memberDialogData.committeeEvaluation.score).toFixed(1)} / ${memberDialogData.committeeEvaluation.maxScore}`
+                            : '—'}
+                        </td>
+                      </tr>
+                      {memberDialogData.weeklyProgressScore != null && (
+                        <tr>
+                          <td className="px-4 py-2 text-gray-800">Weekly Progress</td>
+                          <td className="px-4 py-2 text-right font-mono text-sm">
+                            {Number(memberDialogData.weeklyProgressScore).toFixed(1)}
+                          </td>
+                        </tr>
+                      )}
+                      {memberDialogData.deliverablesTotal != null && (
+                        <tr>
+                          <td className="px-4 py-2 text-gray-800">Deliverables</td>
+                          <td className="px-4 py-2 text-right font-mono text-sm">
+                            {Number(memberDialogData.deliverablesTotal).toFixed(1)} / 15
+                          </td>
+                        </tr>
+                      )}
+                      {memberDialogData.adminCommitteeTotal != null && (
+                        <tr>
+                          <td className="px-4 py-2 text-gray-800">Admin Committee</td>
+                          <td className="px-4 py-2 text-right font-mono text-sm">
+                            {Number(memberDialogData.adminCommitteeTotal).toFixed(1)} / 15
+                          </td>
+                        </tr>
+                      )}
+                      {memberDialogData.peerFeedback.score != null && (
+                        <tr>
+                          <td className="px-4 py-2 text-gray-800">Peer Evaluation</td>
+                          <td className="px-4 py-2 text-right font-mono text-sm">
+                            {Number(memberDialogData.peerFeedback.score).toFixed(2)} / {memberDialogData.peerFeedback.maxScore}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-blue-50 border-t-2 border-blue-200">
+                        <td className="px-4 py-3 font-bold text-gray-900 text-sm">Total</td>
+                        <td className="px-4 py-3 text-right font-bold text-blue-900 font-mono">
+                          {Number(memberDialogData.totalScore).toFixed(1)} / 100
+                          {memberDialogData.finalGrade && (
+                            <span className="ml-2 px-1.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-300">
+                              {memberDialogData.finalGrade}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }

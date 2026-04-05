@@ -379,6 +379,18 @@ export interface CoordinatorGroupWithGrades {
   supervisorId: string | null;
   supervisorName: string | null;
   students: Array<{ id: string; name: string; studentId?: string }>;
+  /** Per-student grade breakdown, keyed by student profile UUID. */
+  studentGrades: Record<string, {
+    supervisorScore:   number | null;
+    supervisorMax:     number;
+    committeeScore:    number | null;
+    committeeMax:      number;
+    weeklyScore:       number | null;
+    weeklyMax:         number;
+    deliverablesTotal: number | null;
+    peerScore:         number | null;  // raw 0–5 average
+    peerMax:           number;
+  }>;
   projectStatus: string;
   ipMarkedAt: string | null;
   totalScore: number | null;

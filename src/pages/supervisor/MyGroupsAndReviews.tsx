@@ -155,6 +155,18 @@ interface GroupGradeData {
     approved: number;
     rejected: number;
   };
+  /** Per-student grade breakdown keyed by student profile UUID */
+  studentGrades: Record<string, {
+    supervisorScore:   number | null;
+    supervisorMax:     number;
+    committeeScore:    number | null;
+    committeeMax:      number;
+    weeklyScore:       number | null;
+    weeklyMax:         number;
+    deliverablesTotal: number | null;
+    peerScore:         number | null;
+    peerMax:           number;
+  }>;
 }
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
@@ -324,6 +336,9 @@ export function SupervisorMyGroupsAndReviews() {
   const [ipTarget, setIpTarget] = useState<GroupGradeData | null>(null);
   const [ipReason, setIpReason] = useState('');
   const [ipProcessing, setIpProcessing] = useState(false);
+
+  // Inline student marks: selectedStudentKey = `${groupId}:${studentId}`
+  const [selectedStudentKey, setSelectedStudentKey] = useState<string | null>(null);
 
   // File viewer modal
   const [viewerFile, setViewerFile] = useState<{ url: string; filePath: string; fileName: string } | null>(null);
@@ -1213,124 +1228,170 @@ export function SupervisorMyGroupsAndReviews() {
                           <h4 className="text-sm font-semibold text-[var(--color-text-700)] mb-2 flex items-center gap-1.5">
                             <Users className="w-4 h-4" />
                             Students
+                            <span className="text-xs font-normal text-[var(--color-text-500)]">— click a name to view marks</span>
                           </h4>
                           <div className="flex flex-wrap gap-2">
-                            {group.students.map((s) => (
-                              <span
-                                key={s.id}
-                                className="text-sm text-[var(--color-text-700)] bg-[var(--color-surface-alt)] px-3 py-1 rounded-full border border-[var(--color-border)]"
-                              >
-                                {s.name}
-                              </span>
-                            ))}
+                            {group.students.map((s) => {
+                              const key = `${group.id}:${s.id}`;
+                              const isSelected = selectedStudentKey === key;
+                              return (
+                                <button
+                                  key={s.id}
+                                  type="button"
+                                  onClick={() => setSelectedStudentKey((prev) => (prev === key ? null : key))}
+                                  className={`text-sm px-3 py-1 rounded-full border transition-colors cursor-pointer ${
+                                    isSelected
+                                      ? 'bg-blue-600 text-white border-blue-600'
+                                      : 'text-[var(--color-text-700)] bg-[var(--color-surface-alt)] border-[var(--color-border)] hover:bg-blue-50 hover:border-blue-300'
+                                  }`}
+                                >
+                                  {s.name}
+                                </button>
+                              );
+                            })}
                           </div>
                         </div>
 
                         {/* Grade components table — read-only, from Coordinator's scheme */}
-                        <div>
-                          <h4 className="text-sm font-semibold text-[var(--color-text-700)] mb-2 flex items-center gap-1.5">
-                            <BarChart2 className="w-4 h-4" />
-                            Grade Components
-                            <span className="ml-1 text-xs font-normal text-[var(--color-text-500)]">
-                              (Coordinator-defined — read-only)
-                            </span>
-                          </h4>
-                          {/* Mobile: card list */}
-                          <div className="sm:hidden rounded-lg border border-[var(--color-border)] divide-y divide-[var(--color-border)]">
-                            {group.components.map((comp) => (
-                              <div key={comp.componentKey} className="px-4 py-3 flex items-center justify-between gap-2">
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm text-[var(--color-text-900)] font-medium truncate">{comp.componentName}</p>
-                                  <div className="flex items-center gap-2 mt-0.5">
-                                    <span className="capitalize text-[var(--color-text-600)] text-xs bg-[var(--color-surface-alt)] px-2 py-0.5 rounded border border-[var(--color-border)]">
-                                      {comp.evaluatorRole}
-                                    </span>
-                                    <span className="text-xs text-[var(--color-text-500)]">Weight: {comp.totalMarks}</span>
-                                  </div>
-                                </div>
-                                <div className="text-right flex-shrink-0">
-                                  {comp.score != null ? (
-                                    <span className="font-semibold text-[var(--color-text-900)] text-sm">
-                                      {comp.score.toFixed(1)}
-                                    </span>
-                                  ) : (
-                                    <span className="text-[var(--color-text-400)] text-xs">—</span>
-                                  )}
-                                  <p className="text-[var(--color-text-400)] text-xs">/ {comp.totalMarks}</p>
-                                </div>
-                              </div>
-                            ))}
-                            {group.components.length > 0 && (
-                              <div className="px-4 py-2.5 bg-[var(--color-surface-alt)] flex items-center justify-between">
-                                <span className="text-sm font-semibold text-[var(--color-text-900)]">Total</span>
-                                <span className="text-sm font-semibold text-[var(--color-text-900)]">
-                                  {totalComponentScore.toFixed(1)} / {totalComponentMax}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Desktop: full table */}
-                          <div className="hidden sm:block rounded-lg border border-[var(--color-border)] overflow-hidden">
-                            <table className="w-full text-sm">
-                              <thead className="bg-[var(--color-surface-alt)]">
-                                <tr>
-                                  <th className="px-4 py-2.5 text-left text-[var(--color-text-700)] font-medium border-r border-[var(--color-border)]">
-                                    Component
-                                  </th>
-                                  <th className="px-4 py-2.5 text-center text-[var(--color-text-700)] font-medium border-r border-[var(--color-border)]">
-                                    Evaluator
-                                  </th>
-                                  <th className="px-4 py-2.5 text-center text-[var(--color-text-700)] font-medium border-r border-[var(--color-border)]">
-                                    Weight
-                                  </th>
-                                  <th className="px-4 py-2.5 text-center text-[var(--color-text-700)] font-medium">
-                                    Score
-                                  </th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-[var(--color-border)]">
-                                {group.components.map((comp) => (
-                                  <tr key={comp.componentKey} className="hover:bg-[var(--color-surface-alt)]">
-                                    <td className="px-4 py-3 text-[var(--color-text-900)] border-r border-[var(--color-border)]">
-                                      {comp.componentName}
-                                    </td>
-                                    <td className="px-4 py-3 text-center border-r border-[var(--color-border)]">
-                                      <span className="capitalize text-[var(--color-text-600)] text-xs bg-[var(--color-surface-alt)] px-2 py-0.5 rounded border border-[var(--color-border)]">
-                                        {comp.evaluatorRole}
-                                      </span>
-                                    </td>
-                                    <td className="px-4 py-3 text-center text-[var(--color-text-700)] font-medium border-r border-[var(--color-border)]">
-                                      {comp.totalMarks}
-                                    </td>
-                                    <td className="px-4 py-3 text-center">
-                                      {comp.score != null ? (
-                                        <span className="font-semibold text-[var(--color-text-900)]">
-                                          {comp.score.toFixed(1)}
-                                        </span>
-                                      ) : (
-                                        <span className="text-[var(--color-text-400)] text-xs">—</span>
-                                      )}
-                                    </td>
-                                  </tr>
-                                ))}
-                                {group.components.length > 0 && (
-                                  <tr className="bg-[var(--color-surface-alt)] border-t-2 border-[var(--color-border)]">
-                                    <td className="px-4 py-2.5 font-semibold text-[var(--color-text-900)] border-r border-[var(--color-border)]" colSpan={2}>
-                                      Total
-                                    </td>
-                                    <td className="px-4 py-2.5 text-center font-semibold text-[var(--color-text-900)] border-r border-[var(--color-border)]">
-                                      {totalComponentMax}
-                                    </td>
-                                    <td className="px-4 py-2.5 text-center font-semibold text-[var(--color-text-900)]">
-                                      {totalComponentScore.toFixed(1)}
-                                    </td>
-                                  </tr>
+                        {(() => {
+                          const selectedStudent = group.students.find(
+                            (s) => selectedStudentKey === `${group.id}:${s.id}`
+                          ) ?? null;
+                          const sg = selectedStudent
+                            ? (group.studentGrades?.[selectedStudent.id] ?? null)
+                            : null;
+                          const studentScoreByKey: Record<string, number | null> = {};
+                          if (sg) {
+                            studentScoreByKey['supervisor_eval']          = sg.supervisorScore;
+                            studentScoreByKey['committee_eval']           = sg.committeeScore;
+                            studentScoreByKey['progress_reports']         = sg.weeklyScore;
+                            studentScoreByKey['coordinator_deliverables'] = sg.deliverablesTotal;
+                            studentScoreByKey['peer_review']              = sg.peerScore;
+                          }
+                          return (
+                            <div>
+                              <div className="flex items-center justify-between mb-2">
+                                <h4 className="text-sm font-semibold text-[var(--color-text-700)] flex items-center gap-1.5">
+                                  <BarChart2 className="w-4 h-4" />
+                                  Grade Components
+                                  <span className="ml-1 text-xs font-normal text-[var(--color-text-500)]">
+                                    (Coordinator-defined — read-only)
+                                  </span>
+                                </h4>
+                                {selectedStudent && (
+                                  <span className="text-xs text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full font-medium">
+                                    Viewing: {selectedStudent.name}
+                                  </span>
                                 )}
-                              </tbody>
-                            </table>
-                          </div>
-                        </div>
+                              </div>
+                              {/* Mobile: card list */}
+                              <div className="sm:hidden rounded-lg border border-[var(--color-border)] divide-y divide-[var(--color-border)]">
+                                {group.components.map((comp) => {
+                                  const displayScore = selectedStudent
+                                    ? (studentScoreByKey[comp.componentKey] ?? null)
+                                    : comp.score;
+                                  return (
+                                    <div key={comp.componentKey} className="px-4 py-3 flex items-center justify-between gap-2">
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-sm text-[var(--color-text-900)] font-medium truncate">{comp.componentName}</p>
+                                        <div className="flex items-center gap-2 mt-0.5">
+                                          <span className="capitalize text-[var(--color-text-600)] text-xs bg-[var(--color-surface-alt)] px-2 py-0.5 rounded border border-[var(--color-border)]">
+                                            {comp.evaluatorRole}
+                                          </span>
+                                          <span className="text-xs text-[var(--color-text-500)]">Weight: {comp.totalMarks}</span>
+                                        </div>
+                                      </div>
+                                      <div className="text-right flex-shrink-0">
+                                        {displayScore != null ? (
+                                          <span className="font-semibold text-[var(--color-text-900)] text-sm">
+                                            {Number(displayScore).toFixed(1)}
+                                          </span>
+                                        ) : (
+                                          <span className="text-[var(--color-text-400)] text-xs">—</span>
+                                        )}
+                                        <p className="text-[var(--color-text-400)] text-xs">/ {comp.totalMarks}</p>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                                {group.components.length > 0 && (
+                                  <div className="px-4 py-2.5 bg-[var(--color-surface-alt)] flex items-center justify-between">
+                                    <span className="text-sm font-semibold text-[var(--color-text-900)]">Total</span>
+                                    <span className="text-sm font-semibold text-[var(--color-text-900)]">
+                                      {totalComponentScore.toFixed(1)} / {totalComponentMax}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Desktop: full table */}
+                              <div className="hidden sm:block rounded-lg border border-[var(--color-border)] overflow-hidden">
+                                <table className="w-full text-sm">
+                                  <thead className="bg-[var(--color-surface-alt)]">
+                                    <tr>
+                                      <th className="px-4 py-2.5 text-left text-[var(--color-text-700)] font-medium border-r border-[var(--color-border)]">
+                                        Component
+                                      </th>
+                                      <th className="px-4 py-2.5 text-center text-[var(--color-text-700)] font-medium border-r border-[var(--color-border)]">
+                                        Evaluator
+                                      </th>
+                                      <th className="px-4 py-2.5 text-center text-[var(--color-text-700)] font-medium border-r border-[var(--color-border)]">
+                                        Weight
+                                      </th>
+                                      <th className="px-4 py-2.5 text-center text-[var(--color-text-700)] font-medium">
+                                        Score
+                                      </th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-[var(--color-border)]">
+                                    {group.components.map((comp) => {
+                                      const displayScore = selectedStudent
+                                        ? (studentScoreByKey[comp.componentKey] ?? null)
+                                        : comp.score;
+                                      return (
+                                        <tr key={comp.componentKey} className="hover:bg-[var(--color-surface-alt)]">
+                                          <td className="px-4 py-3 text-[var(--color-text-900)] border-r border-[var(--color-border)]">
+                                            {comp.componentName}
+                                          </td>
+                                          <td className="px-4 py-3 text-center border-r border-[var(--color-border)]">
+                                            <span className="capitalize text-[var(--color-text-600)] text-xs bg-[var(--color-surface-alt)] px-2 py-0.5 rounded border border-[var(--color-border)]">
+                                              {comp.evaluatorRole}
+                                            </span>
+                                          </td>
+                                          <td className="px-4 py-3 text-center text-[var(--color-text-700)] font-medium border-r border-[var(--color-border)]">
+                                            {comp.totalMarks}
+                                          </td>
+                                          <td className="px-4 py-3 text-center">
+                                            {displayScore != null ? (
+                                              <span className="font-semibold text-[var(--color-text-900)]">
+                                                {Number(displayScore).toFixed(1)}
+                                              </span>
+                                            ) : (
+                                              <span className="text-[var(--color-text-400)] text-xs">—</span>
+                                            )}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                    {group.components.length > 0 && (
+                                      <tr className="bg-[var(--color-surface-alt)] border-t-2 border-[var(--color-border)]">
+                                        <td className="px-4 py-2.5 font-semibold text-[var(--color-text-900)] border-r border-[var(--color-border)]" colSpan={2}>
+                                          Total
+                                        </td>
+                                        <td className="px-4 py-2.5 text-center font-semibold text-[var(--color-text-900)] border-r border-[var(--color-border)]">
+                                          {totalComponentMax}
+                                        </td>
+                                        <td className="px-4 py-2.5 text-center font-semibold text-[var(--color-text-900)]">
+                                          {totalComponentScore.toFixed(1)}
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          );
+                        })()}
 
                         {/* Bottom row: supervisor eval + chapter approval counts */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

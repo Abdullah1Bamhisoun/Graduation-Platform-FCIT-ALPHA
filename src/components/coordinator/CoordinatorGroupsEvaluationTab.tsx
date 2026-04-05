@@ -125,6 +125,9 @@ export function CoordinatorGroupsEvaluationTab({ courseType, refreshKey }: Coord
   const [existingStatus, setExistingStatus] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Inline student marks: selectedStudentKey = `${groupId}:${studentId}`
+  const [selectedStudentKey, setSelectedStudentKey] = useState<string | null>(null);
+
   useEffect(() => {
     loadGroups();
     getCoordinatorEvalComponent(courseType).then(setEvalComponent);
@@ -141,6 +144,11 @@ export function CoordinatorGroupsEvaluationTab({ courseType, refreshKey }: Coord
     } finally {
       setIsLoading(false);
     }
+  }
+
+  function toggleStudentMarks(groupId: string, studentId: string) {
+    const key = `${groupId}:${studentId}`;
+    setSelectedStudentKey((prev) => (prev === key ? null : key));
   }
 
   async function openEvaluationModal(groupId: string, groupNumber: number | null) {
@@ -415,46 +423,97 @@ export function CoordinatorGroupsEvaluationTab({ courseType, refreshKey }: Coord
                   <div>
                     <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
                       <Users className="w-4 h-4" />Students ({group.students.length})
+                      <span className="text-xs font-normal text-gray-500">— click a name to view marks</span>
                     </h4>
                     <div className="flex flex-wrap gap-2">
-                      {group.students.map((student) => (
-                        <span key={student.id} className="inline-block px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-sm border border-blue-200">
-                          {student.name || 'Unknown'}
-                          {student.studentId && <span className="text-xs ml-1 opacity-75">({student.studentId})</span>}
-                        </span>
-                      ))}
+                      {group.students.map((student) => {
+                        const key = `${group.id}:${student.id}`;
+                        const isSelected = selectedStudentKey === key;
+                        return (
+                          <button
+                            key={student.id}
+                            type="button"
+                            onClick={() => toggleStudentMarks(group.id, student.id)}
+                            className={`inline-flex items-center px-3 py-1 rounded-full text-sm border transition-colors cursor-pointer ${
+                              isSelected
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 hover:border-blue-300'
+                            }`}
+                          >
+                            {student.name || 'Unknown'}
+                            {student.studentId && <span className="text-xs ml-1 opacity-75">({student.studentId})</span>}
+                          </button>
+                        );
+                      })}
                     </div>
+
                   </div>
 
-                  <div>
-                    <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                      <BarChart3 className="w-4 h-4" />Grade Components
-                    </h4>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50 border-b border-gray-200">
-                          <tr>
-                            <th className="px-4 py-2 text-left text-xs font-semibold text-gray-900">Component</th>
-                            <th className="px-4 py-2 text-right text-xs font-semibold text-gray-900">Score</th>
-                            <th className="px-4 py-2 text-right text-xs font-semibold text-gray-900">Weight</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200">
-                          {group.gradeComponents.map((component) => (
-                            <tr key={component.componentKey} className="hover:bg-gray-50">
-                              <td className="px-4 py-2 text-gray-900">{component.componentName}</td>
-                              <td className="px-4 py-2 text-right">
-                                <span className="font-mono text-gray-900">
-                                  {component.score !== null ? component.score.toFixed(1) : '—'} / {component.maxScore}
-                                </span>
-                              </td>
-                              <td className="px-4 py-2 text-right text-gray-600">{component.weight} marks</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
+                  {(() => {
+                    // Find the selected student for THIS group (if any)
+                    const selectedStudent = group.students.find(
+                      (s) => selectedStudentKey === `${group.id}:${s.id}`
+                    ) ?? null;
+                    const sg = selectedStudent
+                      ? (group.studentGrades?.[selectedStudent.id] ?? null)
+                      : null;
+
+                    // Map per-student scores to component keys
+                    const studentScoreByKey: Record<string, number | null> = {};
+                    if (sg) {
+                      studentScoreByKey['supervisor_eval']          = sg.supervisorScore;
+                      studentScoreByKey['committee_eval']           = sg.committeeScore;
+                      studentScoreByKey['progress_reports']         = sg.weeklyScore;
+                      studentScoreByKey['coordinator_deliverables'] = sg.deliverablesTotal;
+                      studentScoreByKey['peer_review']              = sg.peerScore;
+                    }
+
+                    return (
+                      <div>
+                        <div className="flex items-center justify-between mb-3">
+                          <h4 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                            <BarChart3 className="w-4 h-4" />Grade Components
+                          </h4>
+                          {selectedStudent && (
+                            <span className="text-xs text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full font-medium">
+                              Viewing: {selectedStudent.name}
+                            </span>
+                          )}
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50 border-b border-gray-200">
+                              <tr>
+                                <th className="px-4 py-2 text-left text-xs font-semibold text-gray-900">Component</th>
+                                <th className="px-4 py-2 text-right text-xs font-semibold text-gray-900">Score</th>
+                                <th className="px-4 py-2 text-right text-xs font-semibold text-gray-900">Weight</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200">
+                              {group.gradeComponents.map((component) => {
+                                const displayScore = selectedStudent
+                                  ? (studentScoreByKey[component.componentKey] ?? null)
+                                  : component.score;
+                                return (
+                                  <tr key={component.componentKey} className="hover:bg-gray-50">
+                                    <td className="px-4 py-2 text-gray-900">{component.componentName}</td>
+                                    <td className="px-4 py-2 text-right">
+                                      <span className="font-mono text-gray-900">
+                                        {displayScore !== null && displayScore !== undefined
+                                          ? Number(displayScore).toFixed(1)
+                                          : '—'} / {component.maxScore}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-2 text-right text-gray-600">{component.weight} marks</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-center justify-between">
                     <div>

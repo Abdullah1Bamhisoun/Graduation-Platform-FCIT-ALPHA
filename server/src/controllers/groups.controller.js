@@ -594,6 +594,8 @@ async function buildGradesResponse(res, groupsRaw, supervisorId) {
     { data: rubricScores },
     { data: submissions },
     { data: weeklyReports },
+    { data: commEvaluations },
+    { data: peerEvaluations },
   ] = await Promise.all([
     supabaseAdmin
       .from('grading_components')
@@ -620,6 +622,14 @@ async function buildGradesResponse(res, groupsRaw, supervisorId) {
     supabaseAdmin
       .from('weekly_reports')
       .select('group_id, student_mark, supervisor_mark')
+      .in('group_id', groupIds),
+    supabaseAdmin
+      .from('committee_evaluations')
+      .select('group_id, student_id, score, max_score')
+      .in('group_id', groupIds),
+    supabaseAdmin
+      .from('peer_evaluations')
+      .select('group_id, student_id, score')
       .in('group_id', groupIds),
   ]);
 
@@ -706,6 +716,37 @@ async function buildGradesResponse(res, groupsRaw, supervisorId) {
           : Number(c.total_marks),
       }));
 
+    // Per-student grade breakdown
+    const studentGrades = {};
+    for (const s of students) {
+      const sid = s.id;
+      const supRow = supervisorEval.find((e) => e.studentId === sid);
+      const commRows = (commEvaluations || []).filter(
+        (c) => c.group_id === g.id && c.student_id === sid
+      );
+      const commScore = commRows.length > 0
+        ? commRows.reduce((acc, r) => acc + Number(r.score ?? 0), 0) / commRows.length
+        : null;
+      const commMaxScore = commRows[0]?.max_score != null ? Number(commRows[0].max_score) : 40;
+      const peerRows = (peerEvaluations || []).filter(
+        (p) => p.group_id === g.id && p.student_id === sid
+      );
+      const peerRaw = peerRows.length > 0
+        ? peerRows.reduce((acc, p) => acc + Number(p.score), 0) / peerRows.length
+        : null;
+      studentGrades[sid] = {
+        supervisorScore:   supRow?.score ?? null,
+        supervisorMax:     supRow?.maxScore ?? supervisorMaxScore,
+        committeeScore:    commScore,
+        committeeMax:      commMaxScore,
+        weeklyScore,
+        weeklyMax:         courseType === '499' ? 22 : 20,
+        deliverablesTotal,
+        peerScore:         peerRaw,
+        peerMax:           5,
+      };
+    }
+
     return {
       id:            g.id,
       groupNumber:   g.group_number,
@@ -734,6 +775,7 @@ async function buildGradesResponse(res, groupsRaw, supervisorId) {
       })),
       weeklyScore,
       approvalCounts,
+      studentGrades,
     };
   });
 
@@ -1117,7 +1159,7 @@ async function getGroupsWithCoordinatorGrades(req, res) {
       { data: allCoordAssessments },
       { data: allPeerEvaluations },
     ] = await Promise.all([
-      supabaseAdmin.from('supervisor_assessments').select('group_id, score, max_score').in('group_id', groupIds),
+      supabaseAdmin.from('supervisor_assessments').select('group_id, student_id, score, max_score').in('group_id', groupIds),
       supabaseAdmin.from('committee_evaluations').select('group_id, student_id, score, max_score').in('group_id', groupIds),
       // Filter by both group_id and course_id so scores from other courses are never mixed in
       (courseIds.length > 0
@@ -1206,6 +1248,49 @@ async function getGroupsWithCoordinatorGrades(req, res) {
 
       const gMembers = membersByGroup[group.id] || [];
 
+      // Per-student grade breakdown (keyed by student profile UUID)
+      const studentGrades = {};
+      for (const m of gMembers) {
+        const sid = m.student_id;
+
+        // Supervisor score for this student
+        const supRow = (allSupAssessments || []).find(
+          a => a.group_id === group.id && a.student_id === sid
+        );
+        const supScore = supRow?.score != null ? Number(supRow.score) : null;
+        const supMaxScore = supRow?.max_score != null ? Number(supRow.max_score) : (courseType === '499' ? 23 : 20);
+
+        // Committee score for this student (average across evaluators)
+        const commRows = (allCommEvaluations || []).filter(
+          c => c.group_id === group.id && c.student_id === sid
+        );
+        const commScore = commRows.length > 0
+          ? commRows.reduce((s, r) => s + Number(r.score ?? 0), 0) / commRows.length
+          : null;
+        const commMaxScore = commRows[0]?.max_score != null ? Number(commRows[0].max_score) : 40;
+
+        // Peer evaluation score for this student (average of scores received)
+        const peerRows = (allPeerEvaluations || []).filter(
+          p => p.group_id === group.id && p.student_id === sid
+        );
+        const peerRaw = peerRows.length > 0
+          ? peerRows.reduce((s, p) => s + Number(p.score), 0) / peerRows.length
+          : null;
+
+        // Weekly progress and deliverables are group-level — same for all students
+        studentGrades[sid] = {
+          supervisorScore:   supScore,
+          supervisorMax:     supMaxScore,
+          committeeScore:    commScore,
+          committeeMax:      commMaxScore,
+          weeklyScore:       weeklyScore,
+          weeklyMax:         weeklyMaxScore,
+          deliverablesTotal: deliverablesTotal,
+          peerScore:         peerRaw,   // raw 0–5 average
+          peerMax:           5,
+        };
+      }
+
       return {
         id: group.id,
         number: group.group_number,
@@ -1220,6 +1305,7 @@ async function getGroupsWithCoordinatorGrades(req, res) {
           name: profileMap[m.student_id]?.name || '',
           studentId: profileMap[m.student_id]?.student_id,
         })),
+        studentGrades,
         projectStatus: group.status || 'normal',
         ipMarkedAt: null,
         totalScore: null, // Calculated on frontend from components
