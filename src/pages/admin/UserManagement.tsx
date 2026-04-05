@@ -479,9 +479,10 @@ export function AdminUserManagement() {
     }
   };
 
-  // ── Helpers ── extracted from group code {dept}_{num}_{courseNum}_{year}_{termCode}_{genderCode}
-  const getGroupSemester = (code: string) => code.split('_')[4] ?? '';
-  const getGroupCourse = (code: string) => code.split('_')[2] ?? '';
+  // ── Helpers ── extracted from group code {dept}_{section}_{courseNum}_{year}_{groupNum}_{genderCode}
+  const getGroupDept     = (code: string) => code.split('_')[0] ?? '';
+  const getGroupSemester = (code: string) => code.split('_')[1] ?? '';
+  const getGroupCourse   = (code: string) => code.split('_')[2] ?? '';
   // Map studentId → semester / course via groups state
   const studentSemesterMap = new Map<string, string>();
   const studentCourseMap = new Map<string, string>();
@@ -519,7 +520,7 @@ export function AdminUserManagement() {
       String(g.groupNumber ?? '').includes(q) ||
       (g.supervisorName ?? '').toLowerCase().includes(q) ||
       (g.groupCode ?? '').toLowerCase().includes(q);
-    const matchesDept = groupFilterDept === 'all' || g.department === groupFilterDept;
+    const matchesDept = groupFilterDept === 'all' || getGroupDept(g.groupCode) === groupFilterDept;
     const matchesStatus = groupFilterStatus === 'all' || g.status === groupFilterStatus;
     const matchesGender = groupFilterGender === 'all' || (g.gender ?? '') === groupFilterGender;
     const matchesSemester = groupFilterSemester === 'all' || getGroupSemester(g.groupCode) === groupFilterSemester;
@@ -917,7 +918,7 @@ export function AdminUserManagement() {
                         <div className="min-w-0">
                           <p className="font-semibold text-[var(--color-text-900)] text-sm break-all">{g.groupCode || '—'}</p>
                           <p className="text-xs text-[var(--color-text-600)] mt-0.5 break-words">{g.projectName || 'No project name'}</p>
-                          <p className="text-xs text-[var(--color-text-500)] mt-0.5">{g.department || '—'}</p>
+                          <p className="text-xs text-[var(--color-text-500)] mt-0.5">{getGroupDept(g.groupCode) || '—'}</p>
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs capitalize ${getStatusBadge(g.status)}`}>
@@ -1002,7 +1003,7 @@ export function AdminUserManagement() {
                       <div className="col-span-1 text-xs text-[var(--color-text-600)] font-mono truncate" title={g.groupCode}>
                         {g.groupCode || '—'}
                       </div>
-                      <div className="col-span-1 text-sm text-[var(--color-text-600)]">{g.department || '—'}</div>
+                      <div className="col-span-1 text-sm text-[var(--color-text-600)]">{getGroupDept(g.groupCode) || '—'}</div>
                       <div className="col-span-1">
                         <p className="text-sm font-medium text-[var(--color-text-900)] truncate">{g.projectName || '—'}</p>
                       </div>

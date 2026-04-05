@@ -326,40 +326,59 @@ export function AdminCommitteeManagement() {
 
                 <div>
                   <Label htmlFor="supervisor-select" className="mb-2 block text-[var(--color-text-900)]">Select Supervisor *</Label>
-                  <Select value={selectedSupervisor} onValueChange={setSelectedSupervisor}>
-                    <SelectTrigger id="supervisor-select">
-                      <SelectValue placeholder="Choose a supervisor" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableSupervisors.map((supervisor) => {
-                        const conflict = selectedSchedule ? getSupervisorConflict(supervisor, selectedSchedule) : null;
-                        return (
-                          <SelectItem key={supervisor} value={supervisor}>
-                            <div className="flex items-center justify-between gap-3 w-full">
-                              <span>{supervisor}</span>
-                              {conflict ? (
-                                <span className="text-xs text-red-500 flex items-center gap-1">
-                                  <AlertCircle className="w-3 h-3" /> Busy
-                                </span>
-                              ) : (
-                                <span className="text-xs text-green-600 flex items-center gap-1">
-                                  <CheckCircle className="w-3 h-3" /> Available
-                                </span>
-                              )}
-                            </div>
-                          </SelectItem>
-                        );
-                      })}
-                    </SelectContent>
-                  </Select>
+                  {(() => {
+                    const groupSupervisorName = schedules.find(s => s.groupId === selectedSchedule)?.supervisorName?.trim().toLowerCase();
+                    const filteredSupervisors = availableSupervisors.filter(
+                      s => !groupSupervisorName || s.trim().toLowerCase() !== groupSupervisorName
+                    );
+                    const groupSupervisorDisplay = schedules.find(s => s.groupId === selectedSchedule)?.supervisorName;
+                    return (
+                      <>
+                        {groupSupervisorDisplay && (
+                          <div className="mb-2 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                            <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                            <p className="text-sm text-amber-700">
+                              <strong>{groupSupervisorDisplay}</strong> is this group's supervisor and cannot be assigned as a committee member.
+                            </p>
+                          </div>
+                        )}
+                        <Select value={selectedSupervisor} onValueChange={setSelectedSupervisor}>
+                          <SelectTrigger id="supervisor-select">
+                            <SelectValue placeholder="Choose a supervisor" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {filteredSupervisors.map((supervisor) => {
+                              const conflict = selectedSchedule ? getSupervisorConflict(supervisor, selectedSchedule) : null;
+                              return (
+                                <SelectItem key={supervisor} value={supervisor}>
+                                  <div className="flex items-center justify-between gap-3 w-full">
+                                    <span>{supervisor}</span>
+                                    {conflict ? (
+                                      <span className="text-xs text-red-500 flex items-center gap-1">
+                                        <AlertCircle className="w-3 h-3" /> Busy
+                                      </span>
+                                    ) : (
+                                      <span className="text-xs text-green-600 flex items-center gap-1">
+                                        <CheckCircle className="w-3 h-3" /> Available
+                                      </span>
+                                    )}
+                                  </div>
+                                </SelectItem>
+                              );
+                            })}
+                          </SelectContent>
+                        </Select>
 
-                  {/* Conflict warning */}
-                  {selectedSupervisorConflict && (
-                    <div className="mt-2 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg p-3">
-                      <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
-                      <p className="text-sm text-red-700">{selectedSupervisorConflict}</p>
-                    </div>
-                  )}
+                        {/* Time conflict warning */}
+                        {selectedSupervisorConflict && (
+                          <div className="mt-2 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg p-3">
+                            <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
+                            <p className="text-sm text-red-700">{selectedSupervisorConflict}</p>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
 
                 <div className="flex justify-end gap-2 pt-4">

@@ -332,6 +332,7 @@ export interface PresentationSchedule {
   projectName: string;
   projectDescription: string;
   committeeMembers: string[];
+  supervisorName?: string;
 }
 
 export interface StudentPresentationSelection {

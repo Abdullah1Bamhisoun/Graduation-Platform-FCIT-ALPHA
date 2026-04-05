@@ -222,6 +222,7 @@ const SCHEDULE_SELECT = `
   *,
   group:groups!group_id(
     id, group_code, project_name, project_description,
+    supervisor:profiles!supervisor_id(id, name),
     members:group_members(student:profiles!student_id(id, name, student_id))
   )
 `;
@@ -240,6 +241,7 @@ function mapDbPresentationSchedule(data: any): PresentationSchedule {
     projectName: group?.project_name ?? '',
     projectDescription: group?.project_description ?? '',
     committeeMembers: data.committee_members ?? [],
+    supervisorName: group?.supervisor?.name ?? undefined,
   };
 }
 
