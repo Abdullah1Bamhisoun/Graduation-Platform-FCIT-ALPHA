@@ -360,10 +360,11 @@ export function CoordinatorMeetings() {
           const raw = await res.json();
           setGroups(raw || []);
         } else {
-          toast.error('Could not load groups — check your coordinator course assignment');
+          const body = await res.json().catch(() => ({}));
+          toast.error(body.error || `Failed to load groups (${res.status})`);
         }
-      } catch {
-        toast.error('Could not load groups');
+      } catch (err: any) {
+        toast.error(err.message || 'Could not load groups');
       }
     }
     fetchGroups();

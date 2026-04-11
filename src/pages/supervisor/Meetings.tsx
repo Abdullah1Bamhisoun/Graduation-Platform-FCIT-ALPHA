@@ -376,14 +376,17 @@ export function SupervisorMeetings() {
         const token = session.session?.access_token ?? '';
         // /api/groups/mine returns only the supervisor's own groups
         const res = await fetch('/api/groups/mine', {
-          headers: { Authorization: `Bearer ${token}`, 'X-Active-Role': activeRole },
+          headers: { Authorization: `Bearer ${token}`, 'X-Active-Role': 'supervisor' },
         });
         if (res.ok) {
           const raw = await res.json();
           setGroups(raw || []);
+        } else {
+          const body = await res.json().catch(() => ({}));
+          toast.error(body.error || `Failed to load groups (${res.status})`);
         }
-      } catch {
-        toast.error('Could not load groups');
+      } catch (err: any) {
+        toast.error(err.message || 'Could not load groups');
       }
     }
     fetchMyGroups();

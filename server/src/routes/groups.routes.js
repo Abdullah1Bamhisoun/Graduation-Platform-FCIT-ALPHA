@@ -29,24 +29,30 @@ router.get('/available', controller.getAvailableGroups);
 router.get(
   '/mine',
   authenticate,
-  requireSupervisorOrAdmin,
   async (req, res) => {
     try {
       const { supabaseAdmin } = require('../config/supabase');
+      const userId = req.user.id;
+      console.log('[groups/mine] userId:', userId, 'roles:', req.user.roles);
+
       const { data, error } = await supabaseAdmin
         .from('groups')
         .select('id, project_name, group_code, group_number')
-        .eq('supervisor_id', req.user.id)
+        .eq('supervisor_id', userId)
         .order('group_number', { ascending: true });
+
       if (error) throw error;
+
       const groups = (data || []).map((g) => ({
         id:   g.id,
         name: g.project_name || g.group_code || `Group ${g.group_number}`,
       }));
+
+      console.log('[groups/mine] found', groups.length, 'groups');
       return res.json(groups);
     } catch (err) {
       console.error('[groups/mine]', err.message);
-      return res.status(500).json({ error: 'Failed to fetch groups' });
+      return res.status(500).json({ error: err.message || 'Failed to fetch groups' });
     }
   }
 );
