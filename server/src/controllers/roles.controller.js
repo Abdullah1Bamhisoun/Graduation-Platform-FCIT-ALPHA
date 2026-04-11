@@ -314,39 +314,46 @@ async function getCoordinators(req, res) {
  */
 async function getCoordinatorInfo(req, res) {
   try {
-    // ── Primary: already resolved by auth middleware (fastest, most reliable) ─
-    let coordinatorCourseId = req.user.coordinatorCourseId ?? null;
+    const userId = req.user.id;
+    let coordinatorCourseId = null;
 
-    // ── Secondary: user_roles table (matches auth middleware lookup chain) ────
-    if (!coordinatorCourseId) {
-      const { data: roleRow } = await supabaseAdmin
+    // ── 1. user_roles: resolve coordinator role_id first, then fetch course ───
+    // Two-step to avoid unreliable join-filter syntax in PostgREST
+    const { data: coordRole } = await supabaseAdmin
+      .from('roles')
+      .select('id')
+      .eq('name', 'coordinator')
+      .maybeSingle();
+
+    if (coordRole?.id) {
+      const { data: userRoleRow } = await supabaseAdmin
         .from('user_roles')
-        .select('coordinator_course_id, roles!inner(name)')
-        .eq('user_id', req.user.id)
-        .eq('roles.name', 'coordinator')
+        .select('coordinator_course_id')
+        .eq('user_id', userId)
+        .eq('role_id', coordRole.id)
         .maybeSingle();
-      coordinatorCourseId = roleRow?.coordinator_course_id ?? null;
+      coordinatorCourseId = userRoleRow?.coordinator_course_id ?? null;
     }
 
-    // ── Tertiary: platform_locks ──────────────────────────────────────────────
+    // ── 2. platform_locks coordinator_assignment ───────────────────────────────
     if (!coordinatorCourseId) {
       const { data: lockRow } = await supabaseAdmin
         .from('platform_locks')
         .select('entity_id')
         .eq('entity_type', 'coordinator_assignment')
-        .eq('locked_by', req.user.id)
+        .eq('locked_by', userId)
         .eq('is_locked', true)
         .limit(1)
         .maybeSingle();
       coordinatorCourseId = lockRow?.entity_id ?? null;
     }
 
-    // ── Quaternary: profiles.coordinator_course_id ────────────────────────────
+    // ── 3. profiles.coordinator_course_id (legacy fallback) ───────────────────
     if (!coordinatorCourseId) {
       const { data: profile } = await supabaseAdmin
         .from('profiles')
         .select('coordinator_course_id')
-        .eq('id', req.user.id)
+        .eq('id', userId)
         .maybeSingle();
       coordinatorCourseId = profile?.coordinator_course_id ?? null;
     }
