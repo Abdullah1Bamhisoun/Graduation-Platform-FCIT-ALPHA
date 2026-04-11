@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { apiUrl } from '@/lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -96,19 +97,16 @@ function normalize(rows: any[]): Meeting[] {
 
 // ─── Backend email trigger ────────────────────────────────────────────────────
 
-const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL as string | undefined)?.replace(/\/$/, '') ?? '';
-
 /**
  * After participants are inserted via Supabase, notify the backend to send
  * invitation emails. Best-effort — never throws.
  */
 async function triggerInvitationEmail(meetingId: string): Promise<void> {
-  if (!BACKEND_URL) return;
   try {
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
     if (!token) return;
-    await fetch(`${BACKEND_URL}/api/meetings/${meetingId}/resend-invitation`, {
+    await fetch(apiUrl(`/api/meetings/${meetingId}/resend-invitation`), {
       method:  'POST',
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -242,14 +240,11 @@ export async function resendInvitation(
   id: string,
   _activeRole: string
 ): Promise<{ message: string }> {
-  if (!BACKEND_URL) {
-    return { message: 'Backend URL not configured — set VITE_BACKEND_URL' };
-  }
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token;
   if (!token) throw new Error('Not authenticated');
 
-  const res = await fetch(`${BACKEND_URL}/api/meetings/${id}/resend-invitation`, {
+  const res = await fetch(apiUrl(`/api/meetings/${id}/resend-invitation`), {
     method:  'POST',
     headers: { Authorization: `Bearer ${token}` },
   });
