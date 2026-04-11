@@ -94,6 +94,29 @@ function normalize(rows: any[]): Meeting[] {
   }));
 }
 
+// ─── Backend email trigger ────────────────────────────────────────────────────
+
+const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL as string | undefined)?.replace(/\/$/, '') ?? '';
+
+/**
+ * After participants are inserted via Supabase, notify the backend to send
+ * invitation emails. Best-effort — never throws.
+ */
+async function triggerInvitationEmail(meetingId: string): Promise<void> {
+  if (!BACKEND_URL) return;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) return;
+    await fetch(`${BACKEND_URL}/api/meetings/${meetingId}/resend-invitation`, {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    // Non-fatal
+  }
+}
+
 // ─── Direct Supabase queries ──────────────────────────────────────────────────
 
 const BASE_SELECT = '*, groups ( id, project_name, group_code, group_number )';
@@ -156,8 +179,10 @@ export async function createMeeting(
 
   if (error) throw new Error(error.message);
 
-  // Insert participants (best-effort — non-fatal)
-  insertParticipants(meeting.id, payload.group_id, user.id, creatorRole).catch(() => {});
+  // Insert participants then trigger invitation emails (best-effort — non-fatal)
+  insertParticipants(meeting.id, payload.group_id, user.id, creatorRole)
+    .then(() => triggerInvitationEmail(meeting.id))
+    .catch(() => {});
 
   return normalize([meeting])[0];
 }
@@ -213,10 +238,22 @@ export async function deleteMeeting(id: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
-// Resend invitation — no-op without backend email service
 export async function resendInvitation(
-  _id: string,
+  id: string,
   _activeRole: string
 ): Promise<{ message: string }> {
-  return { message: 'Email invitations require the backend service' };
+  if (!BACKEND_URL) {
+    return { message: 'Backend URL not configured — set VITE_BACKEND_URL' };
+  }
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) throw new Error('Not authenticated');
+
+  const res = await fetch(`${BACKEND_URL}/api/meetings/${id}/resend-invitation`, {
+    method:  'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || 'Failed to resend invitation');
+  return { message: body.message || 'Invitation resent' };
 }
