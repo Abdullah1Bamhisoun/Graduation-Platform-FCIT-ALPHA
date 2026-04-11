@@ -165,7 +165,7 @@ export async function createMeeting(
 async function insertParticipants(
   meetingId: string,
   groupId:   string,
-  creatorId: string,
+  _creatorId: string,
   creatorRole: CreatorRole
 ) {
   const [membersRes, groupRes] = await Promise.all([
