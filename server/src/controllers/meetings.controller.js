@@ -157,6 +157,7 @@ async function listMeetings(req, res) {
       const { data, error } = await supabaseAdmin
         .from('meetings').select(BASE_SELECT)
         .eq('created_by', userId)
+        .eq('creator_role', 'coordinator')
         .order('date_time', { ascending: true });
       if (error) throw error;
       meetings = data;

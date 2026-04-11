@@ -314,19 +314,10 @@ async function getCoordinators(req, res) {
  */
 async function getCoordinatorInfo(req, res) {
   try {
-    // ── Primary: platform_locks ───────────────────────────────────────────────
-    const { data: lockRow } = await supabaseAdmin
-      .from('platform_locks')
-      .select('entity_id')
-      .eq('entity_type', 'coordinator_assignment')
-      .eq('locked_by', req.user.id)
-      .eq('is_locked', true)
-      .limit(1)
-      .maybeSingle();
+    // ── Primary: already resolved by auth middleware (fastest, most reliable) ─
+    let coordinatorCourseId = req.user.coordinatorCourseId ?? null;
 
-    let coordinatorCourseId = lockRow?.entity_id ?? null;
-
-    // ── Secondary: user_roles table (authoritative — matches auth middleware) ──
+    // ── Secondary: user_roles table (matches auth middleware lookup chain) ────
     if (!coordinatorCourseId) {
       const { data: roleRow } = await supabaseAdmin
         .from('user_roles')
@@ -337,7 +328,20 @@ async function getCoordinatorInfo(req, res) {
       coordinatorCourseId = roleRow?.coordinator_course_id ?? null;
     }
 
-    // ── Tertiary: profiles.coordinator_course_id ──────────────────────────────
+    // ── Tertiary: platform_locks ──────────────────────────────────────────────
+    if (!coordinatorCourseId) {
+      const { data: lockRow } = await supabaseAdmin
+        .from('platform_locks')
+        .select('entity_id')
+        .eq('entity_type', 'coordinator_assignment')
+        .eq('locked_by', req.user.id)
+        .eq('is_locked', true)
+        .limit(1)
+        .maybeSingle();
+      coordinatorCourseId = lockRow?.entity_id ?? null;
+    }
+
+    // ── Quaternary: profiles.coordinator_course_id ────────────────────────────
     if (!coordinatorCourseId) {
       const { data: profile } = await supabaseAdmin
         .from('profiles')
