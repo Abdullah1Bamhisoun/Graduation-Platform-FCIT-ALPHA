@@ -1,25 +1,30 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 008_meetings_rls.sql — Enable RLS on meetings tables
 -- Run this in the Supabase SQL editor after 007_meetings.sql
+--
+-- NOTE: profiles.role enum only has: 'student', 'supervisor', 'admin'
+--       Coordinators are stored as 'admin' in profiles.role.
+--       The server always uses supabaseAdmin (service-role key) which bypasses
+--       RLS entirely — these policies only protect direct client access.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- ── meetings ──────────────────────────────────────────────────────────────────
 
 ALTER TABLE meetings ENABLE ROW LEVEL SECURITY;
 
--- Coordinators & admins: see all meetings
-CREATE POLICY "coordinators_read_all_meetings"
+-- Admins (includes coordinators): see all meetings
+CREATE POLICY "admins_read_all_meetings"
   ON meetings FOR SELECT
   TO authenticated
   USING (
     EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
-        AND profiles.role IN ('coordinator'::user_role, 'admin'::user_role)
+        AND profiles.role::text = 'admin'
     )
   );
 
--- Supervisors: see meetings they created OR coordinator meetings for their groups
+-- Supervisors: see meetings they created OR meetings for their groups
 CREATE POLICY "supervisors_read_meetings"
   ON meetings FOR SELECT
   TO authenticated
@@ -27,7 +32,7 @@ CREATE POLICY "supervisors_read_meetings"
     EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
-        AND profiles.role = 'supervisor'::user_role
+        AND profiles.role::text = 'supervisor'
     )
     AND (
       created_by = auth.uid()
@@ -46,12 +51,12 @@ CREATE POLICY "students_read_meetings"
   USING (
     EXISTS (
       SELECT 1 FROM group_members
-      WHERE group_members.group_id = meetings.group_id
-        AND group_members.user_id  = auth.uid()
+      WHERE group_members.group_id  = meetings.group_id
+        AND group_members.student_id = auth.uid()
     )
   );
 
--- Coordinators/admins/supervisors: insert
+-- Admins & supervisors: insert
 CREATE POLICY "staff_insert_meetings"
   ON meetings FOR INSERT
   TO authenticated
@@ -59,7 +64,7 @@ CREATE POLICY "staff_insert_meetings"
     EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
-        AND profiles.role IN ('coordinator'::user_role, 'admin'::user_role, 'supervisor'::user_role)
+        AND profiles.role::text IN ('admin', 'supervisor')
     )
   );
 
@@ -70,7 +75,7 @@ CREATE POLICY "creator_update_meetings"
   USING (created_by = auth.uid())
   WITH CHECK (created_by = auth.uid());
 
--- Only creator (or admin/coordinator) can delete
+-- Creator or admin can delete
 CREATE POLICY "creator_delete_meetings"
   ON meetings FOR DELETE
   TO authenticated
@@ -79,7 +84,7 @@ CREATE POLICY "creator_delete_meetings"
     OR EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
-        AND profiles.role IN ('coordinator'::user_role, 'admin'::user_role)
+        AND profiles.role::text = 'admin'
     )
   );
 
@@ -87,15 +92,15 @@ CREATE POLICY "creator_delete_meetings"
 
 ALTER TABLE meeting_participants ENABLE ROW LEVEL SECURITY;
 
--- Coordinators/admins: see all participants
-CREATE POLICY "coordinators_read_all_participants"
+-- Admins: see all participants
+CREATE POLICY "admins_read_all_participants"
   ON meeting_participants FOR SELECT
   TO authenticated
   USING (
     EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
-        AND profiles.role IN ('coordinator'::user_role, 'admin'::user_role)
+        AND profiles.role::text = 'admin'
     )
   );
 
@@ -107,7 +112,7 @@ CREATE POLICY "supervisors_read_participants"
     EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
-        AND profiles.role = 'supervisor'::user_role
+        AND profiles.role::text = 'supervisor'
     )
     AND EXISTS (
       SELECT 1 FROM meetings
@@ -123,13 +128,13 @@ CREATE POLICY "supervisors_read_participants"
     )
   );
 
--- Students: see own participant rows
+-- Students: see their own participant row
 CREATE POLICY "students_read_own_participant"
   ON meeting_participants FOR SELECT
   TO authenticated
   USING (user_id = auth.uid());
 
--- Staff can insert participants
+-- Admins & supervisors: insert participants
 CREATE POLICY "staff_insert_participants"
   ON meeting_participants FOR INSERT
   TO authenticated
@@ -137,11 +142,11 @@ CREATE POLICY "staff_insert_participants"
     EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
-        AND profiles.role IN ('coordinator'::user_role, 'admin'::user_role, 'supervisor'::user_role)
+        AND profiles.role::text IN ('admin', 'supervisor')
     )
   );
 
--- Staff can update participant rows (e.g. reminder flags)
+-- Admins & supervisors: update participants (e.g. reminder flags)
 CREATE POLICY "staff_update_participants"
   ON meeting_participants FOR UPDATE
   TO authenticated
@@ -149,11 +154,11 @@ CREATE POLICY "staff_update_participants"
     EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
-        AND profiles.role IN ('coordinator'::user_role, 'admin'::user_role, 'supervisor'::user_role)
+        AND profiles.role::text IN ('admin', 'supervisor')
     )
   );
 
--- Staff can delete participants
+-- Admins & supervisors: delete participants
 CREATE POLICY "staff_delete_participants"
   ON meeting_participants FOR DELETE
   TO authenticated
@@ -161,6 +166,6 @@ CREATE POLICY "staff_delete_participants"
     EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
-        AND profiles.role IN ('coordinator'::user_role, 'admin'::user_role, 'supervisor'::user_role)
+        AND profiles.role::text IN ('admin', 'supervisor')
     )
   );

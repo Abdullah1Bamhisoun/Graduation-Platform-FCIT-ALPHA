@@ -347,22 +347,18 @@ export function CoordinatorMeetings() {
     }
   }, [activeRole]);
 
-  // Fetch groups scoped to coordinator's course via dedicated lightweight endpoint
   useEffect(() => {
     async function fetchGroups() {
       try {
-        const { data: session } = await supabase.auth.getSession();
-        const token = session.session?.access_token ?? '';
-        const res = await fetch('/api/meetings/coordinator-groups', {
-          headers: { Authorization: `Bearer ${token}`, 'X-Active-Role': activeRole },
-        });
-        if (res.ok) {
-          const raw = await res.json();
-          setGroups(raw || []);
-        } else {
-          const body = await res.json().catch(() => ({}));
-          toast.error(body.error || `Failed to load groups (${res.status})`);
-        }
+        const { data, error } = await supabase
+          .from('groups')
+          .select('id, project_name, group_code, group_number')
+          .order('group_number', { ascending: true });
+        if (error) throw new Error(error.message);
+        setGroups((data || []).map((g: any) => ({
+          id:   g.id,
+          name: g.project_name || g.group_code || `Group ${g.group_number}`,
+        })));
       } catch (err: any) {
         toast.error(err.message || 'Could not load groups');
       }
@@ -376,7 +372,7 @@ export function CoordinatorMeetings() {
     id?: string
   ) {
     if (id) {
-      await updateMeeting(id, payload as UpdateMeetingPayload, activeRole);
+      await updateMeeting(id, payload as UpdateMeetingPayload);
       toast.success('Meeting updated');
     } else {
       await createMeeting(payload as CreateMeetingPayload, activeRole);
@@ -388,7 +384,7 @@ export function CoordinatorMeetings() {
   async function handleDelete(meeting: Meeting) {
     if (!confirm(`Cancel "${meeting.title}"? All participants will be notified.`)) return;
     try {
-      await deleteMeeting(meeting.id, activeRole);
+      await deleteMeeting(meeting.id);
       toast.success('Meeting cancelled');
       setMeetings((prev) => prev.filter((m) => m.id !== meeting.id));
     } catch (err: any) {
