@@ -51,7 +51,7 @@ export interface UpdateMeetingPayload {
 
 function groupDisplayName(g: any): string {
   if (!g) return 'Unknown Group';
-  return g.project_name || g.group_code || `Group ${g.group_number}`;
+  return g.project_name || g.name || g.group_code || `Group ${g.group_number}`;
 }
 
 export function getMeetingStatus(dateTime: string): MeetingStatus {
@@ -95,27 +95,12 @@ function normalize(rows: any[]): Meeting[] {
   }));
 }
 
-// ─── Backend email trigger ────────────────────────────────────────────────────
-
-/**
- * After participants are inserted via Supabase, notify the backend to send
- * invitation emails. Best-effort — never throws.
- */
-async function triggerInvitationEmail(meetingId: string): Promise<void> {
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
-    if (!token) return;
-    await fetch(apiUrl(`/api/meetings/${meetingId}/resend-invitation`), {
-      method:  'POST',
-      headers: { Authorization: `Bearer ${token}` },
-    });
-  } catch {
-    // Non-fatal
-  }
+async function getToken(): Promise<string> {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ?? '';
 }
 
-// ─── Direct Supabase queries ──────────────────────────────────────────────────
+// ─── Read — direct Supabase (no email needed) ─────────────────────────────────
 
 const BASE_SELECT = '*, groups ( id, project_name, group_code, group_number )';
 
@@ -129,12 +114,10 @@ export async function listMeetings(activeRole: string): Promise<Meeting[]> {
     .order('date_time', { ascending: true });
 
   if (activeRole === 'coordinator' || activeRole === 'admin') {
-    // Coordinator sees only meetings they created with coordinator role
     query = query
       .eq('created_by', user.id)
       .eq('creator_role', 'coordinator');
   }
-  // supervisor and student: RLS policies handle the row-level filtering
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
@@ -151,99 +134,61 @@ export async function getMeeting(id: string): Promise<Meeting> {
   return normalize([data])[0];
 }
 
+// ─── Write — via Express backend (handles email + participants atomically) ────
+
 export async function createMeeting(
   payload: CreateMeetingPayload,
   activeRole: string
 ): Promise<Meeting> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('Not authenticated');
-
-  const creatorRole: CreatorRole = activeRole === 'supervisor' ? 'supervisor' : 'coordinator';
-
-  const { data: meeting, error } = await supabase
-    .from('meetings')
-    .insert({
-      title:        payload.title,
-      meeting_url:  payload.meeting_url,
-      date_time:    payload.date_time,
-      group_id:     payload.group_id,
-      notes:        payload.notes ?? null,
-      created_by:   user.id,
-      creator_role: creatorRole,
-      status:       getMeetingStatus(payload.date_time),
-    })
-    .select(BASE_SELECT)
-    .single();
-
-  if (error) throw new Error(error.message);
-
-  // Insert participants then trigger invitation emails (best-effort — non-fatal)
-  insertParticipants(meeting.id, payload.group_id, user.id, creatorRole)
-    .then(() => triggerInvitationEmail(meeting.id))
-    .catch(() => {});
-
-  return normalize([meeting])[0];
-}
-
-async function insertParticipants(
-  meetingId: string,
-  groupId:   string,
-  _creatorId: string,
-  creatorRole: CreatorRole
-) {
-  const [membersRes, groupRes] = await Promise.all([
-    supabase.from('group_members').select('student_id').eq('group_id', groupId),
-    supabase.from('groups').select('supervisor_id').eq('id', groupId).single(),
-  ]);
-
-  const participants: { meeting_id: string; user_id: string; role: string }[] = [];
-
-  for (const m of membersRes.data || []) {
-    if (m.student_id) {
-      participants.push({ meeting_id: meetingId, user_id: m.student_id, role: 'student' });
-    }
-  }
-
-  if (creatorRole === 'coordinator' && groupRes.data?.supervisor_id) {
-    participants.push({ meeting_id: meetingId, user_id: groupRes.data.supervisor_id, role: 'supervisor' });
-  }
-
-  if (participants.length > 0) {
-    await supabase.from('meeting_participants').insert(participants);
-  }
+  const token = await getToken();
+  const res = await fetch(apiUrl('/api/meetings'), {
+    method:  'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      Authorization:   `Bearer ${token}`,
+      'X-Active-Role': activeRole,
+    },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || 'Failed to create meeting');
+  return normalize([body])[0];
 }
 
 export async function updateMeeting(
   id:      string,
   payload: UpdateMeetingPayload
 ): Promise<Meeting> {
-  const updates: any = { ...payload };
-  if (payload.date_time) updates.status = getMeetingStatus(payload.date_time);
-
-  const { data, error } = await supabase
-    .from('meetings')
-    .update(updates)
-    .eq('id', id)
-    .select(BASE_SELECT)
-    .single();
-
-  if (error) throw new Error(error.message);
-  return normalize([data])[0];
+  const token = await getToken();
+  const res = await fetch(apiUrl(`/api/meetings/${id}`), {
+    method:  'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization:  `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || 'Failed to update meeting');
+  return normalize([body])[0];
 }
 
 export async function deleteMeeting(id: string): Promise<void> {
-  const { error } = await supabase.from('meetings').delete().eq('id', id);
-  if (error) throw new Error(error.message);
+  const token = await getToken();
+  const res = await fetch(apiUrl(`/api/meetings/${id}`), {
+    method:  'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.status === 204) return;
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || 'Failed to delete meeting');
 }
 
 export async function resendInvitation(
   id: string,
   _activeRole: string
 ): Promise<{ message: string }> {
-  const { data: { session } } = await supabase.auth.getSession();
-  const token = session?.access_token;
-  if (!token) throw new Error('Not authenticated');
-
+  const token = await getToken();
   const res = await fetch(apiUrl(`/api/meetings/${id}/resend-invitation`), {
     method:  'POST',
     headers: { Authorization: `Bearer ${token}` },
