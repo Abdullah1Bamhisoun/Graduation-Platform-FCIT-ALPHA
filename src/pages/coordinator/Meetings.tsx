@@ -141,16 +141,22 @@ function MeetingDialog({ groups, initial, onSave, onClose }: DialogProps) {
           {!isEdit && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Group *</label>
-              <select
-                value={form.group_id}
-                onChange={(e) => set('group_id', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-600)] bg-white"
-                required
-              >
-                {groups.map((g) => (
-                  <option key={g.id} value={g.id}>{g.name}</option>
-                ))}
-              </select>
+              {groups.length === 0 ? (
+                <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  No groups available. Ensure your coordinator course assignment is set up correctly.
+                </p>
+              ) : (
+                <select
+                  value={form.group_id}
+                  onChange={(e) => set('group_id', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-600)] bg-white"
+                  required
+                >
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>{g.name}</option>
+                  ))}
+                </select>
+              )}
             </div>
           )}
 
@@ -353,9 +359,11 @@ export function CoordinatorMeetings() {
         if (res.ok) {
           const raw = await res.json();
           setGroups(raw || []);
+        } else {
+          toast.error('Could not load groups — check your coordinator course assignment');
         }
       } catch {
-        // non-fatal — user can still view meetings, just can't create
+        toast.error('Could not load groups');
       }
     }
     fetchGroups();
@@ -412,8 +420,7 @@ export function CoordinatorMeetings() {
           </div>
           <button
             onClick={() => { setEditTarget(null); setShowDialog(true); }}
-            disabled={groups.length === 0}
-            className="flex items-center gap-2 px-4 py-2.5 bg-[var(--color-primary-600)] text-white rounded-lg text-sm font-medium hover:bg-[var(--color-primary-700)] disabled:opacity-50 transition-colors shadow-sm"
+            className="flex items-center gap-2 px-4 py-2.5 bg-[var(--color-primary-600)] text-white rounded-lg text-sm font-medium hover:bg-[var(--color-primary-700)] transition-colors shadow-sm"
           >
             <Plus className="w-4 h-4" />
             New Meeting

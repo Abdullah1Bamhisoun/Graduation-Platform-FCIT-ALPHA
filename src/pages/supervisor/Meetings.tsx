@@ -149,6 +149,11 @@ function MeetingDialog({ groups, initial, onSave, onClose }: DialogProps) {
           {!isEdit && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Group *</label>
+              {groups.length === 0 ? (
+                <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  No groups assigned to you yet. Contact your coordinator.
+                </p>
+              ) : (
               <select
                 value={form.group_id}
                 onChange={(e) => set('group_id', e.target.value)}
@@ -159,6 +164,7 @@ function MeetingDialog({ groups, initial, onSave, onClose }: DialogProps) {
                   <option key={g.id} value={g.id}>{g.name}</option>
                 ))}
               </select>
+              )}
             </div>
           )}
 
@@ -377,7 +383,7 @@ export function SupervisorMeetings() {
           setGroups(raw || []);
         }
       } catch {
-        // non-fatal
+        toast.error('Could not load groups');
       }
     }
     fetchMyGroups();
@@ -438,8 +444,7 @@ export function SupervisorMeetings() {
           </div>
           <button
             onClick={() => { setEditTarget(null); setShowDialog(true); }}
-            disabled={groups.length === 0}
-            className="flex items-center gap-2 px-4 py-2.5 bg-[var(--color-primary-600)] text-white rounded-lg text-sm font-medium hover:bg-[var(--color-primary-700)] disabled:opacity-50 transition-colors shadow-sm"
+            className="flex items-center gap-2 px-4 py-2.5 bg-[var(--color-primary-600)] text-white rounded-lg text-sm font-medium hover:bg-[var(--color-primary-700)] transition-colors shadow-sm"
           >
             <Plus className="w-4 h-4" />
             New Meeting
