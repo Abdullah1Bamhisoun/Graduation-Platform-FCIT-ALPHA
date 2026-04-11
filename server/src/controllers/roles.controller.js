@@ -317,25 +317,28 @@ async function getCoordinatorInfo(req, res) {
     const userId = req.user.id;
     let coordinatorCourseId = null;
 
-    // ── 1. user_roles: resolve coordinator role_id first, then fetch course ───
-    // Two-step to avoid unreliable join-filter syntax in PostgREST
-    const { data: coordRole } = await supabaseAdmin
-      .from('roles')
-      .select('id')
-      .eq('name', 'coordinator')
-      .maybeSingle();
+    // ── Replicate auth middleware lookup exactly ───────────────────────────────
 
-    if (coordRole?.id) {
-      const { data: userRoleRow } = await supabaseAdmin
-        .from('user_roles')
+    // 1. user_roles joined with roles (same select as auth middleware)
+    const { data: userRoles } = await supabaseAdmin
+      .from('user_roles')
+      .select('coordinator_course_id, roles(name)')
+      .eq('user_id', userId);
+
+    const coordinatorEntry = (userRoles || []).find((ur) => ur.roles?.name === 'coordinator');
+    coordinatorCourseId = coordinatorEntry?.coordinator_course_id ?? null;
+
+    // 2. profiles.coordinator_course_id
+    if (!coordinatorCourseId) {
+      const { data: profile } = await supabaseAdmin
+        .from('profiles')
         .select('coordinator_course_id')
-        .eq('user_id', userId)
-        .eq('role_id', coordRole.id)
+        .eq('id', userId)
         .maybeSingle();
-      coordinatorCourseId = userRoleRow?.coordinator_course_id ?? null;
+      coordinatorCourseId = profile?.coordinator_course_id ?? null;
     }
 
-    // ── 2. platform_locks coordinator_assignment ───────────────────────────────
+    // 3. platform_locks (primary assignment storage)
     if (!coordinatorCourseId) {
       const { data: lockRow } = await supabaseAdmin
         .from('platform_locks')
@@ -348,15 +351,7 @@ async function getCoordinatorInfo(req, res) {
       coordinatorCourseId = lockRow?.entity_id ?? null;
     }
 
-    // ── 3. profiles.coordinator_course_id (legacy fallback) ───────────────────
-    if (!coordinatorCourseId) {
-      const { data: profile } = await supabaseAdmin
-        .from('profiles')
-        .select('coordinator_course_id')
-        .eq('id', userId)
-        .maybeSingle();
-      coordinatorCourseId = profile?.coordinator_course_id ?? null;
-    }
+    console.log('[getCoordinatorInfo] userId:', userId, '→ coordinatorCourseId:', coordinatorCourseId);
 
     if (!coordinatorCourseId) {
       return res.json({ coordinatorCourseId: null, course: null });
@@ -370,7 +365,7 @@ async function getCoordinatorInfo(req, res) {
 
     res.json({ coordinatorCourseId, course: course ?? null });
   } catch (err) {
-    console.error('Error fetching coordinator info:', err);
+    console.error('[getCoordinatorInfo] error:', err);
     res.json({ coordinatorCourseId: null, course: null });
   }
 }

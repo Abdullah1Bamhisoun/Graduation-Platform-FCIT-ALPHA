@@ -292,19 +292,26 @@ export function CoordinatorDashboard() {
       try {
         let courseId: string | null = null;
 
-        const { data: { session } } = await supabase.auth.getSession();
-        const token = session?.access_token;
-        if (token) {
-          const res = await fetch('/api/roles/coordinator-info', {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (res.ok) {
-            const body: { coordinatorCourseId: string | null } = await res.json();
-            courseId = body.coordinatorCourseId ?? null;
+        // 1. Use coordinatorCourseId already in the auth context (fastest)
+        if (user?.coordinatorCourseId) courseId = user.coordinatorCourseId;
+
+        // 2. Fetch fresh from server (catches stale cache / post-login assignments)
+        if (!courseId) {
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token;
+          if (token) {
+            const res = await fetch('/api/roles/coordinator-info', {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'X-Active-Role': 'coordinator',
+              },
+            });
+            if (res.ok) {
+              const body: { coordinatorCourseId: string | null } = await res.json();
+              courseId = body.coordinatorCourseId ?? null;
+            }
           }
         }
-
-        if (!courseId && user?.coordinatorCourseId) courseId = user.coordinatorCourseId;
 
         if (!courseId) { setNoCourse(true); setLoading(false); return; }
 
