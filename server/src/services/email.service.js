@@ -491,6 +491,116 @@ function sendDeadlineReminder(studentEmails, data) {
   );
 }
 
+// ─── Meeting Templates ─────────────────────────────────────────────────────────
+
+/**
+ * Meeting invitation email → sent to students and/or supervisor when a meeting
+ * is created.
+ *
+ * @param {string[]} recipientEmails
+ * @param {{ meetingTitle: string, groupName: string, dateTime: string, meetingUrl: string, creatorName: string, notes?: string, appUrl?: string }} data
+ */
+function sendMeetingInvitation(recipientEmails, data) {
+  const { meetingTitle, groupName, dateTime, meetingUrl, creatorName, notes, appUrl = '' } = data;
+  const formatted = new Date(dateTime).toLocaleString('en-US', {
+    dateStyle: 'full', timeStyle: 'short',
+  });
+
+  const rows = [
+    ['Meeting',     meetingTitle],
+    ['Group',       groupName],
+    ['Date & Time', `<strong>${formatted}</strong>`],
+    ['Organiser',   creatorName],
+  ];
+  if (notes) rows.push(['Notes', notes]);
+
+  const body = `
+    ${heading('📅 Meeting Invitation')}
+    ${paragraph(`You have been invited to a meeting for <strong>${groupName}</strong>.`)}
+    ${infoTable(rows)}
+    ${ctaButton('Join Meeting', meetingUrl)}
+    ${appUrl ? `<p style="margin:0 0 24px;font-size:13px;color:#6b7280;text-align:center;">Or open the platform: <a href="${appUrl}" style="color:#1a6b4a;">${appUrl}</a></p>` : ''}
+  `;
+
+  return Promise.allSettled(
+    recipientEmails.filter(Boolean).map((email) =>
+      sendEmail(
+        email,
+        `[Meeting Invitation] ${meetingTitle} — ${groupName}`,
+        layout(body, 'Meeting Invitation')
+      )
+    )
+  );
+}
+
+/**
+ * Meeting reminder email.
+ *
+ * @param {string[]} recipientEmails
+ * @param {{ meetingTitle: string, groupName: string, dateTime: string, meetingUrl: string, reminderLabel: string }} data
+ */
+function sendMeetingReminder(recipientEmails, data) {
+  const { meetingTitle, groupName, dateTime, meetingUrl, reminderLabel } = data;
+  const formatted = new Date(dateTime).toLocaleString('en-US', {
+    dateStyle: 'full', timeStyle: 'short',
+  });
+
+  const body = `
+    ${heading(`⏰ Meeting Starting ${reminderLabel}`)}
+    ${paragraph(`Your meeting <strong>${meetingTitle}</strong> for <strong>${groupName}</strong> starts <strong>${reminderLabel}</strong>.`)}
+    ${infoTable([
+      ['Meeting',     meetingTitle],
+      ['Group',       groupName],
+      ['Date & Time', `<strong style="color:#dc2626;">${formatted}</strong>`],
+    ])}
+    ${ctaButton('Join Meeting Now', meetingUrl)}
+  `;
+
+  return Promise.allSettled(
+    recipientEmails.filter(Boolean).map((email) =>
+      sendEmail(
+        email,
+        `[Reminder] ${meetingTitle} starts ${reminderLabel}`,
+        layout(body, 'Meeting Reminder')
+      )
+    )
+  );
+}
+
+/**
+ * Meeting cancellation email.
+ *
+ * @param {string[]} recipientEmails
+ * @param {{ meetingTitle: string, groupName: string, dateTime: string, cancelledBy: string }} data
+ */
+function sendMeetingCancelled(recipientEmails, data) {
+  const { meetingTitle, groupName, dateTime, cancelledBy } = data;
+  const formatted = new Date(dateTime).toLocaleString('en-US', {
+    dateStyle: 'full', timeStyle: 'short',
+  });
+
+  const body = `
+    ${heading('❌ Meeting Cancelled')}
+    ${paragraph(`The following meeting has been cancelled by <strong>${cancelledBy}</strong>.`)}
+    ${infoTable([
+      ['Meeting',     meetingTitle],
+      ['Group',       groupName],
+      ['Was Scheduled', formatted],
+    ])}
+    ${paragraph('Please contact your supervisor or coordinator if you have any questions.')}
+  `;
+
+  return Promise.allSettled(
+    recipientEmails.filter(Boolean).map((email) =>
+      sendEmail(
+        email,
+        `[Cancelled] ${meetingTitle} — ${groupName}`,
+        layout(body, 'Meeting Cancelled')
+      )
+    )
+  );
+}
+
 // ─── Exports ───────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -506,4 +616,7 @@ module.exports = {
   sendWeekOpened,
   sendWeeklyReportSubmitted,
   sendDeadlineReminder,
+  sendMeetingInvitation,
+  sendMeetingReminder,
+  sendMeetingCancelled,
 };

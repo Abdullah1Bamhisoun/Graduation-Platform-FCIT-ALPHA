@@ -1,7 +1,7 @@
 import { useLocation, Link } from 'react-router-dom';
 import {
   Home, FileText, Calendar, Bell, Settings,
-  Users, BarChart3, CheckSquare, FolderOpen, Lock, Sliders, X, HeadphonesIcon,
+  Users, BarChart3, CheckSquare, FolderOpen, Lock, Sliders, X, HeadphonesIcon, Video,
 } from 'lucide-react';
 import { User, UserRole } from '../../types';
 import { useUnreadAnnouncements } from '../../hooks/useUnreadAnnouncements';
@@ -19,6 +19,7 @@ const navItems: Record<UserRole, NavItem[]> = {
     { icon: Home,          label: 'Dashboard',             href: '/student' },
     { icon: CheckSquare,   label: 'Chapter Submissions',   href: '/student/milestones' },
     { icon: FileText,      label: 'Weekly Reports',        href: '/student/weekly-reports' },
+    { icon: Video,         label: 'Meetings',              href: '/student/meetings' },
     { icon: BarChart3,     label: 'My Grades',             href: '/student/grades' },
     { icon: Calendar,      label: 'Presentation Time',href: '/student/presentation-selection' },
     { icon: Bell,          label: 'Announcements',         href: '/student/announcements' },
@@ -31,6 +32,7 @@ const navItems: Record<UserRole, NavItem[]> = {
     { icon: Home,          label: 'Dashboard',             href: '/supervisor' },
     { icon: Users,         label: 'My Groups',             href: '/supervisor/groups' },
     { icon: FileText,      label: 'Weekly Reports',        href: '/supervisor/weekly-reports' },
+    { icon: Video,         label: 'Meetings',              href: '/supervisor/meetings' },
     { icon: BarChart3,     label: 'Committee Evaluation',  href: '/supervisor/committee' },
     { icon: Calendar,      label: 'Calendar',              href: '/supervisor/schedule' },
     { icon: Bell,          label: 'Announcements',         href: '/supervisor/announcements' },
@@ -42,6 +44,7 @@ const navItems: Record<UserRole, NavItem[]> = {
     { icon: Home,          label: 'Dashboard',               href: '/coordinator' },
     { icon: CheckSquare,   label: 'Chapter Configuration',   href: '/admin/milestones' },
     { icon: FileText,      label: 'Weekly Reports',          href: '/coordinator/weekly-reports' },
+    { icon: Video,         label: 'Meetings',                href: '/coordinator/meetings' },
     { icon: BarChart3,     label: 'Course Grades',           href: '/coordinator/grades' },
     { icon: Sliders,       label: 'Grade Scheme Editor',     href: '/coordinator/grade-scheme' },
     { icon: Calendar,      label: 'Presentation & Committee',href: '/admin/presentation-committee' },

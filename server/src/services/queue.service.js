@@ -66,6 +66,15 @@ function startWorker() {
         case 'generic':
           await emailService.sendEmail(payload.to, payload.subject, payload.html);
           break;
+        case 'meeting-invitation':
+          await emailService.sendMeetingInvitation(payload.emails, payload.data);
+          break;
+        case 'meeting-reminder':
+          await emailService.sendMeetingReminder(payload.emails, payload.data);
+          break;
+        case 'meeting-cancelled':
+          await emailService.sendMeetingCancelled(payload.emails, payload.data);
+          break;
         default:
           throw new Error(`Unknown email job type: ${type}`);
       }
@@ -128,7 +137,58 @@ async function queueEmail(to, subject, html) {
   await getQueue().add('send-generic', { type: 'generic', payload: { to, subject, html } });
 }
 
+/**
+ * Queue a meeting invitation email.
+ * @param {string[]} emails
+ * @param {{ meetingTitle, groupName, dateTime, meetingUrl, creatorName, notes?, appUrl? }} data
+ */
+async function queueMeetingInvitationEmail(emails, data) {
+  if (!isRedisReady()) {
+    emailService.sendMeetingInvitation(emails, data).catch((err) =>
+      console.error('[queue] Fallback meeting invitation email failed:', err.message)
+    );
+    return;
+  }
+  await getQueue().add('send-meeting-invitation', { type: 'meeting-invitation', payload: { emails, data } });
+}
+
+/**
+ * Queue a meeting reminder email.
+ * @param {string[]} emails
+ * @param {{ meetingTitle, groupName, dateTime, meetingUrl, reminderLabel }} data
+ */
+async function queueMeetingReminderEmail(emails, data) {
+  if (!isRedisReady()) {
+    emailService.sendMeetingReminder(emails, data).catch((err) =>
+      console.error('[queue] Fallback meeting reminder email failed:', err.message)
+    );
+    return;
+  }
+  await getQueue().add('send-meeting-reminder', { type: 'meeting-reminder', payload: { emails, data } });
+}
+
+/**
+ * Queue a meeting cancellation email.
+ * @param {string[]} emails
+ * @param {{ meetingTitle, groupName, dateTime, cancelledBy }} data
+ */
+async function queueMeetingCancelledEmail(emails, data) {
+  if (!isRedisReady()) {
+    emailService.sendMeetingCancelled(emails, data).catch((err) =>
+      console.error('[queue] Fallback meeting cancelled email failed:', err.message)
+    );
+    return;
+  }
+  await getQueue().add('send-meeting-cancelled', { type: 'meeting-cancelled', payload: { emails, data } });
+}
+
 // ── Initialise worker when module first loads ─────────────────────────────────
 startWorker();
 
-module.exports = { queueAnnouncementEmail, queueEmail };
+module.exports = {
+  queueAnnouncementEmail,
+  queueEmail,
+  queueMeetingInvitationEmail,
+  queueMeetingReminderEmail,
+  queueMeetingCancelledEmail,
+};

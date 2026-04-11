@@ -29,6 +29,7 @@ const studentsRoutes       = require('./routes/students.routes');
 const highlightsRoutes     = require('./routes/highlights.routes');
 const groupFilesRoutes     = require('./routes/groupFiles.routes');
 const contactRoutes        = require('./routes/contact.routes');
+const meetingsRoutes       = require('./routes/meetings.routes');
 
 const app = express();
 
@@ -52,7 +53,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Active-Role', 'Idempotency-Key'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Active-Role', 'Idempotency-Key', 'X-Cron-Secret'],
 }));
 
 // ── Request logging ──────────────────────────────────────────────────────────
@@ -102,6 +103,7 @@ app.use('/api/students',        studentsRoutes);
 app.use('/api/highlights',      highlightsRoutes);
 app.use('/api/groups',          groupFilesRoutes);
 app.use('/api/contact',         contactRoutes);
+app.use('/api/meetings',        meetingsRoutes);
 
 // ── Global error handler (must be last) ─────────────────────────────────────
 app.use(errorHandler);

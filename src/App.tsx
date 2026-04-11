@@ -57,6 +57,11 @@ import { AdminCourseGrades } from './pages/admin/AdminCourseGrades';
 import { AdminPresentationCommittee } from './pages/admin/PresentationCommittee';
 import { AdminLockManager } from './pages/admin/LockManager';
 
+// Meeting Pages
+import { CoordinatorMeetings } from './pages/coordinator/Meetings';
+import { SupervisorMeetings }  from './pages/supervisor/Meetings';
+import { StudentMeetings }     from './pages/student/Meetings';
+
 // Shared Pages
 import { Calendar } from './pages/shared/Calendar';
 import { Settings } from './pages/shared/Settings';
@@ -93,6 +98,7 @@ export default function App() {
           <Route path="/student/announcements" element={<ProtectedRoute allowedRoles={['student']}><Announcements /></ProtectedRoute>} />
           <Route path="/student/calendar" element={<ProtectedRoute allowedRoles={['student']}><Calendar /></ProtectedRoute>} />
           <Route path="/student/important-files" element={<ProtectedRoute allowedRoles={['student']}><ImportantFiles /></ProtectedRoute>} />
+          <Route path="/student/meetings"       element={<ProtectedRoute allowedRoles={['student']}><StudentMeetings /></ProtectedRoute>} />
           <Route path="/student/settings"      element={<ProtectedRoute allowedRoles={['student']}><Settings /></ProtectedRoute>} />
           <Route path="/student/contact"       element={<ProtectedRoute allowedRoles={['student']}><ContactUs /></ProtectedRoute>} />
 
@@ -111,6 +117,7 @@ export default function App() {
           <Route path="/supervisor/my-availability" element={<ProtectedRoute allowedRoles={[...SUPERVISOR_ROLES]}><SupervisorMyAvailability /></ProtectedRoute>} />
           <Route path="/supervisor/grading-evaluation" element={<ProtectedRoute allowedRoles={[...SUPERVISOR_ROLES]}><SupervisorGradingEvaluation /></ProtectedRoute>} />
           <Route path="/supervisor/evaluate-group/:groupId" element={<ProtectedRoute allowedRoles={[...SUPERVISOR_ROLES]}><SupervisorEvaluateGroup /></ProtectedRoute>} />
+          <Route path="/supervisor/meetings"  element={<ProtectedRoute allowedRoles={[...SUPERVISOR_ROLES]}><SupervisorMeetings /></ProtectedRoute>} />
           <Route path="/supervisor/settings"  element={<ProtectedRoute allowedRoles={[...SUPERVISOR_ROLES]}><Settings /></ProtectedRoute>} />
           <Route path="/supervisor/contact"  element={<ProtectedRoute allowedRoles={[...SUPERVISOR_ROLES]}><ContactUs /></ProtectedRoute>} />
 
@@ -127,6 +134,7 @@ export default function App() {
           <Route path="/coordinator/grade-scheme" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><CoordinatorGradeSchemeEditor /></ProtectedRoute>} />
           <Route path="/coordinator/announcements" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><AnnouncementsManager /></ProtectedRoute>} />
           <Route path="/coordinator/calendar" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><Calendar /></ProtectedRoute>} />
+          <Route path="/coordinator/meetings" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><CoordinatorMeetings /></ProtectedRoute>} />
           <Route path="/coordinator/settings" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><Settings /></ProtectedRoute>} />
           <Route path="/coordinator/contact" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><ContactUs /></ProtectedRoute>} />
 

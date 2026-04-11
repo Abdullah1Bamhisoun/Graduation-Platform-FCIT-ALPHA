@@ -22,6 +22,36 @@ router.get('/available', controller.getAvailableGroups);
 // ── Supervisor routes ─────────────────────────────────────────────────────────
 
 /**
+ * GET /api/groups/mine
+ * Lightweight list of groups assigned to the requesting supervisor.
+ * Returns [ { id, name, group_code } ] — used by the Meeting dialog.
+ */
+router.get(
+  '/mine',
+  authenticate,
+  requireSupervisorOrAdmin,
+  async (req, res) => {
+    try {
+      const { supabaseAdmin } = require('../config/supabase');
+      const { data, error } = await supabaseAdmin
+        .from('groups')
+        .select('id, project_name, group_code, group_number')
+        .eq('supervisor_id', req.user.id)
+        .order('group_number', { ascending: true });
+      if (error) throw error;
+      const groups = (data || []).map((g) => ({
+        id:   g.id,
+        name: g.project_name || g.group_code || `Group ${g.group_number}`,
+      }));
+      return res.json(groups);
+    } catch (err) {
+      console.error('[groups/mine]', err.message);
+      return res.status(500).json({ error: 'Failed to fetch groups' });
+    }
+  }
+);
+
+/**
  * GET /api/groups/supervisor-grades
  * Returns grade data for all groups assigned to the requesting supervisor.
  */
