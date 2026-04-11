@@ -8,12 +8,13 @@ import { getNotificationsForUser } from '../../services/notifications';
 import { getUpcomingEvents } from '../../services/dashboard';
 import { getGroupForStudent, type GroupData } from '../../services/groups';
 import { getSubmissionsForStudent } from '../../services/submissions';
+import { getWeeklyReportsByGroup } from '../../services/weekly-reports';
 import type { UpcomingEvent } from '../../services/dashboard';
 import { Calendar, CheckCircle, Clock, FileText, Users, MessageSquare } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../lib/AuthContext';
 import { useState, useEffect } from 'react';
-import type { Milestone, Notification, Submission } from '../../types';
+import type { Milestone, Notification, Submission, WeeklyReport } from '../../types';
 
 export function StudentDashboard() {
   const navigate = useNavigate();
@@ -23,22 +24,26 @@ export function StudentDashboard() {
   const [_upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
   const [group, setGroup] = useState<GroupData | null>(null);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [weeklyReports, setWeeklyReports] = useState<WeeklyReport[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!user) return;
-    Promise.all([
-      getMilestonesByStudentWithStatus(user.id),
-      getNotificationsForUser(user.id),
-      getUpcomingEvents(1),
-      getGroupForStudent(user.id),
-      getSubmissionsForStudent(user.id),
-    ]).then(([m, n, events, g, subs]) => {
+    getGroupForStudent(user.id).then(g => {
+      setGroup(g);
+      return Promise.all([
+        getMilestonesByStudentWithStatus(user.id),
+        getNotificationsForUser(user.id),
+        getUpcomingEvents(1),
+        getSubmissionsForStudent(user.id),
+        g ? getWeeklyReportsByGroup(g.id) : Promise.resolve([]),
+      ]);
+    }).then(([m, n, events, subs, reports]) => {
       setMilestones(m);
       setNotifications(n);
       setUpcomingEvents(events);
-      setGroup(g);
       setSubmissions(subs);
+      setWeeklyReports(reports);
     }).finally(() => setLoading(false));
   }, [user]);
 
@@ -53,11 +58,36 @@ export function StudentDashboard() {
   const totalMilestones = milestones.length;
   const unreadFeedback = notifications.filter(n => !n.read && n.type === 'feedback').length;
 
-  const feedbackSubmissions = submissions
-    .filter(s => s.feedback)
-    .sort((a, b) => new Date(b.feedback!.reviewedAt).getTime() - new Date(a.feedback!.reviewedAt).getTime())
-    .slice(0, 6);
+  // Combine submission feedback and weekly report supervisor replies, newest first, max 3
+  type FeedbackItem =
+    | { kind: 'submission'; title: string; comment: string; by: string; date: string; onClick: () => void }
+    | { kind: 'weekly'; title: string; comment: string; by: string; date: string; onClick: () => void };
 
+  const submissionFeedbackItems: FeedbackItem[] = submissions
+    .filter(s => s.feedback)
+    .map(s => ({
+      kind: 'submission' as const,
+      title: s.milestoneName,
+      comment: s.feedback!.overallComment || 'No comment provided',
+      by: s.feedback!.reviewedBy,
+      date: s.feedback!.reviewedAt,
+      onClick: () => navigate(`/student/submissions/${s.milestoneId}`),
+    }));
+
+  const weeklyFeedbackItems: FeedbackItem[] = weeklyReports
+    .filter(r => r.supervisorResponseStatus === 'responded' && r.supervisorComments)
+    .map(r => ({
+      kind: 'weekly' as const,
+      title: `Week ${r.weekNumber} Report`,
+      comment: r.supervisorComments,
+      by: r.reviewedBy || r.supervisorName || 'Supervisor',
+      date: r.submittedAt || '',
+      onClick: () => navigate('/student/weekly-reports'),
+    }));
+
+  const feedbackItems = [...submissionFeedbackItems, ...weeklyFeedbackItems]
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 3);
 
   return (
     <Layout user={user} pageTitle="Dashboard" unreadCount={notifications.filter(n => !n.read).length}>
@@ -185,35 +215,33 @@ export function StudentDashboard() {
         <DashboardCard
           title="Feedback Inbox"
           icon={MessageSquare}
-          actions={
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate('/student/feedback')}
-            >
-              View All
-            </Button>
-          }
         >
-          {feedbackSubmissions.length > 0 ? (
+          {feedbackItems.length > 0 ? (
             <div className="divide-y divide-[var(--color-border)]">
-              {feedbackSubmissions.map((submission) => (
+              {feedbackItems.map((item, idx) => (
                 <div
-                  key={submission.id}
+                  key={idx}
                   className="flex items-start justify-between gap-4 py-3 first:pt-0 last:pb-0 cursor-pointer hover:bg-[var(--color-surface-alt)] rounded px-2 -mx-2 transition-colors"
-                  onClick={() => navigate(`/student/submissions/${submission.milestoneId}`)}
+                  onClick={item.onClick}
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-[var(--color-text-900)] truncate">{submission.milestoneName}</p>
-                    <p className="text-sm text-[var(--color-text-600)] truncate mt-0.5">
-                      {submission.feedback!.overallComment || 'No comment provided'}
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <p className="font-medium text-[var(--color-text-900)] truncate">{item.title}</p>
+                      {item.kind === 'weekly' && (
+                        <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded flex-shrink-0">Weekly</span>
+                      )}
+                    </div>
+                    <p className="text-sm text-[var(--color-text-600)] truncate">
+                      {item.comment}
                     </p>
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <p className="text-sm text-[var(--color-text-700)]">{submission.feedback!.reviewedBy}</p>
-                    <p className="text-xs text-[var(--color-text-500)] mt-0.5">
-                      {new Date(submission.feedback!.reviewedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                    </p>
+                    <p className="text-sm text-[var(--color-text-700)]">{item.by}</p>
+                    {item.date && (
+                      <p className="text-xs text-[var(--color-text-500)] mt-0.5">
+                        {new Date(item.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </p>
+                    )}
                   </div>
                 </div>
               ))}
@@ -224,8 +252,8 @@ export function StudentDashboard() {
               <p>No feedback received yet</p>
             </div>
           )}
-          </DashboardCard>
-        </div>
-      </Layout>
+        </DashboardCard>
+      </div>
+    </Layout>
   );
 }

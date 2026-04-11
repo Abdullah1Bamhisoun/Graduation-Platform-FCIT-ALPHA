@@ -285,6 +285,146 @@ const calendarTypeLabel: Record<string, string> = {
   meeting: 'Meeting',
 };
 
+// ─── KPI Analytics ────────────────────────────────────────────────────────────
+
+export interface KpiData {
+  totalActiveProjects: number;
+  sparkline: number[];             // 6 weekly submission counts, oldest→newest
+  submissionActivityRate: number;  // 0–100 %
+  activeGroupsCount: number;
+  totalGroupsCount: number;
+  reviewCompletionRate: number;    // 0–100 %
+  reviewedCount: number;
+  totalNonDraftCount: number;
+  pendingReviewGroups: number;
+  noRecentSubmissionGroups: number;
+  overdueGroups: number;
+  totalAttentionCount: number;
+}
+
+export interface CourseKpi {
+  courseId: string;
+  courseCode: string;
+  courseName: string;
+  kpi: KpiData;
+}
+
+const KPI_EMPTY: KpiData = {
+  totalActiveProjects: 0, sparkline: [0, 0, 0, 0, 0, 0],
+  submissionActivityRate: 0, activeGroupsCount: 0, totalGroupsCount: 0,
+  reviewCompletionRate: 0, reviewedCount: 0, totalNonDraftCount: 0,
+  pendingReviewGroups: 0, noRecentSubmissionGroups: 0, overdueGroups: 0, totalAttentionCount: 0,
+};
+
+export async function getKpiData(courseId?: string): Promise<KpiData> {
+  try {
+    const now = new Date().toISOString();
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 3_600_000).toISOString();
+    const sixWeeksAgo  = new Date(Date.now() - 42 * 24 * 3_600_000).toISOString();
+
+    // Groups in scope (approved projects only) — include course_id for overdue scoping
+    let groupsQ = supabase.from('groups').select('id, course_id').eq('status', 'approved');
+    if (courseId) groupsQ = (groupsQ as any).eq('course_id', courseId);
+    const { data: groupRows } = await groupsQ;
+    const groupIds = (groupRows ?? []).map((g: any) => g.id as string);
+    const totalGroups = groupIds.length;
+    const safe = groupIds.length > 0 ? groupIds : ['__none__'];
+
+    // Parallel DB queries
+    const [recentR, allSubsR, sparkR, overdueMillR] = await Promise.all([
+      supabase.from('submissions').select('group_id').in('group_id', safe).gte('created_at', thirtyDaysAgo),
+      supabase.from('submissions').select('group_id, status').in('group_id', safe).neq('status', 'draft'),
+      supabase.from('submissions').select('created_at').in('group_id', safe).gte('created_at', sixWeeksAgo),
+      courseId
+        ? supabase.from('milestones').select('id, course_id').eq('course_id', courseId).eq('visible', true).lt('due_date', now)
+        : supabase.from('milestones').select('id, course_id').eq('visible', true).lt('due_date', now),
+    ]);
+
+    // KPI 2 – Submission Activity Rate
+    const recentGroupIds = new Set((recentR.data ?? []).map((s: any) => s.group_id as string).filter(Boolean));
+    const activeGroupsCount = recentGroupIds.size;
+    const submissionActivityRate = totalGroups > 0 ? Math.round((activeGroupsCount / totalGroups) * 100) : 0;
+
+    // KPI 3 – Review Completion Rate
+    const allSubs = allSubsR.data ?? [];
+    const totalNonDraft = allSubs.length;
+    const reviewedCount = allSubs.filter((s: any) =>
+      ['approved', 'changes_requested', 'under_review'].includes(s.status)
+    ).length;
+    const reviewCompletionRate = totalNonDraft > 0 ? Math.round((reviewedCount / totalNonDraft) * 100) : 0;
+
+    // KPI 4a – Pending Review groups
+    const pendingGroupIds = new Set(
+      allSubs.filter((s: any) => s.status === 'submitted').map((s: any) => s.group_id as string).filter(Boolean)
+    );
+
+    // KPI 4b – Overdue groups
+    // A group is overdue only if its own course has a past-due milestone it hasn't submitted for.
+    // Cross-course milestone IDs must not inflate counts for groups in other courses.
+    const overdueMilestoneIds = (overdueMillR.data ?? []).map((m: any) => m.id as string);
+    const coursesWithOverdue = new Set((overdueMillR.data ?? []).map((m: any) => m.course_id as string).filter(Boolean));
+    let overdueGroups = 0;
+    if (overdueMilestoneIds.length > 0 && groupIds.length > 0) {
+      // Only consider groups whose course actually has overdue milestones
+      const eligibleGroupIds = (groupRows ?? [])
+        .filter((g: any) => coursesWithOverdue.has(g.course_id))
+        .map((g: any) => g.id as string);
+      if (eligibleGroupIds.length > 0) {
+        const eligibleSafe = eligibleGroupIds.length > 0 ? eligibleGroupIds : ['__none__'];
+        const { data: subForOverdue } = await supabase
+          .from('submissions').select('group_id')
+          .in('group_id', eligibleSafe).in('milestone_id', overdueMilestoneIds).neq('status', 'draft');
+        const submittedGroupIds = new Set((subForOverdue ?? []).map((s: any) => s.group_id as string).filter(Boolean));
+        overdueGroups = Math.max(0, eligibleGroupIds.length - submittedGroupIds.size);
+      }
+    }
+
+    // Sparkline – 6 weekly buckets (index 0 = 6 weeks ago, 5 = current week)
+    const weekCounts = Array<number>(6).fill(0);
+    const nowMs = Date.now();
+    (sparkR.data ?? []).forEach((s: any) => {
+      const idx = 5 - Math.min(Math.floor((nowMs - new Date(s.created_at).getTime()) / (7 * 24 * 3_600_000)), 5);
+      if (idx >= 0) weekCounts[idx]++;
+    });
+
+    return {
+      totalActiveProjects: totalGroups,
+      sparkline: weekCounts,
+      submissionActivityRate,
+      activeGroupsCount,
+      totalGroupsCount: totalGroups,
+      reviewCompletionRate,
+      reviewedCount,
+      totalNonDraftCount: totalNonDraft,
+      pendingReviewGroups: pendingGroupIds.size,
+      noRecentSubmissionGroups: 0,
+      overdueGroups,
+      totalAttentionCount: pendingGroupIds.size + overdueGroups,
+    };
+  } catch (err) {
+    console.error('Error fetching KPI data:', err);
+    return { ...KPI_EMPTY };
+  }
+}
+
+export async function getAllCourseKpis(): Promise<CourseKpi[]> {
+  try {
+    const { data: courses } = await supabase.from('courses').select('id, code, name').order('code');
+    if (!courses?.length) return [];
+    return Promise.all(
+      (courses as any[]).map(async (c) => ({
+        courseId: c.id as string,
+        courseCode: (c.code as string).replace('_', '-'),
+        courseName: c.name as string,
+        kpi: await getKpiData(c.id),
+      }))
+    );
+  } catch (err) {
+    console.error('Error fetching all course KPIs:', err);
+    return [];
+  }
+}
+
 export async function getUpcomingEvents(limit?: number, courseId?: string): Promise<UpcomingEvent[]> {
   try {
     const now = new Date();
