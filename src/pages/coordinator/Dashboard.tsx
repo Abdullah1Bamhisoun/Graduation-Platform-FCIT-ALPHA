@@ -209,7 +209,6 @@ function AttentionSection({ kpi }: { kpi: KpiData }) {
           </div>
           <AttentionBarChart
             pending={kpi.pendingReviewGroups}
-            noSubmission={kpi.noRecentSubmissionGroups}
             overdue={kpi.overdueGroups}
           />
         </div>

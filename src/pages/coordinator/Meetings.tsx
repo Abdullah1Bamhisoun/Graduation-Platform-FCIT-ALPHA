@@ -21,10 +21,6 @@ interface Group { id: string; name: string; }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatDateTime(iso: string) {
-  return new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
-}
-
 function StatusBadge({ status }: { status: Meeting['status'] }) {
   const { bg, text, dot } = statusColors(status);
   return (
@@ -401,7 +397,7 @@ export function CoordinatorMeetings() {
   }
 
   return (
-    <Layout user={user!}>
+    <Layout user={user!} pageTitle="Meetings">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
         {/* Page header */}
         <div className="flex items-center justify-between mb-6">

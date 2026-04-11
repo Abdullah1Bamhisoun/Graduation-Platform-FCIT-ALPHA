@@ -424,7 +424,7 @@ export function SupervisorMeetings() {
   }
 
   return (
-    <Layout user={user!}>
+    <Layout user={user!} pageTitle="Meetings">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
         <div className="flex items-center justify-between mb-6">
           <div>

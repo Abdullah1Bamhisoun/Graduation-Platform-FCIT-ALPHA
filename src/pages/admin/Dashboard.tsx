@@ -8,7 +8,7 @@ import type { Course } from '../../types';
 import { SparklineChart, DonutChart, GaugeChart, AttentionBarChart } from '../../features/dashboard/components/KpiCharts';
 import {
   FolderGit2, Activity, ShieldCheck, AlertTriangle,
-  Clock, FileX, AlertOctagon, CheckCircle2, TrendingUp,
+  Clock, AlertOctagon, CheckCircle2, TrendingUp,
 } from 'lucide-react';
 
 // ─── Primitives ───────────────────────────────────────────────────────────────

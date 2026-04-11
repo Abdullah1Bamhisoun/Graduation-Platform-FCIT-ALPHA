@@ -132,7 +132,7 @@ export function StudentMeetings() {
   const past     = meetings.filter((m) => m.status === 'finished');
 
   return (
-    <Layout user={user!}>
+    <Layout user={user!} pageTitle="Meetings">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
         {/* Page header */}
         <div className="mb-6">
