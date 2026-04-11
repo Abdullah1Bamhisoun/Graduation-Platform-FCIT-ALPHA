@@ -7,12 +7,6 @@
 
 ALTER TABLE meetings ENABLE ROW LEVEL SECURITY;
 
--- All authenticated users can read meetings they are a participant in
--- or that belong to groups they are a member of (students),
--- or that they created (coordinator/supervisor).
--- The server uses the service-role key (supabaseAdmin) which bypasses RLS,
--- so these policies protect direct client access only.
-
 -- Coordinators & admins: see all meetings
 CREATE POLICY "coordinators_read_all_meetings"
   ON meetings FOR SELECT
@@ -21,7 +15,7 @@ CREATE POLICY "coordinators_read_all_meetings"
     EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
-        AND (profiles.role = 'coordinator' OR profiles.role = 'admin')
+        AND profiles.role IN ('coordinator'::user_role, 'admin'::user_role)
     )
   );
 
@@ -33,7 +27,7 @@ CREATE POLICY "supervisors_read_meetings"
     EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
-        AND profiles.role = 'supervisor'
+        AND profiles.role = 'supervisor'::user_role
     )
     AND (
       created_by = auth.uid()
@@ -65,11 +59,7 @@ CREATE POLICY "staff_insert_meetings"
     EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
-        AND (
-          profiles.role = 'coordinator'
-          OR profiles.role = 'admin'
-          OR profiles.role = 'supervisor'
-        )
+        AND profiles.role IN ('coordinator'::user_role, 'admin'::user_role, 'supervisor'::user_role)
     )
   );
 
@@ -89,7 +79,7 @@ CREATE POLICY "creator_delete_meetings"
     OR EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
-        AND (profiles.role = 'coordinator' OR profiles.role = 'admin')
+        AND profiles.role IN ('coordinator'::user_role, 'admin'::user_role)
     )
   );
 
@@ -105,7 +95,7 @@ CREATE POLICY "coordinators_read_all_participants"
     EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
-        AND (profiles.role = 'coordinator' OR profiles.role = 'admin')
+        AND profiles.role IN ('coordinator'::user_role, 'admin'::user_role)
     )
   );
 
@@ -117,7 +107,7 @@ CREATE POLICY "supervisors_read_participants"
     EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
-        AND profiles.role = 'supervisor'
+        AND profiles.role = 'supervisor'::user_role
     )
     AND EXISTS (
       SELECT 1 FROM meetings
@@ -147,11 +137,7 @@ CREATE POLICY "staff_insert_participants"
     EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
-        AND (
-          profiles.role = 'coordinator'
-          OR profiles.role = 'admin'
-          OR profiles.role = 'supervisor'
-        )
+        AND profiles.role IN ('coordinator'::user_role, 'admin'::user_role, 'supervisor'::user_role)
     )
   );
 
@@ -163,11 +149,7 @@ CREATE POLICY "staff_update_participants"
     EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
-        AND (
-          profiles.role = 'coordinator'
-          OR profiles.role = 'admin'
-          OR profiles.role = 'supervisor'
-        )
+        AND profiles.role IN ('coordinator'::user_role, 'admin'::user_role, 'supervisor'::user_role)
     )
   );
 
@@ -179,10 +161,6 @@ CREATE POLICY "staff_delete_participants"
     EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
-        AND (
-          profiles.role = 'coordinator'
-          OR profiles.role = 'admin'
-          OR profiles.role = 'supervisor'
-        )
+        AND profiles.role IN ('coordinator'::user_role, 'admin'::user_role, 'supervisor'::user_role)
     )
   );
