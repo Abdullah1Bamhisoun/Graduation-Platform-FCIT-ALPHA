@@ -21,7 +21,7 @@ CREATE POLICY "coordinators_read_all_meetings"
     EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
-        AND (profiles.roles @> ARRAY['coordinator'] OR profiles.roles @> ARRAY['admin'])
+        AND (profiles.role = 'coordinator' OR profiles.role = 'admin')
     )
   );
 
@@ -33,7 +33,7 @@ CREATE POLICY "supervisors_read_meetings"
     EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
-        AND profiles.roles @> ARRAY['supervisor']
+        AND profiles.role = 'supervisor'
     )
     AND (
       created_by = auth.uid()
@@ -66,9 +66,9 @@ CREATE POLICY "staff_insert_meetings"
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
         AND (
-          profiles.roles @> ARRAY['coordinator']
-          OR profiles.roles @> ARRAY['admin']
-          OR profiles.roles @> ARRAY['supervisor']
+          profiles.role = 'coordinator'
+          OR profiles.role = 'admin'
+          OR profiles.role = 'supervisor'
         )
     )
   );
@@ -89,7 +89,7 @@ CREATE POLICY "creator_delete_meetings"
     OR EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
-        AND (profiles.roles @> ARRAY['coordinator'] OR profiles.roles @> ARRAY['admin'])
+        AND (profiles.role = 'coordinator' OR profiles.role = 'admin')
     )
   );
 
@@ -105,7 +105,7 @@ CREATE POLICY "coordinators_read_all_participants"
     EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
-        AND (profiles.roles @> ARRAY['coordinator'] OR profiles.roles @> ARRAY['admin'])
+        AND (profiles.role = 'coordinator' OR profiles.role = 'admin')
     )
   );
 
@@ -117,7 +117,7 @@ CREATE POLICY "supervisors_read_participants"
     EXISTS (
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
-        AND profiles.roles @> ARRAY['supervisor']
+        AND profiles.role = 'supervisor'
     )
     AND EXISTS (
       SELECT 1 FROM meetings
@@ -148,9 +148,9 @@ CREATE POLICY "staff_insert_participants"
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
         AND (
-          profiles.roles @> ARRAY['coordinator']
-          OR profiles.roles @> ARRAY['admin']
-          OR profiles.roles @> ARRAY['supervisor']
+          profiles.role = 'coordinator'
+          OR profiles.role = 'admin'
+          OR profiles.role = 'supervisor'
         )
     )
   );
@@ -164,9 +164,9 @@ CREATE POLICY "staff_update_participants"
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
         AND (
-          profiles.roles @> ARRAY['coordinator']
-          OR profiles.roles @> ARRAY['admin']
-          OR profiles.roles @> ARRAY['supervisor']
+          profiles.role = 'coordinator'
+          OR profiles.role = 'admin'
+          OR profiles.role = 'supervisor'
         )
     )
   );
@@ -180,9 +180,9 @@ CREATE POLICY "staff_delete_participants"
       SELECT 1 FROM profiles
       WHERE profiles.id = auth.uid()
         AND (
-          profiles.roles @> ARRAY['coordinator']
-          OR profiles.roles @> ARRAY['admin']
-          OR profiles.roles @> ARRAY['supervisor']
+          profiles.role = 'coordinator'
+          OR profiles.role = 'admin'
+          OR profiles.role = 'supervisor'
         )
     )
   );
