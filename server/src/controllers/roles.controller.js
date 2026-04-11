@@ -326,7 +326,18 @@ async function getCoordinatorInfo(req, res) {
 
     let coordinatorCourseId = lockRow?.entity_id ?? null;
 
-    // ── Secondary: profiles.coordinator_course_id ────────────────────────────
+    // ── Secondary: user_roles table (authoritative — matches auth middleware) ──
+    if (!coordinatorCourseId) {
+      const { data: roleRow } = await supabaseAdmin
+        .from('user_roles')
+        .select('coordinator_course_id, roles!inner(name)')
+        .eq('user_id', req.user.id)
+        .eq('roles.name', 'coordinator')
+        .maybeSingle();
+      coordinatorCourseId = roleRow?.coordinator_course_id ?? null;
+    }
+
+    // ── Tertiary: profiles.coordinator_course_id ──────────────────────────────
     if (!coordinatorCourseId) {
       const { data: profile } = await supabaseAdmin
         .from('profiles')
