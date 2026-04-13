@@ -157,6 +157,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     enabled: !!user,
     onWarning: () => setShowIdleWarning(true),
     onTimeout: () => { void logoutRef.current(); },
+    // If activity is detected while the warning dialog is already visible,
+    // dismiss it — the timers have been reset to a full 30-minute window.
+    onReset: () => setShowIdleWarning(false),
   });
 
   const handleStayLoggedIn = useCallback(() => {

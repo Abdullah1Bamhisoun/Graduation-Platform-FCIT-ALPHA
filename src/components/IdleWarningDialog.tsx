@@ -56,7 +56,7 @@ export function IdleWarningDialog({
       <DialogContent
         onInteractOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
-        className="max-w-sm"
+        className="max-w-sm [&>button:last-of-type]:hidden"
       >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
