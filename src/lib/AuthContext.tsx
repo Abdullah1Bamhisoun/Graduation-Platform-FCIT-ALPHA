@@ -4,6 +4,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
   ReactNode,
 } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -19,6 +20,12 @@ import {
   clearStoredActiveRole,
   getDashboardPath,
 } from '../services/roles';
+import { useIdleTimeout } from '@/hooks/useIdleTimeout';
+import { IdleWarningDialog } from '@/components/IdleWarningDialog';
+
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+const IDLE_WARNING_MS = 2  * 60 * 1000; // warn 2 minutes before logout
+const WARNING_SECONDS = IDLE_WARNING_MS / 1000;
 
 // ─── Context Shape ────────────────────────────────────────────────────────────
 
@@ -39,7 +46,12 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [showIdleWarning, setShowIdleWarning] = useState(false);
   const navigate = useNavigate();
+
+  // Stable ref so the idle hook's onTimeout callback always calls the
+  // latest logout without capturing a stale closure.
+  const logoutRef = useRef<() => Promise<void>>(async () => {});
 
   // ── Load user profile + all roles from user_roles table ───────────────────
   const loadUserProfile = useCallback(
@@ -138,6 +150,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, [loadUserProfile]);
 
+  // ── Idle timeout ──────────────────────────────────────────────────────────
+  const { resetTimers: resetIdleTimers } = useIdleTimeout({
+    timeoutMs: IDLE_TIMEOUT_MS,
+    warningMs: IDLE_WARNING_MS,
+    enabled: !!user,
+    onWarning: () => setShowIdleWarning(true),
+    onTimeout: () => { void logoutRef.current(); },
+  });
+
+  const handleStayLoggedIn = useCallback(() => {
+    setShowIdleWarning(false);
+    resetIdleTimers();
+  }, [resetIdleTimers]);
+
   // ── Login ──────────────────────────────────────────────────────────────────
   const login = async (identifier: string, password: string, rememberMe = true): Promise<void> => {
     if (password.length < 8) {
@@ -192,6 +218,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ── Logout ────────────────────────────────────────────────────────────────
   const logout = async () => {
+    setShowIdleWarning(false);
     if (user) clearStoredActiveRole(user.id);
     localStorage.removeItem('rememberMePref');
     adaptiveStorage.setMode(true); // reset to default for next login
@@ -199,6 +226,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     navigate('/login');
   };
+
+  // Keep the ref in sync so the idle hook's auto-logout always calls the
+  // current logout function regardless of closure age.
+  logoutRef.current = logout;
 
   // ── Switch active role (faculty with supervisor + coordinator) ────────────
   const switchRole = async (newRole: UserRole): Promise<void> => {
@@ -244,7 +275,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     switchRole,
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+      <IdleWarningDialog
+        open={showIdleWarning}
+        initialSeconds={WARNING_SECONDS}
+        onStayLoggedIn={handleStayLoggedIn}
+        onLogout={() => void logout()}
+      />
+    </AuthContext.Provider>
+  );
 }
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
