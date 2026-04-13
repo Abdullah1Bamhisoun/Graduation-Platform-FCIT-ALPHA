@@ -386,8 +386,8 @@ async function getMyGrades(req, res) {
         componentWeight: peerWeight,
         hasSubmitted:    hasSubmittedPeer,
       },
-      // Per-deliverable breakdown for 498 detail table (null for 499)
-      deliverables:     courseType === '498' ? deliverableDetail : null,
+      // Per-deliverable breakdown — returned for both 498 and 499 (used for criteria scores)
+      deliverables:     deliverableDetail,
       deliverablesTotal,
       totalScore,
       finalGrade: finalGradeLetterOf(totalScore),

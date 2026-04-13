@@ -1,6 +1,7 @@
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
 import { supabase } from '../../lib/supabase';
+import { apiUrl } from '../../lib/api';
 import { getWeekStatuses, getDisplayStatus } from '../../services/week-statuses';
 import { getAllRubricCriteria } from '../../services/grading-rubric';
 import { getStudentGrade } from '../../services/grades';
@@ -83,322 +84,15 @@ interface StudentMyGradesData {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-async function fetchMyGrades(studentId: string): Promise<StudentMyGradesData | null> {
-  // Step 1: Resolve student's group
-  const { data: membership } = await supabase
-    .from('group_members')
-    .select('group_id')
-    .eq('student_id', studentId)
-    .maybeSingle();
+async function fetchMyGrades(_studentId: string): Promise<StudentMyGradesData | null> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token ?? '';
 
-  if (!membership) return null;
-  const groupId = membership.group_id;
-
-  // Step 2: Group details
-  const { data: group, error: gError } = await supabase
-    .from('groups')
-    .select(`
-      id, group_number, project_name, status, course_id,
-      project_status, ip_marked_at, ip_reason,
-      supervisor:profiles!supervisor_id(id, name),
-      course:courses!course_id(id, code, name),
-      members:group_members(student_id, student:profiles!student_id(id, name))
-    `)
-    .eq('id', groupId)
-    .single();
-
-  if (gError || !group) return null;
-
-  const rawCode = (group as any).course?.code ?? '';
-  const courseCode = rawCode.replace(/_/g, '-');
-  const courseType: '498' | '499' = courseCode.includes('499') ? '499' : '498';
-  const courseId = (group as any).course_id;
-
-  const students = ((group as any).members || []).map((m: any) => ({
-    id:   m.student?.id   ?? m.student_id,
-    name: m.student?.name ?? '',
-  }));
-
-  // Step 3: Grading components
-  const { data: components } = await supabase
-    .from('grading_components')
-    .select('component_key, component_name, total_marks, evaluator_role, display_order')
-    .eq('is_active', true)
-    .eq('course_type', courseType)
-    .order('display_order');
-
-  // Step 4: Supervisor assessment
-  const { data: supRow } = await supabase
-    .from('supervisor_assessments')
-    .select('score, max_score, graded_at, submission_status, comment')
-    .eq('student_id', studentId)
-    .eq('group_id', groupId)
-    .maybeSingle();
-
-  const supervisorMaxScore = courseType === '499' ? 23 : 20;
-  const supervisorEval = supRow
-    ? {
-        score:            supRow.score != null ? Number(supRow.score) : null,
-        maxScore:         Number(supRow.max_score ?? supervisorMaxScore),
-        gradedAt:         supRow.graded_at ?? null,
-        submissionStatus: supRow.submission_status ?? 'draft',
-        comment:          supRow.comment ?? null,
-      }
-    : null;
-
-  // Step 5: Committee evaluations
-  const { data: commRows } = await supabase
-    .from('committee_evaluations')
-    .select('score, max_score, comment, evaluator_id')
-    .eq('group_id', groupId)
-    .in('submission_status', ['submitted', 'locked']);
-
-  const committeeScore = commRows && commRows.length > 0
-    ? commRows.reduce((s: number, r: any) => s + Number(r.score ?? 0), 0) / commRows.length
-    : null;
-
-  const committeeComments = (commRows ?? [])
-    .map((r: any) => r.comment)
-    .filter((c: any) => c && c.trim().length > 0);
-  const committeeComment = committeeComments.length > 0
-    ? committeeComments.join('\n\n---\n\n')
-    : null;
-
-  // Step 6: Coordinator deliverable scores
-  const { data: delivScores } = await supabase
-    .from('coordinator_deliverable_scores')
-    .select('deliverable_key, score, max_score, graded_at')
-    .eq('group_id', groupId)
-    .eq('course_id', courseId);
-
-  const deliverablesTotal = (delivScores || []).reduce(
-    (s: number, d: any) => s + Number(d.score ?? 0), 0
-  );
-
-  const deliverableDetail: Record<string, { score: number | null; maxScore: number; gradedAt: string | null }> = {};
-  for (const d of (delivScores || []) as any[]) {
-    deliverableDetail[d.deliverable_key] = {
-      score:    d.score != null ? Number(d.score) : null,
-      maxScore: Number(d.max_score ?? 0),
-      gradedAt: d.graded_at ?? null,
-    };
-  }
-
-  // Step 7: Admin committee scores (499 only)
-  let adminCommitteeTotal: number | null = null;
-  if (courseType === '499') {
-    const { data: acRow } = await supabase
-      .from('admin_committee_scores')
-      .select('poster_day_score, implementation_score, testing_score')
-      .eq('group_id', groupId)
-      .maybeSingle();
-
-    if (acRow) {
-      adminCommitteeTotal =
-        (Number((acRow as any).poster_day_score)     ?? 0) +
-        (Number((acRow as any).implementation_score) ?? 0) +
-        (Number((acRow as any).testing_score)        ?? 0);
-    }
-  }
-
-  // Step 8: Coordinator assessments
-  const { data: coordAssessRows } = await supabase
-    .from('coordinator_assessments')
-    .select('normalized_score, max_score, submission_status, comment')
-    .eq('group_id', groupId)
-    .eq('course_type', courseType)
-    .limit(1);
-
-  const coordinatorScore = (coordAssessRows as any)?.[0]?.normalized_score != null
-    ? Number((coordAssessRows as any)[0].normalized_score)
-    : null;
-
-  const coordinatorComment = (coordAssessRows as any)?.[0]?.submission_status !== 'draft'
-    ? ((coordAssessRows as any)?.[0]?.comment ?? null)
-    : null;
-
-  // Step 8b: Submission approval counts
-  const { data: submissions } = await supabase
-    .from('submissions')
-    .select('status')
-    .eq('group_id', groupId);
-
-  const approvalCounts = {
-    total:    (submissions || []).length,
-    pending:  (submissions || []).filter((s: any) => ['submitted', 'under-review'].includes(s.status)).length,
-    approved: (submissions || []).filter((s: any) => s.status === 'approved').length,
-    rejected: (submissions || []).filter((s: any) => s.status === 'changes-requested').length,
-  };
-
-  // Step 9: Weekly marks
-  const { data: weeklyReports } = await supabase
-    .from('weekly_reports')
-    .select('week_number, student_mark, supervisor_mark')
-    .eq('group_id', groupId)
-    .order('week_number');
-
-  const weeklyRaw = (weeklyReports || []).reduce(
-    (s: number, r: any) => s + (r.student_mark ?? 0) + (r.supervisor_mark ?? 0), 0
-  );
-  const weeklyMaxScore = courseType === '499' ? 22 : 20;
-  const weeklyScore    = Math.min(weeklyRaw, weeklyMaxScore);
-  const weeklyIsAtCap  = weeklyRaw >= weeklyMaxScore;
-  const weeksOpened    = (weeklyReports || []).length;
-
-  const weeklyBreakdown = (weeklyReports || []).map((r: any) => ({
-    weekNumber:     r.week_number,
-    studentMark:    r.student_mark   ?? 0,
-    supervisorMark: r.supervisor_mark ?? 0,
-  }));
-
-  // Step 10: Peer evaluations received
-  const { data: peerReceived } = await supabase
-    .from('peer_evaluations')
-    .select('score')
-    .eq('student_id', studentId)
-    .eq('group_id', groupId);
-
-  const peerScores  = (peerReceived || []).map((p: any) => Number(p.score));
-  const peerAvgRaw  = peerScores.length > 0
-    ? peerScores.reduce((s: number, v: number) => s + v, 0) / peerScores.length
-    : null;
-  const peerComponent = (components || []).find((c: any) => c.component_key === 'peer_review');
-  const peerWeight    = peerComponent ? Number(peerComponent.total_marks) : 5;
-  const peerConverted = peerAvgRaw != null ? (peerAvgRaw / 5) * peerWeight : null;
-
-  // Step 11: Has student submitted peer evaluations
-  const { data: peerSubmittedRows } = await supabase
-    .from('peer_evaluations')
-    .select('id')
-    .eq('evaluator_id', studentId)
-    .eq('group_id', groupId)
-    .limit(1);
-
-  const hasSubmittedPeer = (peerSubmittedRows || []).length > 0;
-
-  // Step 12: Assemble components with scores
-  const assembledComponents: GradeComponentItem[] = (components || []).map((c: any) => {
-    let score: number | null = null;
-    switch (c.component_key) {
-      case 'supervisor_eval':
-        score = supervisorEval?.score ?? null;
-        break;
-      case 'committee_eval':
-        score = committeeScore;
-        break;
-      case 'coordinator_eval':
-        score = coordinatorScore;
-        break;
-      case 'coordinator_deliverables':
-        score = courseType === '499'
-          ? (deliverablesTotal || adminCommitteeTotal)
-          : deliverablesTotal;
-        break;
-      case 'progress_reports':
-        score = weeklyScore;
-        break;
-      case 'peer_review':
-        score = peerConverted;
-        break;
-    }
-    return {
-      componentKey:  c.component_key,
-      componentName: c.component_name,
-      totalMarks:    Number(c.total_marks),
-      evaluatorRole: c.evaluator_role,
-      score,
-      maxScore:      Number(c.total_marks),
-    };
+  const res = await fetch(apiUrl('/api/students/my-grades'), {
+    headers: { Authorization: `Bearer ${token}` },
   });
-
-  // Step 13: Total score + letter grade
-  const totalScore = assembledComponents.reduce(
-    (s, c) => s + (c.score ?? 0), 0
-  );
-
-  const finalGradeLetterOf = (score: number) =>
-    score >= 95 ? 'A+' : score >= 90 ? 'A' : score >= 85 ? 'B+'
-    : score >= 80 ? 'B' : score >= 75 ? 'C+' : score >= 70 ? 'C'
-    : score >= 65 ? 'D+' : score >= 60 ? 'D' : score > 0 ? 'F' : 'In Progress';
-
-  // Step 14: Previous CPIS-498 committee feedback (499 only)
-  let prevCourseComments: PrevCourseComment[] | null = null;
-  if (courseType === '499') {
-    const { data: allMemberships } = await supabase
-      .from('group_members')
-      .select('group_id')
-      .eq('student_id', studentId);
-
-    const allGroupIds = (allMemberships || []).map((m: any) => m.group_id).filter((id: string) => id !== groupId);
-
-    if (allGroupIds.length > 0) {
-      const { data: prevGroups } = await supabase
-        .from('groups')
-        .select('id, course:courses!course_id(code)')
-        .in('id', allGroupIds);
-
-      const prev498GroupIds = (prevGroups || [])
-        .filter((g: any) => g.course?.code?.includes('498'))
-        .map((g: any) => g.id);
-
-      if (prev498GroupIds.length > 0) {
-        const { data: prevCommRows } = await supabase
-          .from('committee_evaluations')
-          .select('comment, evaluated_at, evaluator:profiles!evaluator_id(name)')
-          .in('group_id', prev498GroupIds)
-          .in('submission_status', ['submitted', 'locked'])
-          .not('comment', 'is', null)
-          .neq('comment', '');
-
-        prevCourseComments = (prevCommRows || [])
-          .filter((r: any) => r.comment && r.comment.trim())
-          .map((r: any) => ({
-            comment:       r.comment,
-            evaluatorName: (r.evaluator as any)?.name ?? 'Committee Member',
-            evaluatedAt:   r.evaluated_at ?? null,
-          }));
-      }
-    }
-  }
-
-  return {
-    groupId:       (group as any).id,
-    groupNumber:   (group as any).group_number,
-    projectName:   (group as any).project_name,
-    status:        (group as any).status,
-    projectStatus: (group as any).project_status ?? 'normal',
-    ipMarkedAt:    (group as any).ip_marked_at   ?? null,
-    ipReason:      (group as any).ip_reason      ?? null,
-    courseCode,
-    courseType,
-    supervisorName: (group as any).supervisor?.name ?? null,
-    students,
-    components: assembledComponents,
-    supervisorEvaluation: supervisorEval,
-    committeeEvaluation: committeeScore != null
-      ? { score: committeeScore, maxScore: 40, comment: committeeComment }
-      : null,
-    coordinatorComment,
-    approvalCounts,
-    weeklyScore,
-    weeklyMaxScore,
-    weeklyTotalRaw: weeklyRaw,
-    weeksOpened,
-    weeklyIsAtCap,
-    weeklyBreakdown,
-    peerEvaluation: {
-      receivedCount:   peerScores.length,
-      averageRaw:      peerAvgRaw,
-      convertedScore:  peerConverted,
-      componentWeight: peerWeight,
-      hasSubmitted:    hasSubmittedPeer,
-    },
-    deliverables:     courseType === '498' ? deliverableDetail : null,
-    deliverablesTotal,
-    totalScore,
-    finalGrade: finalGradeLetterOf(totalScore),
-    prevCourseComments,
-  };
+  if (!res.ok) return null;
+  return res.json();
 }
 
 function getScoreColor(score: number, max: number) {
@@ -476,7 +170,18 @@ export function StudentGradesOverview() {
         setWeekStatuses(ws);
         setRubricCriteria(criteria);
 
-        // Fetch per-criterion scores for this student's group
+        // Seed criterion scores from the API response first (no RLS dependency).
+        // coordinator_deliverable keys (demo, poster_day, chapter_implementation, etc.)
+        // come from grades.deliverables which is already fetched server-side.
+        const scores: Record<string, number> = {};
+        for (const [key, d] of Object.entries(grades.deliverables ?? {})) {
+          if (d.score != null) scores[key] = d.score;
+        }
+        setCriterionScores(scores);
+
+        // Fetch supervisor + committee rubric scores (need course_id from courses table).
+        // If this query is blocked or returns nothing, the coordinator deliverable
+        // scores set above are still shown correctly.
         const { data: courseRow } = await supabase
           .from('courses')
           .select('id')
@@ -485,7 +190,7 @@ export function StudentGradesOverview() {
           .maybeSingle();
 
         if (courseRow) {
-          const [{ data: supScores }, { data: commScores }, { data: coordDelivScores }] = await Promise.all([
+          const [{ data: supScores }, { data: commScores }] = await Promise.all([
             supabase
               .from('supervisor_rubric_scores')
               .select('criterion_key, raw_score')
@@ -498,18 +203,11 @@ export function StudentGradesOverview() {
               .eq('group_id', grades.groupId)
               .eq('course_id', courseRow.id)
               .in('submission_status', ['submitted', 'locked']),
-            supabase
-              .from('coordinator_deliverable_scores')
-              .select('deliverable_key, score')
-              .eq('group_id', grades.groupId)
-              .eq('course_id', courseRow.id),
           ]);
 
-          const scores: Record<string, number> = {};
           for (const s of supScores ?? []) {
             scores[s.criterion_key] = Number(s.raw_score);
           }
-          // Average committee scores per criterion (don't overwrite supervisor scores)
           const commSums: Record<string, number[]> = {};
           for (const s of commScores ?? []) {
             (commSums[s.criterion_key] ??= []).push(Number(s.score));
@@ -519,11 +217,11 @@ export function StudentGradesOverview() {
               scores[key] = vals.reduce((a, b) => a + b, 0) / vals.length;
             }
           }
-          // Coordinator deliverable scores (CommitteeScores page) for 499 criteria display
-          for (const s of coordDelivScores ?? []) {
-            scores[s.deliverable_key] = Number(s.score);
+          // Re-apply deliverable scores so they're never overwritten by empty rubric data
+          for (const [key, d] of Object.entries(grades.deliverables ?? {})) {
+            if (d.score != null) scores[key] = d.score;
           }
-          setCriterionScores(scores);
+          setCriterionScores({ ...scores });
         }
       }
     } catch (err) {
@@ -569,53 +267,34 @@ export function StudentGradesOverview() {
     setPeerSubmitting(true);
     setPeerSubmitError(null);
     try {
-      const { data: membership } = await supabase
-        .from('group_members')
-        .select('group_id')
-        .eq('student_id', user.id)
-        .maybeSingle();
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token ?? '';
 
-      if (!membership) throw new Error('You are not assigned to a group');
-      const groupId = membership.group_id;
+      // Build ratings map: { [studentId]: score }
+      const ratings: Record<string, number> = {};
+      for (const peer of peers) {
+        ratings[peer.id] = Number(peerRatings[peer.id]);
+      }
 
-      const { data: groupRow } = await supabase
-        .from('groups')
-        .select('course_id')
-        .eq('id', groupId)
-        .single();
+      const res = await fetch(apiUrl('/api/students/peer-evaluations'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ ratings }),
+      });
 
-      if (!groupRow) throw new Error('Group not found');
-      const courseId = (groupRow as any).course_id;
-
-      // Build one row per peer being rated.
-      // student_id  = the peer being evaluated (evaluatee)
-      // evaluator_id = the logged-in student giving the rating
-      // Safety filter: never create a row where a student would rate themselves.
-      const rows = peers
-        .filter((s) => s.id !== user.id)
-        .map((s) => ({
-          student_id:   s.id,
-          evaluator_id: user.id,
-          group_id:     groupId,
-          course_id:    courseId,
-          score:        Number(peerRatings[s.id]),
-          max_score:    5,
-          comment:      null,
-        }))
-        .filter((r) => r.student_id !== r.evaluator_id);
-
-      if (rows.length === 0) throw new Error('No valid peers to rate');
-
-      const { error } = await supabase
-        .from('peer_evaluations')
-        .upsert(rows, { onConflict: 'student_id,evaluator_id,group_id,course_id' });
-
-      if (error) throw error;
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `Server error ${res.status}`);
+      }
 
       setPeerSubmitted(true);
       setPeerEditing(false);
-    } catch (err) {
-      setPeerSubmitError('Failed to submit. Please try again.');
+    } catch (err: any) {
+      console.error('Peer evaluation submit error:', err);
+      setPeerSubmitError(err?.message ?? 'Failed to submit. Please try again.');
     } finally {
       setPeerSubmitting(false);
     }
@@ -995,7 +674,7 @@ export function StudentGradesOverview() {
                                   <span className="text-xs font-semibold text-[var(--color-text-800)] min-w-0">
                                     {criterion.criterionName}
                                     <span className="ml-1.5 font-mono text-[var(--color-text-500)]">
-                                      — {hasScore ? `${Math.round(rawScore)} / ${criterion.maxRawScore}` : `/ ${criterion.maxRawScore}`}
+                                      — {hasScore ? `${rawScore % 1 === 0 ? rawScore : rawScore.toFixed(1)} / ${criterion.maxRawScore}` : `/ ${criterion.maxRawScore}`}
                                     </span>
                                   </span>
                                 </div>
@@ -1008,7 +687,7 @@ export function StudentGradesOverview() {
                                   <span className="text-xs font-semibold text-[var(--color-text-800)] min-w-0">
                                     {criterion.criterionName}
                                     <span className="ml-1.5 font-mono text-[var(--color-text-500)]">
-                                      — {hasScore ? `${Math.round(rawScore)} / ${criterion.maxRawScore}` : `/ ${criterion.maxRawScore}`}
+                                      — {hasScore ? `${rawScore % 1 === 0 ? rawScore : rawScore.toFixed(1)} / ${criterion.maxRawScore}` : `/ ${criterion.maxRawScore}`}
                                     </span>
                                   </span>
                                   {isCriterionExpanded
