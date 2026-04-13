@@ -144,8 +144,7 @@ async function getMyGrades(req, res) {
     const { data: delivScores } = await supabaseAdmin
       .from('coordinator_deliverable_scores')
       .select('deliverable_key, score, max_score, graded_at')
-      .eq('group_id', groupId)
-      .eq('course_id', courseId);
+      .eq('group_id', groupId);
 
     const deliverablesTotal = (delivScores || []).reduce(
       (s, d) => s + Number(d.score ?? 0), 0
