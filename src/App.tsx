@@ -7,6 +7,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 // Auth
 import { Login } from './features/auth/components/Login';
 import { Register } from './features/auth/components/Register';
+import { AccountConfirmed } from './features/auth/components/AccountConfirmed';
 import { ForgotPassword } from './features/auth/components/ForgotPassword';
 import { ResetPassword } from './features/auth/components/ResetPassword';
 
@@ -80,11 +81,12 @@ export default function App() {
       <AuthProvider>
         <Routes>
           {/* ── Auth ── */}
-          <Route path="/login"          element={<Login />} />
-          <Route path="/register"       element={<Register />} />
-          <Route path="/forgot-password" element={<ForgotPassword />} />
-          <Route path="/reset-password"  element={<ResetPassword />} />
-          <Route path="/"               element={<Navigate to="/login" replace />} />
+          <Route path="/login"             element={<Login />} />
+          <Route path="/register"          element={<Register />} />
+          <Route path="/account-confirmed" element={<AccountConfirmed />} />
+          <Route path="/forgot-password"   element={<ForgotPassword />} />
+          <Route path="/reset-password"    element={<ResetPassword />} />
+          <Route path="/"                  element={<Navigate to="/login" replace />} />
 
           {/* ── Student Routes ── */}
           <Route path="/student" element={<ProtectedRoute allowedRoles={['student']}><StudentDashboard /></ProtectedRoute>} />

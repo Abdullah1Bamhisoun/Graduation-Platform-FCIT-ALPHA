@@ -214,7 +214,10 @@ export function Register() {
       const { error: signUpError } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { full_name: fullName } },
+        options: {
+          data: { full_name: fullName },
+          emailRedirectTo: `${window.location.origin}/account-confirmed`,
+        },
       });
       if (signUpError) throw signUpError;
 
