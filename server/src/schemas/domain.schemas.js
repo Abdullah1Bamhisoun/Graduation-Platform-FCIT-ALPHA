@@ -16,6 +16,7 @@ const createAnnouncementSchema = Joi.object({
     .min(1)
     .required(),
   expiresAt: Joi.string().isoDate().allow(null, '').optional(),
+  groupId:   Joi.string().uuid().allow(null, '').optional(),
 });
 
 const updateAnnouncementSchema = Joi.object({
@@ -94,12 +95,15 @@ const supervisorEvaluationSchema = Joi.object({
   submissionStatus: Joi.string()
     .valid('draft', 'submitted')
     .default('submitted'),
-  scores: Joi.array()
+  // evaluations: one entry per student, scores is a key→value map of criterion → rawScore
+  evaluations: Joi.array()
     .items(
       Joi.object({
-        studentId:    Joi.string().uuid().required(),
-        criterionKey: Joi.string().min(1).max(100).required(),
-        rawScore:     Joi.number().min(0).max(5).required(),
+        studentId: Joi.string().uuid().required(),
+        scores:    Joi.object()
+          .pattern(Joi.string().min(1).max(100), Joi.number().integer().min(1).max(5))
+          .required(),
+        comment:   Joi.string().max(3000).trim().allow('', null).optional(),
       })
     )
     .min(1)
@@ -113,11 +117,13 @@ const coordinatorEvaluationSchema = Joi.object({
     .valid('draft', 'submitted')
     .default('submitted'),
   courseType: Joi.string().valid('498', '499').optional(), // also accepted in query
-  scores: Joi.array()
+  comment:    Joi.string().max(3000).trim().allow('', null).optional(),
+  evaluations: Joi.array()
     .items(
       Joi.object({
+        criterionId:  Joi.string().uuid().optional(),
         criterionKey: Joi.string().min(1).max(100).required(),
-        rawScore:     Joi.number().min(0).max(5).required(),
+        rawScore:     Joi.number().integer().min(1).max(5).required(),
       })
     )
     .min(1)

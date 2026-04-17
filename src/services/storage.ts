@@ -38,6 +38,40 @@ export async function deleteStorageFile(filePath: string): Promise<void> {
   await supabase.storage.from(BUCKET).remove([filePath]);
 }
 
+/**
+ * Uploads a committee evaluation feedback file via the backend (supabaseAdmin),
+ * bypassing storage bucket RLS that blocks frontend uploads.
+ * Returns the storage path.
+ */
+export async function uploadCommitteeFeedbackFile(
+  file: File,
+  groupId: string,
+  _evaluatorId: string
+): Promise<string> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token ?? '';
+
+  const form = new FormData();
+  form.append('file', file);
+  form.append('groupId', groupId);
+
+  // Import apiUrl lazily to avoid circular deps
+  const { apiUrl } = await import('@/lib/api');
+  const res = await fetch(apiUrl('/api/evaluations/upload-feedback-file'), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Upload failed' }));
+    throw new Error(err.error || 'Upload failed');
+  }
+
+  const { filePath } = await res.json();
+  return filePath;
+}
+
 export async function getSignedUrl(filePath: string): Promise<string> {
   const { data, error } = await supabase.storage
     .from(BUCKET)

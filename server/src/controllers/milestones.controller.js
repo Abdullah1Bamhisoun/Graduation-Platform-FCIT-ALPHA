@@ -139,8 +139,10 @@ async function createMilestone(req, res) {
       month: 'long', day: 'numeric', year: 'numeric',
     });
 
+    const courseLabel = [normalizeCourseCode(course.code), course.name].filter(Boolean).join(' — ');
     const announcementContent = [
-      description || `A new chapter submission has been added for ${course.code}.`,
+      description || `A new chapter submission has been added for ${courseLabel}.`,
+      `Course: ${courseLabel}`,
       '',
       `Submission opens: ${openDateFormatted}`,
       `Submission deadline: ${dueDateFormatted}`,
@@ -210,7 +212,7 @@ async function createMilestone(req, res) {
         await Promise.all([
           notificationService.createAnnouncement({
             title:       `New Milestone Added: ${name}`,
-            content:     `Coordinator created milestone "${name}" (type: ${type ?? 'chapter'}).\nOpens: ${openDateFormatted}\nDue: ${dueDateFormatted}${description ? `\n\n${description}` : ''}`,
+            content:     `Coordinator created milestone "${name}" (type: ${type ?? 'chapter'}).\nCourse: ${courseLabel}\nOpens: ${openDateFormatted}\nDue: ${dueDateFormatted}${description ? `\n\n${description}` : ''}`,
             targetRoles: ['supervisor'],
             courseId,
             authorId:    req.user.id,

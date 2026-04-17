@@ -51,9 +51,7 @@ async function checkResponse(res: Response, fallback: string): Promise<void> {
 export function getDisplayStatus(ws: WeekStatus): WeekDisplayStatus {
   if (ws.isLocked) return 'Locked';
 
-  // Manual open flag always overrides the datetime window
-  if (ws.isOpen) return 'Open';
-
+  // Datetime window takes priority when both open_at and close_at are set
   if (ws.openAt && ws.closeAt) {
     const now     = new Date();
     const openAt  = new Date(ws.openAt);
@@ -62,6 +60,9 @@ export function getDisplayStatus(ws: WeekStatus): WeekDisplayStatus {
     if (now <= closeAt) return 'Open';
     return 'Closed';
   }
+
+  // Fall back to manual is_open flag
+  if (ws.isOpen) return 'Open';
 
   if (ws.wasOpened && !ws.isOpen) return 'Closed';
   return 'Not Opened';
@@ -73,12 +74,11 @@ export function getDisplayStatus(ws: WeekStatus): WeekDisplayStatus {
  */
 export function isSubmissionOpen(ws: WeekStatus | undefined): boolean {
   if (!ws || ws.isLocked) return false;
-  if (ws.isOpen) return true;
   if (ws.openAt && ws.closeAt) {
     const now = new Date();
     return now >= new Date(ws.openAt) && now <= new Date(ws.closeAt);
   }
-  return false;
+  return ws.isOpen;
 }
 
 /**
@@ -102,12 +102,14 @@ export async function getWeekStatuses(
 /** Open a week (sets is_open = true, was_opened = true). */
 export async function openWeek(
   weekStatusId: string,
-  _openedBy?: string
+  _openedBy?: string,
+  courseId?: string
 ): Promise<void> {
   const token = await getToken();
   const res = await fetch(apiUrl(`/api/week-statuses/${weekStatusId}/open`), {
     method: 'PATCH',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: courseId ? JSON.stringify({ courseId }) : undefined,
   });
   await checkResponse(res, 'Failed to open week');
 }
@@ -139,7 +141,8 @@ export async function lockWeek(weekStatusId: string): Promise<void> {
 export async function setWeekDeadline(
   weekStatusId: string,
   openAt: string | null,
-  closeAt: string | null
+  closeAt: string | null,
+  courseId?: string
 ): Promise<void> {
   if (openAt && closeAt && new Date(openAt) >= new Date(closeAt)) {
     throw new Error('open_at must be before close_at.');
@@ -149,7 +152,7 @@ export async function setWeekDeadline(
   const res = await fetch(apiUrl(`/api/week-statuses/${weekStatusId}/deadline`), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ open_at: openAt, close_at: closeAt }),
+    body: JSON.stringify({ open_at: openAt, close_at: closeAt, courseId: courseId ?? null }),
   });
   await checkResponse(res, 'Failed to set deadline');
 }

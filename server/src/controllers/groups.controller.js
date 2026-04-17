@@ -1,6 +1,7 @@
 const { supabaseAdmin } = require('../config/supabase');
 const emailService = require('../services/email.service');
 const { normalizeCourseCode } = require('../utils/helpers');
+const { buildStudentGradesSummary } = require('../utils/gradesSummary');
 
 /**
  * GET /api/groups
@@ -608,7 +609,7 @@ async function buildGradesResponse(res, groupsRaw, supervisorId) {
       .in('group_id', groupIds),
     supabaseAdmin
       .from('supervisor_assessments')
-      .select('student_id, group_id, course_id, score, max_score, graded_at, submission_status')
+      .select('student_id, group_id, course_id, score, max_score, graded_at')
       .in('group_id', groupIds),
     supabaseAdmin
       .from('supervisor_rubric_scores')
@@ -625,8 +626,9 @@ async function buildGradesResponse(res, groupsRaw, supervisorId) {
       .in('group_id', groupIds),
     supabaseAdmin
       .from('committee_evaluations')
-      .select('group_id, student_id, score, max_score')
-      .in('group_id', groupIds),
+      .select('group_id, score, max_score, submission_status')
+      .in('group_id', groupIds)
+      .in('submission_status', ['submitted', 'locked']),
     supabaseAdmin
       .from('peer_evaluations')
       .select('group_id, student_id, score')
@@ -660,13 +662,18 @@ async function buildGradesResponse(res, groupsRaw, supervisorId) {
     const groupAssessments = (supAssessments || []).filter(
       (a) => a.group_id === g.id && a.course_id === courseId
     );
-    const supervisorEval = groupAssessments.map((a) => ({
-      studentId:        a.student_id,
-      score:            a.score != null ? Number(a.score) : null,
-      maxScore:         Number(a.max_score),
-      gradedAt:         a.graded_at,
-      submissionStatus: a.submission_status ?? 'draft',
-    }));
+    // supervisor_assessments has no submission_status column — derive it from rubric scores
+    const groupRubricForStatus = (rubricScores || []).filter((r) => r.group_id === g.id);
+    const supervisorEval = groupAssessments.map((a) => {
+      const rubricRow = groupRubricForStatus.find((r) => r.student_id === a.student_id);
+      return {
+        studentId:        a.student_id,
+        score:            a.score != null ? Number(a.score) : null,
+        maxScore:         Number(a.max_score),
+        gradedAt:         a.graded_at,
+        submissionStatus: rubricRow?.submission_status ?? 'draft',
+      };
+    });
 
     // Total supervisor score (average across students if multiple)
     const supScoreValues = supervisorEval.map((e) => e.score).filter((s) => s != null);
@@ -694,6 +701,15 @@ async function buildGradesResponse(res, groupsRaw, supervisorId) {
       0
     );
 
+    // Committee evaluation — group-level (one score per evaluator, averaged)
+    const groupCommRows = (commEvaluations || []).filter((c) => c.group_id === g.id);
+    const committeeGroupScore = groupCommRows.length > 0
+      ? groupCommRows.reduce((acc, r) => acc + Number(r.score ?? 0), 0) / groupCommRows.length
+      : null;
+    const committeeGroupMax = groupCommRows[0]?.max_score != null
+      ? Number(groupCommRows[0].max_score)
+      : 40;
+
     // Grade components for this course (Coordinator-defined — never hardcoded)
     const courseComponents = (components || [])
       .filter((c) => c.course_type === courseType)
@@ -705,12 +721,14 @@ async function buildGradesResponse(res, groupsRaw, supervisorId) {
         evaluatorRole: c.evaluator_role,
         // Attach the score this supervisor can see for each component
         score:
-          c.component_key === 'supervisor_eval'     ? supervisorTotalScore
+          c.component_key === 'supervisor_eval'          ? supervisorTotalScore
+          : c.component_key === 'committee_eval'         ? committeeGroupScore
           : c.component_key === 'coordinator_deliverables' ? deliverablesTotal
-          : c.component_key === 'progress_reports'  ? weeklyScore
+          : c.component_key === 'progress_reports'       ? weeklyScore
           : null,
         maxScore:
           c.component_key === 'supervisor_eval'            ? supervisorMaxScore
+          : c.component_key === 'committee_eval'           ? committeeGroupMax
           : c.component_key === 'coordinator_deliverables' ? Number(c.total_marks)
           : c.component_key === 'progress_reports'         ? Number(c.total_marks)
           : Number(c.total_marks),
@@ -721,13 +739,9 @@ async function buildGradesResponse(res, groupsRaw, supervisorId) {
     for (const s of students) {
       const sid = s.id;
       const supRow = supervisorEval.find((e) => e.studentId === sid);
-      const commRows = (commEvaluations || []).filter(
-        (c) => c.group_id === g.id && c.student_id === sid
-      );
-      const commScore = commRows.length > 0
-        ? commRows.reduce((acc, r) => acc + Number(r.score ?? 0), 0) / commRows.length
-        : null;
-      const commMaxScore = commRows[0]?.max_score != null ? Number(commRows[0].max_score) : 40;
+      // Committee score is group-level — all students share the same averaged score
+      const commScore    = committeeGroupScore;
+      const commMaxScore = committeeGroupMax;
       const peerRows = (peerEvaluations || []).filter(
         (p) => p.group_id === g.id && p.student_id === sid
       );
@@ -942,7 +956,7 @@ async function submitSupervisorEvaluation(req, res) {
     const assessments  = [];
 
     for (const ev of evaluations) {
-      const { studentId, scores } = ev;
+      const { studentId, scores, comment: evComment } = ev;
 
       if (!studentId || typeof scores !== 'object') {
         return res.status(400).json({ error: 'Each evaluation must have studentId and scores' });
@@ -981,52 +995,95 @@ async function submitSupervisorEvaluation(req, res) {
         ? Math.round((rawTotal / maxRawTotal) * totalMarks * 100) / 100
         : 0;
 
-      assessments.push({ studentId, normalizedScore });
+      assessments.push({ studentId, normalizedScore, comment: evComment ?? null });
     }
 
-    // ── Upsert rubric scores ──────────────────────────────────────────────────
-    const { error: upsertError } = await supabaseAdmin
-      .from('supervisor_rubric_scores')
-      .upsert(rubricRows, { onConflict: 'student_id,group_id,course_id,criterion_key' });
+    // ── Manual upsert rubric scores (UPDATE → INSERT per row) ────────────────
+    // Skipped entirely when no scores entered yet (draft with blank form).
+    for (const row of rubricRows) {
+      const { data: updatedRows, error: rUpdateErr } = await supabaseAdmin
+        .from('supervisor_rubric_scores')
+        .update({
+          raw_score:         row.raw_score,
+          graded_by:         row.graded_by,
+          graded_at:         row.graded_at,
+          submission_status: row.submission_status,
+        })
+        .eq('student_id',    row.student_id)
+        .eq('group_id',      row.group_id)
+        .eq('course_id',     row.course_id)
+        .eq('criterion_key', row.criterion_key)
+        .select('id');
 
-    if (upsertError) throw upsertError;
+      if (rUpdateErr) throw rUpdateErr;
 
-    // ── Batch upsert all normalized scores in one DB call ────────────────────
+      if (!updatedRows || updatedRows.length === 0) {
+        const { error: rInsertErr } = await supabaseAdmin
+          .from('supervisor_rubric_scores')
+          .insert(row);
+        if (rInsertErr) throw rInsertErr;
+      }
+    }
+
+    // ── Manual upsert normalized scores (UPDATE → INSERT) ────────────────────
+    // Avoids onConflict dependency on the exact unique-constraint definition.
     const now = new Date().toISOString();
-    const assessmentRows = assessments.map(({ studentId, normalizedScore }) => ({
-      student_id:        studentId,
-      group_id:          groupId,
-      course_id:         courseId,
-      score:             normalizedScore,
-      max_score:         totalMarks,
-      graded_by:         supervisorId,
-      graded_at:         now,
-      submission_status: submissionStatus,
-    }));
-    await supabaseAdmin
-      .from('supervisor_assessments')
-      .upsert(assessmentRows, { onConflict: 'student_id,group_id,course_id' });
+    for (const { studentId, normalizedScore, comment: studentComment } of assessments) {
+      const assessmentRow = {
+        student_id: studentId,
+        group_id:   groupId,
+        course_id:  courseId,
+        score:      normalizedScore,
+        max_score:  totalMarks,
+        graded_by:  supervisorId,
+        graded_at:  now,
+        ...(studentComment != null ? { comment: studentComment } : {}),
+      };
 
-    // ── Fire-and-forget email to each evaluated student (final submit only) ──
+      const { data: updatedRows, error: aUpdateErr } = await supabaseAdmin
+        .from('supervisor_assessments')
+        .update(assessmentRow)
+        .eq('student_id', studentId)
+        .eq('group_id',   groupId)
+        .eq('course_id',  courseId)
+        .select('id');
+
+      if (aUpdateErr) throw aUpdateErr;
+
+      if (!updatedRows || updatedRows.length === 0) {
+        const { error: aInsertErr } = await supabaseAdmin
+          .from('supervisor_assessments')
+          .insert(assessmentRow);
+        if (aInsertErr) throw aInsertErr;
+      }
+    }
+
+    // ── Fire-and-forget grades-summary email to each student (final submit only) ──
     if (submissionStatus === 'submitted') {
       const courseName = normalizeCourseCode(group.course?.code ?? '');
       const studentIds = assessments.map((a) => a.studentId);
       supabaseAdmin
         .from('profiles')
-        .select('id, email')
+        .select('id, email, name')
         .in('id', studentIds)
-        .then(({ data: profiles }) => {
-          const emailMap = Object.fromEntries((profiles || []).map((p) => [p.id, p.email]));
-          assessments.forEach(({ studentId, normalizedScore }) => {
-            const email = emailMap[studentId];
-            if (email) {
-              emailService.sendSupervisorEvaluation(email, {
+        .then(async ({ data: profiles }) => {
+          for (const profile of profiles || []) {
+            if (!profile.email) continue;
+            try {
+              const summary = await buildStudentGradesSummary(profile.id, groupId);
+              if (!summary) continue;
+              await emailService.sendAllGrades(profile.email, {
                 courseName,
-                normalizedScore,
-                maxScore: totalMarks,
-              }).catch(console.error);
+                studentName:   profile.name || 'Student',
+                trigger:       'Supervisor Evaluation Submitted',
+                components:    summary.componentList,
+                totalScore:    summary.totalScore,
+                totalMax:      summary.totalMax,
+              });
+            } catch (e) {
+              console.error('[groups] Failed to send grades summary email to', profile.email, e.message);
             }
-          });
+          }
         })
         .catch((err) => console.error('[groups] Failed to send supervisor evaluation emails:', err.message));
     }
@@ -1042,7 +1099,8 @@ async function submitSupervisorEvaluation(req, res) {
     });
   } catch (error) {
     console.error('Error submitting supervisor evaluation:', error);
-    res.status(500).json({ error: 'Failed to submit evaluation' });
+    const msg = error?.message || (typeof error === 'string' ? error : JSON.stringify(error));
+    res.status(500).json({ error: msg || 'Failed to submit evaluation' });
   }
 }
 
@@ -1365,7 +1423,7 @@ async function getGroupsWithCoordinatorGrades(req, res) {
 async function submitCoordinatorEvaluation(req, res) {
   try {
     const { id: groupId } = req.params;
-    const { courseType, evaluations, submissionStatus } = req.body;
+    const { courseType, evaluations, submissionStatus, comment: coordComment = null } = req.body;
     const coordinatorId = req.user.id;
 
     if (!courseType || !['498', '499'].includes(courseType)) {
@@ -1466,17 +1524,20 @@ async function submitCoordinatorEvaluation(req, res) {
     if (upserEvalsError) throw upserEvalsError;
 
     // 6. Upsert coordinator_assessments (use dynamic component_key)
+    const assessRow = {
+      group_id:         groupId,
+      course_type:      courseType,
+      coordinator_id:   coordinatorId,
+      component_key:    componentKey,
+      normalized_score: normalizedScore,
+      max_score:        componentWeight,
+      submission_status: submissionStatus,
+    };
+    if (coordComment !== null) assessRow.comment = coordComment;
+
     const { error: upserAssessError } = await supabaseAdmin
       .from('coordinator_assessments')
-      .upsert({
-        group_id: groupId,
-        course_type: courseType,
-        coordinator_id: coordinatorId,
-        component_key: componentKey,
-        normalized_score: normalizedScore,
-        max_score: componentWeight,
-        submission_status: submissionStatus,
-      }, { onConflict: 'group_id,coordinator_id,component_key' });
+      .upsert(assessRow, { onConflict: 'group_id,coordinator_id,component_key' });
 
     if (upserAssessError) throw upserAssessError;
 

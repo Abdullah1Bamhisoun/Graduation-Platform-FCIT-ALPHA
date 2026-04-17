@@ -404,6 +404,8 @@ export interface Announcement {
   title: string;
   content: string;
   author: string;
+  authorId?: string | null;
+  courseName?: string;
   publishedAt: string;
   expiresAt?: string;
   targetRoles: UserRole[];

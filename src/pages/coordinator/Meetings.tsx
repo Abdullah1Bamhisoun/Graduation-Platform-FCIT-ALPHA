@@ -4,7 +4,7 @@ import { useAuth } from '../../lib/AuthContext';
 import { toast } from 'sonner';
 import {
   Video, Plus, Pencil, Trash2, RefreshCw, ExternalLink,
-  Calendar, Clock, Users, X, Link2,
+  Calendar, Clock, Users, X, Link2, MapPin,
 } from 'lucide-react';
 import { DatePicker } from '../../components/ui/DatePicker';
 import { TimePicker } from '../../components/ui/TimePicker';
@@ -14,10 +14,11 @@ import {
   type Meeting, type CreateMeetingPayload, type UpdateMeetingPayload,
 } from '../../services/meetings';
 import { supabase } from '../../lib/supabase';
-
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
 interface Group { id: string; name: string; }
+
+type MeetingType = 'online' | 'on_campus';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -33,17 +34,33 @@ function StatusBadge({ status }: { status: Meeting['status'] }) {
 
 // ─── Meeting Bar ──────────────────────────────────────────────────────────────
 
-function MeetingBar({ label, url, status }: { label: string; url: string; status: Meeting['status'] }) {
-  const isLive = status === 'live';
+function MeetingBar({ label, url, location, status }: {
+  label:     string;
+  url?:      string | null;
+  location?: string | null;
+  status:    Meeting['status'];
+}) {
+  const isLive     = status === 'live';
+  const isFinished = status === 'finished';
+
+  if (!url) {
+    return (
+      <div className="flex items-center gap-2 w-full px-4 py-2.5 rounded-lg border bg-gray-50 border-gray-200 text-gray-600 text-sm font-medium">
+        <MapPin className="w-4 h-4 text-gray-400 shrink-0" />
+        <span>{location || 'On Campus'}</span>
+      </div>
+    );
+  }
+
   return (
     <a
-      href={url}
+      href={isFinished ? undefined : url}
       target="_blank"
       rel="noopener noreferrer"
       className={`flex items-center justify-between w-full px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors
         ${isLive
           ? 'bg-green-50 border-green-300 text-green-800 hover:bg-green-100'
-          : status === 'finished'
+          : isFinished
           ? 'bg-gray-50 border-gray-200 text-gray-500 cursor-default pointer-events-none'
           : 'bg-blue-50 border-blue-200 text-blue-800 hover:bg-blue-100'}`}
     >
@@ -53,7 +70,7 @@ function MeetingBar({ label, url, status }: { label: string; url: string; status
       </span>
       <span className="flex items-center gap-1 text-xs opacity-75">
         <ExternalLink className="w-3 h-3" />
-        {status !== 'finished' ? 'Join Meeting' : 'Finished'}
+        {isFinished ? 'Finished' : 'Join Meeting'}
       </span>
     </a>
   );
@@ -72,11 +89,14 @@ function MeetingDialog({ groups, initial, onSave, onClose }: DialogProps) {
   const isEdit = !!initial;
   const [saving, setSaving] = useState(false);
 
-  // Split date_time into separate date (YYYY-MM-DD) and time (HH:MM) fields
   const initDt = initial?.date_time ? initial.date_time.slice(0, 16) : '';
+  const initType: MeetingType = initial?.meeting_url ? 'online' : 'on_campus';
+
+  const [meetingType, setMeetingType] = useState<MeetingType>(initType);
   const [form, setForm] = useState({
     title:       initial?.title       ?? '',
     meeting_url: initial?.meeting_url ?? '',
+    location:    initial?.location    ?? '',
     date:        initDt.split('T')[0] ?? '',
     time:        initDt.split('T')[1] ?? '09:00',
     group_id:    initial?.groups?.id  ?? (groups[0]?.id ?? ''),
@@ -89,15 +109,16 @@ function MeetingDialog({ groups, initial, onSave, onClose }: DialogProps) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.title.trim() || !form.meeting_url.trim() || !form.date || !form.time || !form.group_id) {
+    if (!form.title.trim() || !form.date || !form.time || !form.group_id) {
       toast.error('Please fill in all required fields');
       return;
     }
     setSaving(true);
     try {
-      const payload = {
+      const payload: CreateMeetingPayload = {
         title:       form.title.trim(),
-        meeting_url: form.meeting_url.trim(),
+        meeting_url: meetingType === 'online' ? (form.meeting_url.trim() || null) : null,
+        location:    meetingType === 'on_campus' ? (form.location.trim() || null) : null,
         date_time:   new Date(`${form.date}T${form.time}`).toISOString(),
         group_id:    form.group_id,
         notes:       form.notes.trim() || undefined,
@@ -143,7 +164,7 @@ function MeetingDialog({ groups, initial, onSave, onClose }: DialogProps) {
               <label className="block text-sm font-medium text-gray-700 mb-1">Group *</label>
               {groups.length === 0 ? (
                 <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                  No groups available. Ensure your coordinator course assignment is set up correctly.
+                  No groups available for your course.
                 </p>
               ) : (
                 <select
@@ -160,26 +181,77 @@ function MeetingDialog({ groups, initial, onSave, onClose }: DialogProps) {
             </div>
           )}
 
-          {/* Meeting URL */}
+          {/* Meeting Type */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Meeting Link *</label>
-            <div className="relative">
-              <Link2 className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
-              <input
-                type="url"
-                value={form.meeting_url}
-                onChange={(e) => set('meeting_url', e.target.value)}
-                placeholder="https://meet.google.com/..."
-                className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-600)]"
-                required
-              />
+            <label className="block text-sm font-medium text-gray-700 mb-2">Meeting Type</label>
+            <div className="flex rounded-lg border border-gray-300 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setMeetingType('online')}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium transition-colors
+                  ${meetingType === 'online'
+                    ? 'bg-[var(--color-primary-600)] text-white'
+                    : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              >
+                <Video className="w-4 h-4" />
+                Online
+              </button>
+              <button
+                type="button"
+                onClick={() => setMeetingType('on_campus')}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium transition-colors border-l border-gray-300
+                  ${meetingType === 'on_campus'
+                    ? 'bg-[var(--color-primary-600)] text-white'
+                    : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              >
+                <MapPin className="w-4 h-4" />
+                On Campus
+              </button>
             </div>
-            {form.meeting_url && (
-              <p className="mt-1 text-xs text-gray-500">
-                Platform: {detectMeetingProvider(form.meeting_url)}
-              </p>
-            )}
           </div>
+
+          {/* Online URL (optional) */}
+          {meetingType === 'online' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Meeting Link <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <div className="relative">
+                <Link2 className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                <input
+                  type="url"
+                  value={form.meeting_url}
+                  onChange={(e) => set('meeting_url', e.target.value)}
+                  placeholder="https://meet.google.com/..."
+                  className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-600)]"
+                />
+              </div>
+              {form.meeting_url && (
+                <p className="mt-1 text-xs text-gray-500">
+                  Platform: {detectMeetingProvider(form.meeting_url)}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* On Campus Location (optional) */}
+          {meetingType === 'on_campus' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Location <span className="text-gray-400 font-normal">(optional — e.g. Room 204, Office B)</span>
+              </label>
+              <div className="relative">
+                <MapPin className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  value={form.location}
+                  onChange={(e) => set('location', e.target.value)}
+                  placeholder="e.g. Room 204 or Dr. Al-Farsi's Office"
+                  className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-600)]"
+                />
+              </div>
+            </div>
+          )}
 
           {/* Date & Time */}
           <div>
@@ -280,14 +352,16 @@ function MeetingCard({ meeting, onEdit, onDelete, onResend }: CardProps) {
       {/* Meeting Bars */}
       <div className="space-y-2">
         <MeetingBar
-          label="Student Meeting Bar"
+          label="Student Meeting"
           url={meeting.meeting_url}
+          location={meeting.location}
           status={meeting.status}
         />
         {meeting.creator_role !== 'supervisor' && (
           <MeetingBar
-            label="Supervisor Meeting Bar"
+            label="Supervisor Meeting"
             url={meeting.meeting_url}
+            location={meeting.location}
             status={meeting.status}
           />
         )}
@@ -350,10 +424,17 @@ export function CoordinatorMeetings() {
   useEffect(() => {
     async function fetchGroups() {
       try {
-        const { data, error } = await supabase
+        let query = supabase
           .from('groups')
           .select('id, project_name, group_code, group_number')
           .order('group_number', { ascending: true });
+
+        // Scope to coordinator's assigned course only
+        if (user?.coordinatorCourseId) {
+          query = query.eq('course_id', user.coordinatorCourseId);
+        }
+
+        const { data, error } = await query;
         if (error) throw new Error(error.message);
         setGroups((data || []).map((g: any) => ({
           id:   g.id,
@@ -365,7 +446,7 @@ export function CoordinatorMeetings() {
     }
     fetchGroups();
     load();
-  }, [load, activeRole]);
+  }, [load, activeRole, user?.coordinatorCourseId]);
 
   async function handleSave(
     payload: CreateMeetingPayload | UpdateMeetingPayload,
@@ -376,7 +457,7 @@ export function CoordinatorMeetings() {
       toast.success('Meeting updated');
     } else {
       await createMeeting(payload as CreateMeetingPayload, activeRole);
-      toast.success('Meeting scheduled — invitations sent');
+      toast.success('Meeting scheduled');
     }
     await load();
   }
@@ -412,19 +493,18 @@ export function CoordinatorMeetings() {
               Meetings
             </h1>
             <p className="text-sm text-gray-500 mt-0.5">
-              Schedule and manage meetings for your groups
+              Schedule and manage meetings for your course groups
             </p>
           </div>
           <button
             onClick={() => { setEditTarget(null); setShowDialog(true); }}
-            className="flex items-center gap-2 px-4 py-2.5 bg-[var(--color-primary-600)] text-white rounded-lg text-sm font-medium hover:bg-[var(--color-primary-700)] transition-colors shadow-sm"
+            className="flex items-center gap-2 px-4 py-2.5 bg-(--color-primary-600) text-white rounded-lg text-sm font-medium hover:bg-(--color-primary-700) transition-colors shadow-sm"
           >
             <Plus className="w-4 h-4" />
             New Meeting
           </button>
         </div>
 
-        {/* Content */}
         {loading ? (
           <div className="flex items-center justify-center h-48 text-gray-500 text-sm">
             Loading meetings…

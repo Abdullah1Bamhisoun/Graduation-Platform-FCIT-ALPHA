@@ -18,12 +18,19 @@ interface FileItem {
   type: 'pdf' | 'zip' | 'doc';
   fileUrl: string | null;
   uploadedAt: string;
+  courseCode?: string | null;
 }
+
+const COURSE_TABS = ['All', 'CPIS-498', 'CPIS-499'] as const;
+type CourseTab = typeof COURSE_TABS[number];
 
 export function ImportantFiles() {
   const { user } = useAuth();
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<CourseTab>('All');
+
+  const isSupervisor = user?.activeRole === 'supervisor';
 
   // Popup viewer state
   const [viewerFile, setViewerFile] = useState<FileItem | null>(null);
@@ -103,6 +110,10 @@ export function ImportantFiles() {
     }
   };
 
+  const visibleFiles = isSupervisor && activeTab !== 'All'
+    ? files.filter((f) => f.courseCode === activeTab)
+    : files;
+
   if (!user) return null;
 
   return (
@@ -113,14 +124,33 @@ export function ImportantFiles() {
         </p>
       </div>
 
+      {/* Course tabs — supervisors only */}
+      {isSupervisor && (
+        <div className="flex gap-1 mb-6 border-b border-[var(--color-border)]">
+          {COURSE_TABS.map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === tab
+                  ? 'border-[var(--color-primary-600)] text-[var(--color-primary-700)]'
+                  : 'border-transparent text-[var(--color-text-600)] hover:text-[var(--color-text-900)]'
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* File list */}
       <div className="grid gap-4">
         {loading ? (
           <Card className="p-12">
             <div className="text-center text-[var(--color-text-600)]">Loading files...</div>
           </Card>
-        ) : files.length > 0 ? (
-          files.map((file) => (
+        ) : visibleFiles.length > 0 ? (
+          visibleFiles.map((file) => (
             <Card key={file.id} className="p-4 sm:p-6">
               {/* ── DESKTOP (sm+): old layout — info left, buttons right ── */}
               <div className="hidden sm:flex items-start gap-4">

@@ -5,7 +5,11 @@ import { useAuth } from '../../lib/AuthContext';
 import { getAuditLog } from '../../services/audit';
 import { getAllCourses, getCourseById, getCourseTypeFromUUID } from '../../services/courses';
 import { getCoordinatorGroupsWithGrades } from '../../services/groups';
-import { getGradingComponents } from '../../services/grading-rubric';
+import {
+  getGradingComponents,
+  getAllRubricCriteria,
+  getStudentOutcomes,
+} from '../../services/grading-rubric';
 import { supabase } from '../../lib/supabase';
 import type { CoordinatorGroupWithGrades } from '../../services/groups';
 import { Button } from '../../components/ui/button';
@@ -157,111 +161,305 @@ export function AdminExportsAudit() {
           courseTypesToFetch = ['498', '499'];
         }
 
-        // Fetch grading components and group data in parallel for each courseType.
-        // Components are fetched INDEPENDENTLY from the grading scheme so column
-        // headers are always built from the live scheme, even if no groups exist.
         const allGroups: CoordinatorGroupWithGrades[] = [];
         const componentMetaMap = new Map<string, { name: string; maxScore: number; key: string }>();
 
+        // Fetch components, groups, rubric criteria, and SOs for each courseType
+        type CriteriaAndSOs = {
+          criteria: Awaited<ReturnType<typeof getAllRubricCriteria>>;
+          outcomes498: Awaited<ReturnType<typeof getStudentOutcomes>>;
+          outcomes499: Awaited<ReturnType<typeof getStudentOutcomes>>;
+        };
+        const criteriaAndSOsByCT = new Map<'498' | '499', CriteriaAndSOs>();
+
         await Promise.all(courseTypesToFetch.map(async (ct) => {
-          const [components, groups] = await Promise.all([
+          const [components, groups, criteria, so498, so499] = await Promise.all([
             getGradingComponents(ct),
             getCoordinatorGroupsWithGrades(ct, user.activeRole),
+            getAllRubricCriteria(ct),
+            getStudentOutcomes('498'),
+            getStudentOutcomes('499'),
           ]);
-
-          // Register components from the scheme (preserves display_order)
           for (const c of components) {
             if (!componentMetaMap.has(c.componentKey)) {
-              componentMetaMap.set(c.componentKey, {
-                key:      c.componentKey,
-                name:     c.componentName,
-                maxScore: c.totalMarks,
-              });
+              componentMetaMap.set(c.componentKey, { key: c.componentKey, name: c.componentName, maxScore: c.totalMarks });
             }
           }
-
           allGroups.push(...groups);
+          criteriaAndSOsByCT.set(ct, { criteria, outcomes498: so498, outcomes499: so499 });
         }));
 
         const componentMeta = Array.from(componentMetaMap.values());
-
-        // Total max = sum of all component max scores
         const totalMax = componentMeta.reduce((s, c) => s + c.maxScore, 0);
-
-        // Headers: ComponentName/MaxScore format, Total Score/TotalMax at end
-        const headers: string[] = [
-          'Course', 'Group Code', 'Project Name', 'Supervisor',
-          'Student Name', 'Student ID',
-          ...componentMeta.map(c => `${c.name}/${c.maxScore}`),
-          `Total Score/${totalMax}`,
-        ];
-
-        // Fetch peer_evaluations per student so each student gets their own
-        // peer score (average of scores they received), not the group average.
-        const peerComp = componentMeta.find(c => c.key === 'peer_review');
-        const peerScoreByStudent = new Map<string, number>(); // profile UUID → normalized score
-
         const allGroupIds = allGroups.map(g => g.id);
+
+        // Per-student peer scores
+        const peerComp = componentMeta.find(c => c.key === 'peer_review');
+        const peerScoreByStudent = new Map<string, number>();
         if (peerComp && allGroupIds.length > 0) {
           const { data: peerRows } = await supabase
             .from('peer_evaluations')
             .select('student_id, score')
             .in('group_id', allGroupIds);
-
-          // Group the raw scores each student received, then average + normalize
           const rawByStudent = new Map<string, number[]>();
           for (const pe of peerRows ?? []) {
             if (!rawByStudent.has(pe.student_id)) rawByStudent.set(pe.student_id, []);
             rawByStudent.get(pe.student_id)!.push(Number(pe.score));
           }
           for (const [sid, scores] of rawByStudent) {
-            const avg = scores.reduce((s, v) => s + v, 0) / scores.length;
-            peerScoreByStudent.set(sid, avg);
+            peerScoreByStudent.set(sid, scores.reduce((s, v) => s + v, 0) / scores.length);
           }
         }
 
-        // Build data rows — scores as plain numbers, 0 for missing.
-        // Peer evaluation uses per-student score; all other components use the
-        // group-level score returned by the API.
-        // Total is computed by summing the per-row scores — no Excel formulas.
-        const dataRows: (string | number)[][] = [];
+        // Bulk-fetch all coordinator_evaluations for all groups
+        const coordEvalByGroup = new Map<string, Map<string, number>>(); // groupId → criterionKey → rawScore
+        if (allGroupIds.length > 0) {
+          const { data: evalRows } = await supabase
+            .from('coordinator_evaluations')
+            .select('group_id, criterion_key, raw_score')
+            .in('group_id', allGroupIds);
+          for (const row of evalRows ?? []) {
+            if (!coordEvalByGroup.has(row.group_id)) coordEvalByGroup.set(row.group_id, new Map());
+            coordEvalByGroup.get(row.group_id)!.set(row.criterion_key, Number(row.raw_score));
+          }
+        }
+
+        // ── Sheet 1: Grades Summary (per student) ─────────────────────────
+        const summaryHeaders: string[] = [
+          'Course', 'Group Code', 'Project Name', 'Supervisor',
+          'Student Name', 'Student ID',
+          ...componentMeta.map(c => `${c.name} (/${c.maxScore})`),
+          `Total Score (/${totalMax})`,
+        ];
+        const summaryRows: (string | number)[][] = [];
         for (const g of allGroups) {
-          // Index gradeComponents by componentKey
           const scoreByKey = new Map(g.gradeComponents.map(c => [c.componentKey, c.score]));
           for (const student of g.students) {
             const scores = componentMeta.map(({ key }) => {
-              if (key === 'peer_review') {
-                // Use individual peer score received by this student
-                return peerScoreByStudent.get(student.id) ?? 0;
-              }
+              if (key === 'peer_review') return peerScoreByStudent.get(student.id) ?? 0;
               const raw = scoreByKey.get(key);
               return raw != null ? Number(raw) : 0;
             });
-            const total = scores.reduce((s, v) => s + v, 0);
-            dataRows.push([
-              g.courseCode,
-              g.groupCode ?? '',
-              g.name,
-              g.supervisorName ?? '',
-              student.name,
-              student.studentId ?? '',
+            summaryRows.push([
+              g.courseCode, g.groupCode ?? '', g.name, g.supervisorName ?? '',
+              student.name, student.studentId ?? '',
               ...scores,
-              total,
+              scores.reduce((s, v) => s + v, 0),
             ]);
+          }
+        }
+
+        // ── Sheet 2: Grade Details — merged SO headers, criteria sub-headers, per student ──
+        // Row 0: Course | Group Code | ... | Student ID | SO1 (merged) | SO2 (merged) | ... | Total Score
+        // Row 1: (blank fixed cols)           | Crit1 | Crit2 | ...    | Crit A | ... | (blank)
+        // Data:  per student
+
+        // Build SO groups for this sheet using all criteria across all course types
+        const allCriteria = courseTypesToFetch.flatMap(ct => criteriaAndSOsByCT.get(ct)?.criteria ?? []);
+        const allOutcomes = courseTypesToFetch.flatMap(ct => {
+          const d = criteriaAndSOsByCT.get(ct)!;
+          return ct === '498' ? d.outcomes498 : d.outcomes499;
+        });
+        // Deduplicate outcomes by id
+        const seenSOIds = new Set<string>();
+        const uniqueOutcomes = allOutcomes.filter(so => { if (seenSOIds.has(so.id)) return false; seenSOIds.add(so.id); return true; });
+
+        const soGroups = uniqueOutcomes
+          .map(so => ({ so, criteria: allCriteria.filter(c => c.studentOutcomes.some(s => s.id === so.id)) }))
+          .filter(g => g.criteria.length > 0);
+        const unlinkedCriteria = allCriteria.filter(c => c.studentOutcomes.length === 0);
+
+        const fixedCols = ['Course', 'Group Code', 'Project Name', 'Supervisor', 'Student Name', 'Student ID'];
+        const numFixed = fixedCols.length;
+
+        // Build row0 (SO merged header row) and row1 (criterion name row)
+        const detailRow0: (string | number)[] = [...fixedCols];
+        const detailRow1: (string | number)[] = Array(numFixed).fill('');
+        const detailMerges: { s: { r: number; c: number }; e: { r: number; c: number } }[] = [];
+
+        // Merge fixed column headers vertically across rows 0 and 1
+        for (let i = 0; i < numFixed; i++) {
+          detailMerges.push({ s: { r: 0, c: i }, e: { r: 1, c: i } });
+        }
+
+        let colCursor = numFixed;
+
+        for (const group of soGroups) {
+          detailRow0.push(`${group.so.code} — ${group.so.title}`);
+          for (let i = 1; i < group.criteria.length; i++) detailRow0.push('');
+          // Merge SO header horizontally across its criteria columns
+          detailMerges.push({ s: { r: 0, c: colCursor }, e: { r: 0, c: colCursor + group.criteria.length - 1 } });
+          for (const c of group.criteria) {
+            detailRow1.push(`${c.criterionName} (max ${c.maxRawScore})`);
+          }
+          colCursor += group.criteria.length;
+        }
+
+        if (unlinkedCriteria.length > 0) {
+          detailRow0.push('Other Criteria');
+          for (let i = 1; i < unlinkedCriteria.length; i++) detailRow0.push('');
+          detailMerges.push({ s: { r: 0, c: colCursor }, e: { r: 0, c: colCursor + unlinkedCriteria.length - 1 } });
+          for (const c of unlinkedCriteria) {
+            detailRow1.push(`${c.criterionName} (max ${c.maxRawScore})`);
+          }
+          colCursor += unlinkedCriteria.length;
+        }
+
+        // Total Score column — merge vertically
+        detailRow0.push('Total Score');
+        detailRow1.push('');
+        detailMerges.push({ s: { r: 0, c: colCursor }, e: { r: 1, c: colCursor } });
+
+        // Data rows — one per student
+        const detailDataRows: (string | number)[][] = [];
+        for (const g of allGroups) {
+          const evalMap = coordEvalByGroup.get(g.id) ?? new Map<string, number>();
+          for (const student of g.students) {
+            const row: (string | number)[] = [
+              g.courseCode, g.groupCode ?? '', g.name, g.supervisorName ?? '',
+              student.name, student.studentId ?? '',
+            ];
+            for (const group of soGroups) {
+              for (const c of group.criteria) {
+                row.push(evalMap.has(c.criterionKey) ? evalMap.get(c.criterionKey)! : '');
+              }
+            }
+            for (const c of unlinkedCriteria) {
+              row.push(evalMap.has(c.criterionKey) ? evalMap.get(c.criterionKey)! : '');
+            }
+            row.push(g.coordinatorEvaluation?.normalizedScore != null
+              ? Number(g.coordinatorEvaluation.normalizedScore.toFixed(1))
+              : '');
+            detailDataRows.push(row);
+          }
+        }
+
+        // ── Sheet 3: Student Outcomes & SO Scores ────────────────────────
+        // Section A: SO definitions
+        // Section B: Criteria × SO mapping matrix
+        // Section C: Per-group score per SO (sum of raw scores for criteria tagged with that SO)
+        const soSheetRows: (string | number)[][] = [];
+
+        for (const ct of courseTypesToFetch) {
+          const { criteria, outcomes498, outcomes499 } = criteriaAndSOsByCT.get(ct)!;
+          const outcomes = ct === '498' ? outcomes498 : outcomes499;
+          const ctGroups = allGroups.filter(g => g.courseType === ct);
+          if (outcomes.length === 0 && criteria.length === 0) continue;
+
+          // ── A: SO Definitions ──
+          soSheetRows.push([`CPIS-${ct} — Student Outcome Definitions`]);
+          soSheetRows.push(['Code', 'Title', 'Description']);
+          for (const so of outcomes) {
+            soSheetRows.push([so.code, so.title, so.description ?? '']);
+          }
+          soSheetRows.push([]);
+
+          // ── B: Criteria × SO Mapping ──
+          if (outcomes.length > 0 && criteria.length > 0) {
+            soSheetRows.push([`CPIS-${ct} — Criteria × SO Mapping`]);
+            soSheetRows.push([
+              'Criterion', 'Component', 'Max Score',
+              ...outcomes.map(s => s.code),
+            ]);
+            for (const c of criteria) {
+              soSheetRows.push([
+                c.criterionName,
+                c.componentKey.replace(/_/g, ' '),
+                c.maxRawScore,
+                ...outcomes.map(so => c.studentOutcomes.some(s => s.id === so.id) ? '✓' : ''),
+              ]);
+            }
+            soSheetRows.push([]);
+          }
+
+          // ── C: SO score pivot — SOs as row groups, groups as columns ──
+          if (outcomes.length > 0 && ctGroups.length > 0) {
+            soSheetRows.push([`CPIS-${ct} — Group Scores by Student Outcome`]);
+
+            // Column header row: blank label col + one col per group
+            soSheetRows.push([
+              '',
+              ...ctGroups.map(g => g.groupCode ?? g.name),
+            ]);
+
+            for (const so of outcomes) {
+              const linkedCriteria = criteria.filter(c =>
+                c.studentOutcomes.some(s => s.id === so.id)
+              );
+
+              // SO header row
+              soSheetRows.push([`${so.code} — ${so.title}`]);
+
+              // One sub-row per criterion linked to this SO
+              for (const c of linkedCriteria) {
+                soSheetRows.push([
+                  `  ${c.criterionName} (max ${c.maxRawScore})`,
+                  ...ctGroups.map(g => {
+                    const evalMap = coordEvalByGroup.get(g.id) ?? new Map<string, number>();
+                    return evalMap.has(c.criterionKey) ? evalMap.get(c.criterionKey)! : '';
+                  }),
+                ]);
+              }
+
+              // SO total row
+              const soMax = linkedCriteria.reduce((s, c) => s + c.maxRawScore, 0);
+              soSheetRows.push([
+                `  ${so.code} Total (max ${soMax})`,
+                ...ctGroups.map(g => {
+                  const evalMap = coordEvalByGroup.get(g.id) ?? new Map<string, number>();
+                  return linkedCriteria.reduce((sum, c) => sum + (evalMap.get(c.criterionKey) ?? 0), 0);
+                }),
+              ]);
+
+              soSheetRows.push([]); // blank row between SOs
+            }
+
+            // Grand total normalized score row
+            const normMax = ctGroups[0]?.coordinatorEvaluation?.maxScore ?? '';
+            soSheetRows.push([
+              `Total Normalized Score (max ${normMax})`,
+              ...ctGroups.map(g =>
+                g.coordinatorEvaluation?.normalizedScore != null
+                  ? Number(g.coordinatorEvaluation.normalizedScore.toFixed(1))
+                  : ''
+              ),
+            ]);
+
+            soSheetRows.push([]);
           }
         }
 
         if (selectedFormat === 'Excel (.xlsx)') {
           const wb = XLSX.utils.book_new();
-          const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
 
-          autoFitSheet(ws, [headers, ...dataRows]);
-          XLSX.utils.book_append_sheet(wb, ws, 'Grades');
+          // Sheet 1: Grades Summary
+          const wsSummary = XLSX.utils.aoa_to_sheet([summaryHeaders, ...summaryRows]);
+          autoFitSheet(wsSummary, [summaryHeaders, ...summaryRows]);
+          XLSX.utils.book_append_sheet(wb, wsSummary, 'Grades Summary');
+
+          // Sheet 2: Grade Details (always included)
+          const wsDetail = XLSX.utils.aoa_to_sheet(
+            detailDataRows.length > 0
+              ? [detailRow0, detailRow1, ...detailDataRows]
+              : [detailRow0, detailRow1, ['No evaluation data yet']]
+          );
+          wsDetail['!merges'] = detailMerges;
+          autoFitSheet(wsDetail, [detailRow0, detailRow1]);
+          XLSX.utils.book_append_sheet(wb, wsDetail, 'Grade Details');
+
+          // Sheet 3: Student Outcomes (always included)
+          const soData = soSheetRows.length > 0
+            ? soSheetRows
+            : [['No student outcomes defined yet — add them in the Grade Scheme Editor.']];
+          const wsSO = XLSX.utils.aoa_to_sheet(soData);
+          autoFitSheet(wsSO, soData);
+          XLSX.utils.book_append_sheet(wb, wsSO, 'Student Outcomes');
+
           downloadXlsx(wb, `grades-report-${courseSlug}-${dateStr}.xlsx`);
         } else {
-          // CSV fallback
+          // CSV fallback — only Grades Summary
           triggerDownload(
-            toCsv([headers.map(String), ...dataRows.map(r => r.map(String))]),
+            toCsv([summaryHeaders.map(String), ...summaryRows.map(r => r.map(String))]),
             `grades-report-${courseSlug}-${dateStr}.csv`
           );
         }

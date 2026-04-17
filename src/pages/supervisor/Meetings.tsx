@@ -4,7 +4,7 @@ import { useAuth } from '../../lib/AuthContext';
 import { toast } from 'sonner';
 import {
   Video, Plus, Pencil, Trash2, RefreshCw, ExternalLink,
-  Calendar, Clock, Users, X, Link2, Tag,
+  Calendar, Clock, Users, X, Link2, Tag, MapPin, MessageSquare,
 } from 'lucide-react';
 import { DatePicker } from '../../components/ui/DatePicker';
 import { TimePicker } from '../../components/ui/TimePicker';
@@ -14,10 +14,13 @@ import {
   type Meeting, type CreateMeetingPayload, type UpdateMeetingPayload,
 } from '../../services/meetings';
 import { supabase } from '../../lib/supabase';
+import { DiscussionTab } from '../../components/meetings/DiscussionTab';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
 interface Group { id: string; name: string; }
+
+type MeetingType = 'online' | 'on_campus';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -43,9 +46,24 @@ function CreatorBadge({ role }: { role: 'coordinator' | 'supervisor' }) {
 
 // ─── Meeting Bar ──────────────────────────────────────────────────────────────
 
-function MeetingBar({ label, url, status }: { label: string; url: string; status: Meeting['status'] }) {
+function MeetingBar({ label, url, location, status }: {
+  label:     string;
+  url?:      string | null;
+  location?: string | null;
+  status:    Meeting['status'];
+}) {
   const isLive     = status === 'live';
   const isFinished = status === 'finished';
+
+  if (!url) {
+    return (
+      <div className="flex items-center gap-2 w-full px-4 py-2.5 rounded-lg border bg-gray-50 border-gray-200 text-gray-600 text-sm font-medium">
+        <MapPin className="w-4 h-4 text-gray-400 shrink-0" />
+        <span>{location || 'On Campus'}</span>
+      </div>
+    );
+  }
+
   return (
     <a
       href={isFinished ? undefined : url}
@@ -84,9 +102,13 @@ function MeetingDialog({ groups, initial, onSave, onClose }: DialogProps) {
   const [saving, setSaving] = useState(false);
 
   const initDt = initial?.date_time ? initial.date_time.slice(0, 16) : '';
+  const initType: MeetingType = initial?.meeting_url ? 'online' : 'on_campus';
+
+  const [meetingType, setMeetingType] = useState<MeetingType>(initType);
   const [form, setForm] = useState({
     title:       initial?.title       ?? '',
     meeting_url: initial?.meeting_url ?? '',
+    location:    initial?.location    ?? '',
     date:        initDt.split('T')[0] ?? '',
     time:        initDt.split('T')[1] ?? '09:00',
     group_id:    initial?.groups?.id  ?? (groups[0]?.id ?? ''),
@@ -99,15 +121,16 @@ function MeetingDialog({ groups, initial, onSave, onClose }: DialogProps) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.title.trim() || !form.meeting_url.trim() || !form.date || !form.time || !form.group_id) {
+    if (!form.title.trim() || !form.date || !form.time || !form.group_id) {
       toast.error('Please fill in all required fields');
       return;
     }
     setSaving(true);
     try {
-      const payload = {
+      const payload: CreateMeetingPayload = {
         title:       form.title.trim(),
-        meeting_url: form.meeting_url.trim(),
+        meeting_url: meetingType === 'online' ? (form.meeting_url.trim() || null) : null,
+        location:    meetingType === 'on_campus' ? (form.location.trim() || null) : null,
         date_time:   new Date(`${form.date}T${form.time}`).toISOString(),
         group_id:    form.group_id,
         notes:       form.notes.trim() || undefined,
@@ -154,37 +177,89 @@ function MeetingDialog({ groups, initial, onSave, onClose }: DialogProps) {
                   No groups assigned to you yet. Contact your coordinator.
                 </p>
               ) : (
-              <select
-                value={form.group_id}
-                onChange={(e) => set('group_id', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-600)] bg-white"
-                required
-              >
-                {groups.map((g) => (
-                  <option key={g.id} value={g.id}>{g.name}</option>
-                ))}
-              </select>
+                <select
+                  value={form.group_id}
+                  onChange={(e) => set('group_id', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-600)] bg-white"
+                  required
+                >
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>{g.name}</option>
+                  ))}
+                </select>
               )}
             </div>
           )}
 
+          {/* Meeting Type */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Meeting Link *</label>
-            <div className="relative">
-              <Link2 className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
-              <input
-                type="url"
-                value={form.meeting_url}
-                onChange={(e) => set('meeting_url', e.target.value)}
-                placeholder="https://zoom.us/j/..."
-                className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-600)]"
-                required
-              />
+            <label className="block text-sm font-medium text-gray-700 mb-2">Meeting Type</label>
+            <div className="flex rounded-lg border border-gray-300 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setMeetingType('online')}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium transition-colors
+                  ${meetingType === 'online'
+                    ? 'bg-[var(--color-primary-600)] text-white'
+                    : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              >
+                <Video className="w-4 h-4" />
+                Online
+              </button>
+              <button
+                type="button"
+                onClick={() => setMeetingType('on_campus')}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium transition-colors border-l border-gray-300
+                  ${meetingType === 'on_campus'
+                    ? 'bg-[var(--color-primary-600)] text-white'
+                    : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              >
+                <MapPin className="w-4 h-4" />
+                On Campus
+              </button>
             </div>
-            {form.meeting_url && (
-              <p className="mt-1 text-xs text-gray-500">Platform: {detectMeetingProvider(form.meeting_url)}</p>
-            )}
           </div>
+
+          {/* Online URL (optional) */}
+          {meetingType === 'online' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Meeting Link <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <div className="relative">
+                <Link2 className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                <input
+                  type="url"
+                  value={form.meeting_url}
+                  onChange={(e) => set('meeting_url', e.target.value)}
+                  placeholder="https://zoom.us/j/..."
+                  className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-600)]"
+                />
+              </div>
+              {form.meeting_url && (
+                <p className="mt-1 text-xs text-gray-500">Platform: {detectMeetingProvider(form.meeting_url)}</p>
+              )}
+            </div>
+          )}
+
+          {/* On Campus Location (optional) */}
+          {meetingType === 'on_campus' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Location <span className="text-gray-400 font-normal">(optional — e.g. Room 204, Office B)</span>
+              </label>
+              <div className="relative">
+                <MapPin className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  value={form.location}
+                  onChange={(e) => set('location', e.target.value)}
+                  placeholder="e.g. Room 204 or Dr. Al-Farsi's Office"
+                  className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-600)]"
+                />
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Date & Time *</label>
@@ -280,11 +355,21 @@ function MeetingCard({ meeting, userId, onEdit, onDelete, onResend }: CardProps)
         </p>
       )}
 
-      {/* Dual Meeting Bars */}
+      {/* Meeting Bars */}
       <div className="space-y-2">
-        <MeetingBar label="Student Meeting Bar" url={meeting.meeting_url} status={meeting.status} />
+        <MeetingBar
+          label="Student Meeting"
+          url={meeting.meeting_url}
+          location={meeting.location}
+          status={meeting.status}
+        />
         {meeting.creator_role !== 'supervisor' && (
-          <MeetingBar label="Supervisor Meeting Bar" url={meeting.meeting_url} status={meeting.status} />
+          <MeetingBar
+            label="Supervisor Meeting"
+            url={meeting.meeting_url}
+            location={meeting.location}
+            status={meeting.status}
+          />
         )}
       </div>
 
@@ -347,6 +432,8 @@ function GroupSection({ groupName, meetings, userId, onEdit, onDelete, onResend 
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+type Tab = 'meetings' | 'discussion';
+
 export function SupervisorMeetings() {
   const { user } = useAuth();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
@@ -354,6 +441,7 @@ export function SupervisorMeetings() {
   const [loading,  setLoading]  = useState(true);
   const [showDialog, setShowDialog] = useState(false);
   const [editTarget, setEditTarget] = useState<Meeting | null>(null);
+  const [activeTab,  setActiveTab]  = useState<Tab>('meetings');
 
   const activeRole = user?.activeRole ?? 'supervisor';
 
@@ -392,7 +480,6 @@ export function SupervisorMeetings() {
     load();
   }, [load, activeRole, user?.id]);
 
-  // Group meetings by group name
   const byGroup = meetings.reduce<Record<string, Meeting[]>>((acc, m) => {
     const gName = m.groups?.name ?? 'Unknown Group';
     if (!acc[gName]) acc[gName] = [];
@@ -406,7 +493,7 @@ export function SupervisorMeetings() {
       toast.success('Meeting updated');
     } else {
       await createMeeting(payload as CreateMeetingPayload, activeRole);
-      toast.success('Meeting scheduled — students notified by email');
+      toast.success('Meeting scheduled');
     }
     await load();
   }
@@ -432,48 +519,87 @@ export function SupervisorMeetings() {
   }
 
   return (
-    <Layout user={user!} pageTitle="Meetings">
+    <Layout user={user!} pageTitle="Meetings & Discussions">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
               <Video className="w-6 h-6 text-[var(--color-primary-600)]" />
-              Meetings
+              Meetings & Discussions
             </h1>
             <p className="text-sm text-gray-500 mt-0.5">
-              View coordinator meetings and manage your own meetings for your groups
+              Manage meetings and communicate with your groups
             </p>
           </div>
+          {activeTab === 'meetings' && (
+            <button
+              onClick={() => { setEditTarget(null); setShowDialog(true); }}
+              className="flex items-center gap-2 px-4 py-2.5 bg-[var(--color-primary-600)] text-white rounded-lg text-sm font-medium hover:bg-[var(--color-primary-700)] transition-colors shadow-sm"
+            >
+              <Plus className="w-4 h-4" />
+              New Meeting
+            </button>
+          )}
+        </div>
+
+        {/* Tabs */}
+        <div className="flex border-b border-gray-200 mb-6">
           <button
-            onClick={() => { setEditTarget(null); setShowDialog(true); }}
-            className="flex items-center gap-2 px-4 py-2.5 bg-[var(--color-primary-600)] text-white rounded-lg text-sm font-medium hover:bg-[var(--color-primary-700)] transition-colors shadow-sm"
+            onClick={() => setActiveTab('meetings')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px
+              ${activeTab === 'meetings'
+                ? 'border-[var(--color-primary-600)] text-[var(--color-primary-700)]'
+                : 'border-transparent text-gray-500 hover:text-gray-700'}`}
           >
-            <Plus className="w-4 h-4" />
-            New Meeting
+            <Video className="w-4 h-4" />
+            Meetings
+          </button>
+          <button
+            onClick={() => setActiveTab('discussion')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px
+              ${activeTab === 'discussion'
+                ? 'border-[var(--color-primary-600)] text-[var(--color-primary-700)]'
+                : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            <MessageSquare className="w-4 h-4" />
+            Discussion
           </button>
         </div>
 
-        {loading ? (
-          <div className="flex items-center justify-center h-48 text-gray-500 text-sm">
-            Loading meetings…
-          </div>
-        ) : meetings.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-48 gap-3 text-gray-400">
-            <Video className="w-10 h-10 opacity-30" />
-            <p className="text-sm">No meetings yet for your groups.</p>
-          </div>
-        ) : (
-          Object.entries(byGroup).map(([groupName, groupMeetings]) => (
-            <GroupSection
-              key={groupName}
-              groupName={groupName}
-              meetings={groupMeetings}
-              userId={user?.id ?? ''}
-              onEdit={(m) => { setEditTarget(m); setShowDialog(true); }}
-              onDelete={handleDelete}
-              onResend={handleResend}
-            />
-          ))
+        {/* Meetings Tab */}
+        {activeTab === 'meetings' && (
+          loading ? (
+            <div className="flex items-center justify-center h-48 text-gray-500 text-sm">
+              Loading meetings…
+            </div>
+          ) : meetings.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 gap-3 text-gray-400">
+              <Video className="w-10 h-10 opacity-30" />
+              <p className="text-sm">No meetings yet for your groups.</p>
+            </div>
+          ) : (
+            Object.entries(byGroup).map(([groupName, groupMeetings]) => (
+              <GroupSection
+                key={groupName}
+                groupName={groupName}
+                meetings={groupMeetings}
+                userId={user?.id ?? ''}
+                onEdit={(m) => { setEditTarget(m); setShowDialog(true); }}
+                onDelete={handleDelete}
+                onResend={handleResend}
+              />
+            ))
+          )
+        )}
+
+        {/* Discussion Tab */}
+        {activeTab === 'discussion' && (
+          <DiscussionTab
+            groups={groups}
+            currentUserId={user?.id ?? ''}
+            currentUserName={user?.name ?? 'Supervisor'}
+            currentUserRole="supervisor"
+          />
         )}
       </div>
 

@@ -112,7 +112,7 @@ async function fetchSupervisorGrades(token: string): Promise<GroupGradeData[]> {
 
 async function submitEvaluations(
   groupId: string,
-  evaluations: { studentId: string; scores: Record<string, number> }[],
+  evaluations: { studentId: string; scores: Record<string, number>; comment?: string | null }[],
   submissionStatus: 'draft' | 'submitted',
   token: string
 ): Promise<{ results: { studentId: string; normalizedScore: number; maxScore: number; submissionStatus: string }[] }> {
@@ -224,7 +224,8 @@ export function SupervisorEvaluateGroup() {
   const evalEntry      = group?.supervisorEvaluation.find((e) => e.studentId === activeStudentId);
   const studentStatus  = evalEntry?.submissionStatus ?? 'draft';
   const isSubmitted    = studentStatus === 'submitted' || studentStatus === 'locked';
-  const isReadOnly     = isSubmitted || isLocked;
+  // Only hard-lock on coordinator/admin lock — 'submitted' still allows re-editing
+  const isReadOnly     = studentStatus === 'locked' || isLocked;
 
   // ── Validate all students before final submit ──────────────────────────────
 
@@ -254,6 +255,7 @@ export function SupervisorEvaluateGroup() {
       const evaluations = group.students.map((s) => ({
         studentId: s.id,
         scores: scores[s.id] ?? {},
+        comment: comments[s.id] || null,
       }));
       await submitEvaluations(group.id, evaluations, 'draft', token);
       toast.success('Draft saved successfully');
@@ -281,10 +283,26 @@ export function SupervisorEvaluateGroup() {
       const evaluations = group.students.map((s) => ({
         studentId: s.id,
         scores: scores[s.id] ?? {},
+        comment: comments[s.id] || null,
       }));
-      await submitEvaluations(group.id, evaluations, 'submitted', token);
-      toast.success('Grades submitted successfully');
-      navigate('/supervisor/groups?tab=grades');
+      const result = await submitEvaluations(group.id, evaluations, 'submitted', token);
+      toast.success('Grades submitted successfully. You can still re-edit and re-submit.');
+      // Refresh status in local state so badges update without a full reload
+      setGroup((prev) => {
+        if (!prev) return prev;
+        const updatedEvals = prev.students.map((s) => {
+          const existing = prev.supervisorEvaluation.find((e) => e.studentId === s.id);
+          const res = result.results?.find((r) => r.studentId === s.id);
+          return {
+            studentId: s.id,
+            score: res?.normalizedScore ?? existing?.score ?? null,
+            maxScore: res?.maxScore ?? existing?.maxScore ?? 0,
+            gradedAt: new Date().toISOString(),
+            submissionStatus: res?.submissionStatus ?? 'submitted',
+          };
+        });
+        return { ...prev, supervisorEvaluation: updatedEvals };
+      });
     } catch (err: any) {
       toast.error(err.message || 'Failed to submit grades');
     } finally {
@@ -388,7 +406,7 @@ export function SupervisorEvaluateGroup() {
                 disabled={saving || isReadOnly}
               >
                 <Send className="w-4 h-4 mr-2" />
-                Submit Grades
+                {isSubmitted ? 'Re-submit Grades' : 'Submit Grades'}
               </Button>
               <Button
                 variant="outline"
@@ -534,7 +552,6 @@ export function SupervisorEvaluateGroup() {
                         <div className="border-t border-[var(--color-border)] bg-gray-50 px-5 py-5">
                           <div className="space-y-3">
                             {Array.from({ length: criterion.maxRawScore }, (_, i) => i + 1)
-                              .filter((s) => !!(criterion[`description${s}` as keyof RubricCriterion] as string | undefined))
                               .map((s) => {
                               const desc = criterion[`description${s}` as keyof RubricCriterion] as string | undefined;
                               const isSelected = score === s;
@@ -727,7 +744,7 @@ export function SupervisorEvaluateGroup() {
             </div>
             <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-900">
               <CheckCircle className="w-4 h-4 inline mr-2" />
-              Once submitted, grades will be visible to admin and locked from further editing.
+              Grades will be visible to admin. You can still re-edit and re-submit until grades are locked by the coordinator.
             </div>
           </div>
           <DialogFooter>

@@ -25,11 +25,11 @@ import {
   getRubricCriteria,
   getGradingComponents,
   getSupervisorRubricScores,
-  saveSupervisorRubricScores,
   type RubricCriterion,
   type GradingComponent,
 } from '../../services/grading-rubric';
 import { supabase } from '../../lib/supabase';
+import { apiUrl } from '@/lib/api';
 import { Save, Send, CheckCircle, Info, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import type { GroupGrade } from '../../types';
@@ -144,7 +144,9 @@ export function SupervisorGradingAssessment() {
     const group = grades.find(g => g.groupId === groupId);
     if (!group) return;
     const ct = courseTypeFromCode(group.course);
-    const courseId = await getCourseIdByCode(group.course);
+    // Use the group's actual course_id directly to avoid fuzzy-match returning wrong course
+    const { data: gRow } = await supabase.from('groups').select('course_id').eq('id', groupId).single();
+    const courseId = gRow?.course_id ?? null;
     if (!courseId) return;
 
     const [crit, comps] = await Promise.all([
@@ -165,12 +167,13 @@ export function SupervisorGradingAssessment() {
 
       const { data: assess } = await supabase
         .from('supervisor_assessments')
-        .select('comment, submission_status')
+        .select('comment')
         .eq('student_id', student.id)
         .eq('group_id', groupId)
         .eq('course_id', courseId)
         .maybeSingle();
       comments[student.id] = assess?.comment ?? '';
+      // submission_status lives in supervisor_rubric_scores, not supervisor_assessments
       statuses[student.id] = existing[0]?.submissionStatus ?? 'draft';
     }
 
@@ -212,19 +215,22 @@ export function SupervisorGradingAssessment() {
 
   const saveDraft = async (studentId: string) => {
     if (!selectedGrade || !user) return;
-    const courseId = await getCourseIdByCode(selectedGrade.course);
-    if (!courseId) return;
     setSaving(true);
     try {
-      await saveSupervisorRubricScores({
-        studentId, groupId: selectedGroup, courseId, courseType: ct!,
-        scores: studentScores[studentId] ?? {}, gradedBy: user.id, submissionStatus: 'draft',
+      const session = await supabase.auth.getSession();
+      const token   = session.data.session?.access_token ?? '';
+      const res = await fetch(apiUrl(`/api/groups/${selectedGroup}/supervisor-evaluation`), {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body:    JSON.stringify({
+          evaluations:      [{ studentId, scores: studentScores[studentId] ?? {}, comment: studentComments[studentId] || null }],
+          submissionStatus: 'draft',
+        }),
       });
-      await supabase.from('supervisor_assessments').upsert({
-        student_id: studentId, group_id: selectedGroup, course_id: courseId,
-        score: getStudentNormalized(studentId), max_score: totalMarks,
-        comment: studentComments[studentId] ?? '', graded_by: user.id,
-      }, { onConflict: 'student_id,group_id,course_id' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Request failed' }));
+        throw new Error(err.error || 'Failed to save draft');
+      }
       setSubmissionStatus(p => ({ ...p, [studentId]: 'draft' }));
       toast.success('Draft saved.');
     } catch (err: any) {
@@ -246,20 +252,26 @@ export function SupervisorGradingAssessment() {
   const doSubmit = async () => {
     const studentId = confirmStudentId;
     if (!studentId || !selectedGrade || !user) return;
-    const courseId = await getCourseIdByCode(selectedGrade.course);
-    if (!courseId) return;
     setShowConfirm(false);
     setSaving(true);
     try {
-      const normalized = await saveSupervisorRubricScores({
-        studentId, groupId: selectedGroup, courseId, courseType: ct!,
-        scores: studentScores[studentId] ?? {}, gradedBy: user.id, submissionStatus: 'submitted',
+      const session = await supabase.auth.getSession();
+      const token   = session.data.session?.access_token ?? '';
+      const res = await fetch(apiUrl(`/api/groups/${selectedGroup}/supervisor-evaluation`), {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body:    JSON.stringify({
+          evaluations:      [{ studentId, scores: studentScores[studentId] ?? {}, comment: studentComments[studentId] || null }],
+          submissionStatus: 'submitted',
+        }),
       });
-      await supabase.from('supervisor_assessments').upsert({
-        student_id: studentId, group_id: selectedGroup, course_id: courseId,
-        score: normalized, max_score: totalMarks,
-        comment: studentComments[studentId] ?? '', graded_by: user.id,
-      }, { onConflict: 'student_id,group_id,course_id' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Request failed' }));
+        throw new Error(err.error || 'Failed to submit');
+      }
+      const result = await res.json();
+      const normalized = result.results?.find((r: any) => r.studentId === studentId)?.normalizedScore
+        ?? getStudentNormalized(studentId);
       setSubmissionStatus(p => ({ ...p, [studentId]: 'submitted' }));
       toast.success(`Submitted. Normalized score: ${normalized}/${totalMarks}`);
     } catch (err: any) {
@@ -319,7 +331,9 @@ export function SupervisorGradingAssessment() {
             const normalized = getStudentNormalized(student.id);
             const allFilled  = allCriteriaFilled(student.id);
             const status     = submissionStatus[student.id] ?? 'draft';
-            const isReadOnly = status === 'submitted' || status === 'locked' || isLocked;
+            // Only hard-lock when admin-locked or coordinator-locked.
+            // 'submitted' state still allows editing — supervisor can re-submit to update scores.
+            const isReadOnly = status === 'locked' || isLocked;
 
             return (
               <div key={student.id} className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] shadow-sm overflow-hidden">
@@ -390,15 +404,22 @@ export function SupervisorGradingAssessment() {
                       <Button size="sm" onClick={() => confirmSubmit(student.id)}
                         disabled={saving || !allFilled}
                         className="bg-green-600 text-white hover:bg-green-700">
-                        <Send className="w-4 h-4 mr-2" />Submit & Lock
+                        <Send className="w-4 h-4 mr-2" />{status === 'submitted' ? 'Re-submit' : 'Submit'}
                       </Button>
                     </div>
                   )}
 
-                  {(status === 'submitted' || status === 'locked') && (
+                  {status === 'submitted' && !isReadOnly && (
                     <div className="flex items-center gap-2 text-green-700 bg-green-50 border border-green-200 rounded-lg p-3 text-sm">
                       <CheckCircle className="w-4 h-4" />
-                      Assessment submitted. Contact admin to unlock if needed.
+                      Assessment submitted. You can still edit and re-submit.
+                    </div>
+                  )}
+
+                  {status === 'locked' && (
+                    <div className="flex items-center gap-2 text-red-700 bg-red-50 border border-red-200 rounded-lg p-3 text-sm">
+                      <CheckCircle className="w-4 h-4" />
+                      Assessment locked. Contact admin to unlock if needed.
                     </div>
                   )}
                 </div>
@@ -421,7 +442,7 @@ export function SupervisorGradingAssessment() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Submit Assessment</DialogTitle>
-            <DialogDescription>Once submitted, this will be locked. Admin can unlock if needed.</DialogDescription>
+            <DialogDescription>Submit assessment scores. You can re-edit and re-submit until grades are locked by the coordinator.</DialogDescription>
           </DialogHeader>
           {confirmStudentId && selectedGrade && (
             <div className="py-3 space-y-2 text-sm">

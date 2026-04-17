@@ -15,8 +15,24 @@ import { Switch } from '../../components/ui/switch';
 import { Textarea } from '../../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Settings, Plus, Edit2, Save, X, Trash2, Award, Users, FileType } from 'lucide-react';
+import { TimePicker } from '../../components/ui/TimePicker';
 import { toast } from 'sonner';
 import { MilestoneConfig } from '../../types';
+
+function getDatePart(val: string): string {
+  return val?.split('T')[0] ?? '';
+}
+function getTimePart(val: string): string {
+  return val?.split('T')[1]?.slice(0, 5) ?? '00:00';
+}
+function combineDatetime(date: string, time: string): string {
+  return date ? `${date}T${time}` : date;
+}
+function formatDatetime(val: string): string {
+  if (!val) return '';
+  const d = new Date(val.includes('T') ? val : `${val}T00:00`);
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
 
 export function AdminMilestonesConfig() {
   const { user } = useAuth();
@@ -108,8 +124,8 @@ export function AdminMilestonesConfig() {
       name: 'New Milestone',
       course: courseForNew ?? selectedCourse,
       courseId: courseIdForNew ?? undefined,
-      openDate: new Date().toISOString().split('T')[0],
-      closeDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      openDate: `${new Date().toISOString().split('T')[0]}T09:00`,
+      closeDate: `${new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}T23:59`,
       visible: true,
       allowLateSubmission: false,
       requireJustification: false,
@@ -143,10 +159,10 @@ export function AdminMilestonesConfig() {
         setConfigs((prev) =>
           prev.map((c) => (c.id === config.id ? { ...c, id: savedId, courseId } : c))
         );
-        toast.success('Milestone created and announcement sent to students');
+        toast.success('Assessment created and announcement sent to students');
       } else {
         await updateMilestone(config.id, config);
-        toast.success('Milestone updated successfully');
+        toast.success('Assessment updated successfully');
       }
 
       setEditingId(null);
@@ -165,12 +181,12 @@ export function AdminMilestonesConfig() {
   };
 
   const handleDelete = async (config: MilestoneConfig) => {
-    if (!window.confirm(`Delete milestone "${config.name}"? This will also remove the related announcement.`)) return;
+    if (!window.confirm(`Delete assessment "${config.name}"? This will also remove the related announcement.`)) return;
     setDeleting(config.id);
     try {
       await deleteMilestone(config.id);
       setConfigs((prev) => prev.filter((c) => c.id !== config.id));
-      toast.success('Milestone deleted');
+      toast.success('Assessment deleted');
     } catch (err: any) {
       toast.error(err.message ?? 'Failed to delete milestone');
     } finally {
@@ -179,11 +195,11 @@ export function AdminMilestonesConfig() {
   };
 
   return (
-    <Layout user={user} pageTitle="Chapter Configuration">
+    <Layout user={user} pageTitle="Assessment Configuration">
       {isLocked && <LockedBanner />}
       <div className="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <p className="text-sm text-[var(--color-text-600)]">
-          Configure milestone timelines and submission policies
+          Configure assessment timelines and submission policies
         </p>
         <Button
           variant="primary"
@@ -192,7 +208,7 @@ export function AdminMilestonesConfig() {
           disabled={isLocked || (isCoordinator && !isAdmin && !coordinatorCourseId)}
         >
           <Plus className="w-4 h-4" />
-          Add Milestone
+          Add Assessment
         </Button>
       </div>
 
@@ -227,7 +243,7 @@ export function AdminMilestonesConfig() {
       <div className="space-y-4">
         {filteredConfigs.length === 0 && (
           <p className="text-center text-[var(--color-text-600)] py-12">
-            No milestones yet. Click &quot;Add Milestone&quot; to create the first one.
+            No assessments yet. Click &quot;Add Assessment&quot; to create the first one.
           </p>
         )}
 
@@ -241,7 +257,7 @@ export function AdminMilestonesConfig() {
                 /* Edit Mode */
                 <div className="space-y-6">
                   <div>
-                    <Label htmlFor="name">Milestone Name</Label>
+                    <Label htmlFor="name">Assessment Name</Label>
                     <Input
                       id="name"
                       value={config.name}
@@ -264,22 +280,36 @@ export function AdminMilestonesConfig() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <Label>Open Date</Label>
-                      <div className="mt-2">
-                        <DatePicker
-                          value={config.openDate}
-                          onChange={(date) => updateConfigField(config.id, 'openDate', date)}
-                          placeholder="Select open date"
+                      <Label>Open Date &amp; Time</Label>
+                      <div className="mt-2 flex gap-2">
+                        <div className="flex-1">
+                          <DatePicker
+                            value={getDatePart(config.openDate)}
+                            onChange={(date) => updateConfigField(config.id, 'openDate', combineDatetime(date, getTimePart(config.openDate)))}
+                            placeholder="Select open date"
+                          />
+                        </div>
+                        <TimePicker
+                          value={getTimePart(config.openDate)}
+                          onChange={(time) => updateConfigField(config.id, 'openDate', combineDatetime(getDatePart(config.openDate), time))}
+                          placeholder="Time"
                         />
                       </div>
                     </div>
                     <div>
-                      <Label>Close Date</Label>
-                      <div className="mt-2">
-                        <DatePicker
-                          value={config.closeDate}
-                          onChange={(date) => updateConfigField(config.id, 'closeDate', date)}
-                          placeholder="Select close date"
+                      <Label>Close Date &amp; Time</Label>
+                      <div className="mt-2 flex gap-2">
+                        <div className="flex-1">
+                          <DatePicker
+                            value={getDatePart(config.closeDate)}
+                            onChange={(date) => updateConfigField(config.id, 'closeDate', combineDatetime(date, getTimePart(config.closeDate)))}
+                            placeholder="Select close date"
+                          />
+                        </div>
+                        <TimePicker
+                          value={getTimePart(config.closeDate)}
+                          onChange={(time) => updateConfigField(config.id, 'closeDate', combineDatetime(getDatePart(config.closeDate), time))}
+                          placeholder="Time"
                         />
                       </div>
                     </div>
@@ -452,8 +482,8 @@ export function AdminMilestonesConfig() {
                         <p className="text-[var(--color-text-600)] line-clamp-2 mb-2">{config.description}</p>
                       )}
                       <p className="text-[var(--color-text-600)]">
-                        Opens: {new Date(config.openDate).toLocaleDateString()} •{' '}
-                        Closes: {new Date(config.closeDate).toLocaleDateString()}
+                        Opens: {formatDatetime(config.openDate)} •{' '}
+                        Closes: {formatDatetime(config.closeDate)}
                       </p>
                     </div>
 
@@ -539,10 +569,10 @@ export function AdminMilestonesConfig() {
           <div>
             <h3 className="text-blue-900 mb-2">Configuration Tips</h3>
             <ul className="text-blue-800 space-y-1 list-disc list-inside">
-              <li>Ensure close date is after open date</li>
-              <li>Creating a milestone automatically notifies students via an announcement</li>
-              <li>Deleting a milestone also removes the related student announcement</li>
-              <li>Students will only see milestones for their enrolled course</li>
+              <li>Ensure close date/time is after open date/time</li>
+              <li>Creating an assessment automatically notifies students via an announcement</li>
+              <li>Deleting an assessment also removes the related student announcement</li>
+              <li>Students will only see assessments for their enrolled course</li>
               <li>Late submissions require coordinator approval when justification is required</li>
             </ul>
           </div>

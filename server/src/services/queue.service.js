@@ -75,6 +75,9 @@ function startWorker() {
         case 'meeting-cancelled':
           await emailService.sendMeetingCancelled(payload.emails, payload.data);
           break;
+        case 'discussion-notification':
+          await emailService.sendDiscussionNotification(payload.emails, payload.data);
+          break;
         default:
           throw new Error(`Unknown email job type: ${type}`);
       }
@@ -182,6 +185,21 @@ async function queueMeetingCancelledEmail(emails, data) {
   await getQueue().add('send-meeting-cancelled', { type: 'meeting-cancelled', payload: { emails, data } });
 }
 
+/**
+ * Queue a discussion message notification email.
+ * @param {string[]} emails
+ * @param {{ senderName, senderRole, groupName, message, appUrl? }} data
+ */
+async function queueDiscussionNotificationEmail(emails, data) {
+  if (!isRedisReady()) {
+    emailService.sendDiscussionNotification(emails, data).catch((err) =>
+      console.error('[queue] Fallback discussion notification email failed:', err.message)
+    );
+    return;
+  }
+  await getQueue().add('send-discussion-notification', { type: 'discussion-notification', payload: { emails, data } });
+}
+
 // ── Initialise worker when module first loads ─────────────────────────────────
 startWorker();
 
@@ -191,4 +209,5 @@ module.exports = {
   queueMeetingInvitationEmail,
   queueMeetingReminderEmail,
   queueMeetingCancelledEmail,
+  queueDiscussionNotificationEmail,
 };

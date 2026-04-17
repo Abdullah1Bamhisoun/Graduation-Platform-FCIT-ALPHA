@@ -126,11 +126,14 @@ async function submitWeeklyReport(req, res) {
         }
 
         await Promise.all([
+          // Announcement scoped to this group so only the group's supervisor sees it
+          // in the Announcements page (requires migration 006 for group_id column).
           notificationService.createAnnouncement({
             title:       `Weekly Report #${weekNumber} Submitted`,
             content:     `${studentName} submitted Weekly Report #${weekNumber}.\nCourse: CPIS-${courseType}`,
             targetRoles: ['supervisor'],
             courseId,
+            groupId,
             authorId:    req.user.id,
           }),
           notificationService.createUserNotifications([supervisor.id], {

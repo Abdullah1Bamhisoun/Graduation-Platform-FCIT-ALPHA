@@ -44,6 +44,7 @@ import { CoordinatorLateRequests } from './pages/coordinator/LateRequests';
 import { CoordinatorCommitteeScores } from './pages/coordinator/CommitteeScores';
 import { CoordinatorGradeSchemeEditor } from './pages/coordinator/GradeSchemeEditor';
 import { CoordinatorCourseGrades } from './pages/coordinator/CoordinatorCourseGrades';
+import { CoordinatorEvaluateGroup } from './pages/coordinator/CoordinatorEvaluateGroup';
 
 // Admin Pages
 import { AdminDashboard } from './pages/admin/Dashboard';
@@ -134,6 +135,7 @@ export default function App() {
           <Route path="/coordinator/late-requests" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><CoordinatorLateRequests /></ProtectedRoute>} />
           <Route path="/coordinator/committee-scores" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><CoordinatorCommitteeScores /></ProtectedRoute>} />
           <Route path="/coordinator/grade-scheme" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><CoordinatorGradeSchemeEditor /></ProtectedRoute>} />
+          <Route path="/coordinator/evaluate-group/:groupId" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><CoordinatorEvaluateGroup /></ProtectedRoute>} />
           <Route path="/coordinator/announcements" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><AnnouncementsManager /></ProtectedRoute>} />
           <Route path="/coordinator/calendar" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><Calendar /></ProtectedRoute>} />
           <Route path="/coordinator/meetings" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><CoordinatorMeetings /></ProtectedRoute>} />

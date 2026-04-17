@@ -16,8 +16,18 @@ import { Button } from '../../components/ui/button';
 import { DatePicker } from '../../components/ui/DatePicker';
 import { TimePicker } from '../../components/ui/TimePicker';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../../components/ui/alert-dialog';
+import {
   Eye, ChevronDown, ChevronRight, Unlock, EyeOff,
-  Lock, ChevronUp, CheckCircle, Clock, Calendar, X,
+  Lock, ChevronUp, CheckCircle, Clock, Calendar, X, Mail,
 } from 'lucide-react';
 import type { WeeklyReport, WeekStatus, WeekDisplayStatus } from '../../types';
 import { toast } from 'sonner';
@@ -50,6 +60,9 @@ export function CoordinatorWeeklyReports() {
   const [courseType, setCourseType]               = useState<'498' | '499' | null>(null);
   const [weekActionLoading, setWeekActionLoading] = useState<string | null>(null);
   const [weekPanelOpen, setWeekPanelOpen]         = useState(true);
+
+  // ── Open confirmation dialog state ───────────────────────────────────────
+  const [openTarget, setOpenTarget] = useState<WeekStatus | null>(null);
 
   // ── Deadline dialog state ─────────────────────────────────────────────────
   const [deadlineWeek, setDeadlineWeek] = useState<WeekStatus | null>(null);
@@ -111,11 +124,13 @@ export function CoordinatorWeeklyReports() {
   }, [selectedGroup]);
 
   // ── Week control actions ──────────────────────────────────────────────────
-  const handleOpen = async (ws: WeekStatus) => {
-    if (!user) return;
+  const handleOpenConfirmed = async () => {
+    if (!user || !openTarget) return;
+    const ws = openTarget;
+    setOpenTarget(null);
     setWeekActionLoading(ws.id);
     try {
-      await openWeek(ws.id, user.id);
+      await openWeek(ws.id, user.id, user.coordinatorCourseId ?? undefined);
       if (courseType) await loadWeekStatuses(courseType);
       toast.success(`Week ${ws.weekNumber} opened`);
     } catch (err: any) {
@@ -175,15 +190,15 @@ export function CoordinatorWeeklyReports() {
     }
     setDlSaving(true);
     try {
-      await setWeekDeadline(deadlineWeek.id, openAtISO, closeAtISO);
-
-      // Automatically open the week whenever a deadline is saved
-      if (user) {
-        await openWeek(deadlineWeek.id, user.id);
-      }
-
+      // setWeekDeadline opens the week and emails students in one server call
+      await setWeekDeadline(
+        deadlineWeek.id,
+        openAtISO,
+        closeAtISO,
+        user?.coordinatorCourseId ?? undefined
+      );
       if (courseType) await loadWeekStatuses(courseType);
-      toast.success(`Deadline saved for Week ${deadlineWeek.weekNumber}`);
+      toast.success(`Deadline saved and Week ${deadlineWeek.weekNumber} opened — students notified`);
       setDeadlineWeek(null);
     } catch (err: any) {
       toast.error(err?.message || 'Failed to save deadline');
@@ -360,7 +375,7 @@ $$;`}</pre>
                         {ws && !ws.isLocked && !ws.isOpen && !ws.wasOpened && !ws.openAt && (
                           <button
                             disabled={busy}
-                            onClick={() => handleOpen(ws)}
+                            onClick={() => setOpenTarget(ws)}
                             className="w-full text-xs flex items-center justify-center gap-1 px-1.5 py-1 rounded border border-green-300 text-green-700 bg-white hover:bg-green-50 disabled:opacity-50 transition-colors"
                           >
                             <Unlock className="w-2.5 h-2.5" />
@@ -372,7 +387,7 @@ $$;`}</pre>
                         {ws && !ws.isLocked && !ws.isOpen && (ws.wasOpened || ws.openAt) && (
                           <button
                             disabled={busy}
-                            onClick={() => handleOpen(ws)}
+                            onClick={() => setOpenTarget(ws)}
                             className="w-full text-xs flex items-center justify-center gap-1 px-1.5 py-1 rounded border border-green-300 text-green-700 bg-white hover:bg-green-50 disabled:opacity-50 transition-colors"
                           >
                             <Unlock className="w-2.5 h-2.5" />
@@ -597,6 +612,43 @@ $$;`}</pre>
           </div>
         </div>
       </div>
+
+      {/* ── Open Week Confirmation Dialog ───────────────────────────── */}
+      <AlertDialog open={!!openTarget} onOpenChange={open => !open && setOpenTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Mail className="w-5 h-5 text-green-600" />
+              Open Week {openTarget?.weekNumber}?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-gray-600">
+                <p>
+                  This will open <strong>Week {openTarget?.weekNumber}</strong> for student submissions
+                  in <strong>CPIS-{courseType}</strong>.
+                </p>
+                <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <Mail className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                  <p className="text-amber-800">
+                    An email notification will be sent to all students enrolled in this course,
+                    informing them that Week {openTarget?.weekNumber} is now open for submission.
+                  </p>
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-green-600 hover:bg-green-700"
+              onClick={handleOpenConfirmed}
+            >
+              <Unlock className="w-4 h-4 mr-1.5" />
+              Open & Notify Students
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ── Deadline Config Dialog ───────────────────────────────────── */}
       {deadlineWeek && (

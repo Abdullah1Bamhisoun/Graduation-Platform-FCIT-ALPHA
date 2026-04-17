@@ -521,6 +521,7 @@ export interface CoordinatorEvaluationSubmission {
     criterionKey: string;
     rawScore: number;  // 1-5
   }>;
+  comment?: string | null;
   submissionStatus: 'draft' | 'submitted';
 }
 

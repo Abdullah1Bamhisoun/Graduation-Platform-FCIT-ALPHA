@@ -11,6 +11,13 @@ import { toast } from 'sonner';
 import { useState, useEffect } from 'react';
 import { getCalendarEvents, createCalendarEvent, deleteCalendarEvent } from '../../services/calendarEvents';
 import type { CalendarEvent } from '../../services/calendarEvents';
+import { supabase } from '../../lib/supabase';
+import { apiUrl } from '@/lib/api';
+
+interface SupervisorGroup {
+  id: string;
+  name: string;
+}
 
 export function Calendar() {
   const { user } = useAuth();
@@ -19,10 +26,29 @@ export function Calendar() {
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+  const [supervisorGroups, setSupervisorGroups] = useState<SupervisorGroup[]>([]);
+
+  const isSupervisor = user?.activeRole === 'supervisor';
+  const isCoordinatorOrAdmin = user?.role === 'admin' || user?.activeRole === 'coordinator';
+  const canCreate = isCoordinatorOrAdmin || isSupervisor;
 
   useEffect(() => {
     getCalendarEvents().then(setCalendarEvents);
   }, []);
+
+  useEffect(() => {
+    if (!isSupervisor) return;
+    supabase.auth.getSession().then(({ data }) => {
+      const token = data.session?.access_token ?? '';
+      return fetch(apiUrl('/api/groups/mine'), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    })
+      .then((r) => r.json())
+      .then((data) => Array.isArray(data) && setSupervisorGroups(data))
+      .catch(() => {});
+  }, [isSupervisor]);
+
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
@@ -30,6 +56,7 @@ export function Calendar() {
     type: 'deadline' as CalendarEvent['type'],
     time: '',
     location: '',
+    groupId: '',
   });
 
   const eventTypeColors = {
@@ -49,27 +76,49 @@ export function Calendar() {
     }
   };
 
+  const canDeleteEvent = (event: CalendarEvent) => {
+    if (user?.role === 'admin') return true;
+    if (user?.activeRole === 'coordinator' && event.courseId === user.coordinatorCourseId) return true;
+    if (isSupervisor && event.groupId && supervisorGroups.some((g) => g.id === event.groupId)) return true;
+    return false;
+  };
+
   const handleAddEvent = async () => {
     if (!formData.title || !formData.date) {
       toast.error('Please fill in title and date');
       return;
     }
+    if (isSupervisor && !formData.groupId) {
+      toast.error('Please select a group');
+      return;
+    }
 
     try {
       const id = await createCalendarEvent({
-        title: formData.title,
-        date: formData.date,
-        type: formData.type,
-        time: formData.time || undefined,
+        title:    formData.title,
+        date:     formData.date,
+        type:     formData.type,
+        time:     formData.time || undefined,
         location: formData.location || undefined,
+        groupId:  formData.groupId || undefined,
       });
+      const groupName = supervisorGroups.find((g) => g.id === formData.groupId)?.name;
       setCalendarEvents((prev) => [
         ...prev,
-        { id, title: formData.title, date: formData.date, type: formData.type, time: formData.time || undefined, location: formData.location || undefined, courseId: user?.role === 'admin' ? undefined : user?.coordinatorCourseId },
+        {
+          id,
+          title:    formData.title,
+          date:     formData.date,
+          type:     formData.type,
+          time:     formData.time || undefined,
+          location: formData.location || undefined,
+          courseId: user?.role === 'admin' ? undefined : user?.coordinatorCourseId,
+          groupId:  formData.groupId || undefined,
+        },
       ]);
-      toast.success('Event added successfully');
+      toast.success(groupName ? `Event added for ${groupName}` : 'Event added successfully');
       setIsDialogOpen(false);
-      setFormData({ title: '', date: '', type: 'deadline', time: '', location: '' });
+      setFormData({ title: '', date: '', type: 'deadline', time: '', location: '', groupId: '' });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to add event');
     }
@@ -80,13 +129,19 @@ export function Calendar() {
 
   if (!user) return null;
 
+  const dialogDescription = user.role === 'admin'
+    ? 'Create a new calendar event for all users'
+    : isSupervisor
+      ? 'Create a calendar event for one of your groups'
+      : 'Create a new calendar event for your assigned course';
+
   return (
     <Layout user={user} pageTitle="Calendar">
       <div className="mb-6 flex items-center justify-between">
         <p className="text-[var(--color-text-600)]">
           View important dates, deadlines, and events
         </p>
-        {(user.role === 'admin' || user.activeRole === 'coordinator') && (
+        {canCreate && (
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
               <Button variant="primary">
@@ -97,13 +152,28 @@ export function Calendar() {
             <DialogContent className="sm:max-w-[500px]">
               <DialogHeader>
                 <DialogTitle>Add New Event</DialogTitle>
-                <DialogDescription>
-                  {user.role === 'admin'
-                    ? 'Create a new calendar event for all users'
-                    : 'Create a new calendar event for your assigned course'}
-                </DialogDescription>
+                <DialogDescription>{dialogDescription}</DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
+                {/* Group selector — supervisors only */}
+                {isSupervisor && (
+                  <div>
+                    <Label htmlFor="eventGroup">Group *</Label>
+                    <Select
+                      value={formData.groupId}
+                      onValueChange={(value) => setFormData({ ...formData, groupId: value })}
+                    >
+                      <SelectTrigger className="mt-1.5" id="eventGroup">
+                        <SelectValue placeholder="Select a group" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {supervisorGroups.map((g) => (
+                          <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <div>
                   <Label htmlFor="eventTitle">Event Title *</Label>
                   <Input
@@ -166,9 +236,7 @@ export function Calendar() {
                 <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
                   Cancel
                 </Button>
-                <Button
-                  onClick={handleAddEvent}
-                >
+                <Button onClick={handleAddEvent}>
                   Add Event
                 </Button>
               </DialogFooter>
@@ -261,7 +329,7 @@ export function Calendar() {
                 <div key={event.id} className={`p-4 border rounded-lg ${eventTypeColors[event.type]}`}>
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="mb-1">{event.title}</h3>
-                    {(user.role === 'admin' || (user.activeRole === 'coordinator' && event.courseId === user.coordinatorCourseId)) && (
+                    {canDeleteEvent(event) && (
                       <button
                         onClick={() => handleDeleteEvent(event.id)}
                         className="flex-shrink-0 p-1 rounded hover:bg-red-100 text-red-500 hover:text-red-700 transition-colors"

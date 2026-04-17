@@ -3,7 +3,7 @@ import { Layout } from '../../components/layout/Layout';
 import { Button } from '../../components/ui/button';
 import { useAuth } from '../../lib/AuthContext';
 import { getWeekStatuses, getDisplayStatus, openWeek, closeWeek, lockWeek } from '../../services/week-statuses';
-import { Lock, Unlock, EyeOff, AlertTriangle, Info } from 'lucide-react';
+import { Lock, Unlock, EyeOff, AlertTriangle, Info, Mail } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,6 +42,9 @@ export function CoordinatorWeekManager() {
   const [loading, setLoading]           = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
+  // Open confirmation dialog
+  const [openTarget, setOpenTarget]     = useState<WeekStatus | null>(null);
+
   // Lock confirmation dialog
   const [lockTarget, setLockTarget]     = useState<WeekStatus | null>(null);
 
@@ -72,8 +75,10 @@ export function CoordinatorWeekManager() {
     setStatuses499(s499);
   };
 
-  const handleOpen = async (ws: WeekStatus) => {
-    if (!user) return;
+  const handleOpenConfirmed = async () => {
+    if (!user || !openTarget) return;
+    const ws = openTarget;
+    setOpenTarget(null);
     setActionLoading(ws.id);
     try {
       await openWeek(ws.id, user.id);
@@ -236,7 +241,7 @@ export function CoordinatorWeekManager() {
                           variant="outline"
                           className="text-green-600 border-green-300 hover:bg-green-50 h-7 text-xs"
                           disabled={busy}
-                          onClick={() => handleOpen(ws)}
+                          onClick={() => setOpenTarget(ws)}
                         >
                           <Unlock className="w-3 h-3 mr-1" />
                           Open
@@ -282,6 +287,43 @@ export function CoordinatorWeekManager() {
           </tbody>
         </table>
       </div>
+
+      {/* Open confirmation dialog */}
+      <AlertDialog open={!!openTarget} onOpenChange={open => !open && setOpenTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Mail className="w-5 h-5 text-green-600" />
+              Open Week {openTarget?.weekNumber}?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-gray-600">
+                <p>
+                  This will open <strong>Week {openTarget?.weekNumber}</strong> for student submissions
+                  in <strong>CPIS-{openTarget?.courseType}</strong>.
+                </p>
+                <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <Mail className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                  <p className="text-amber-800">
+                    An email notification will be sent to all students enrolled in this course,
+                    informing them that Week {openTarget?.weekNumber} is now open for submission.
+                  </p>
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-green-600 hover:bg-green-700"
+              onClick={handleOpenConfirmed}
+            >
+              <Unlock className="w-4 h-4 mr-1.5" />
+              Open & Notify Students
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Lock confirmation dialog */}
       <AlertDialog open={!!lockTarget} onOpenChange={open => !open && setLockTarget(null)}>

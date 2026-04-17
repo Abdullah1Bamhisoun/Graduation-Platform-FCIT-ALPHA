@@ -1,7 +1,7 @@
 const express  = require('express');
 const router   = express.Router();
 const controller = require('../controllers/announcements.controller');
-const { authenticate, requireCoordinatorOrAdmin } = require('../middleware/auth.middleware');
+const { authenticate, requireCoordinatorOrAdmin, requireSupervisorOrCoordinatorOrAdmin } = require('../middleware/auth.middleware');
 const { checkLocked } = require('../middleware/lock.middleware');
 const { validate } = require('../middleware/validate.middleware');
 const { paginate } = require('../middleware/paginate.middleware');
@@ -18,11 +18,12 @@ router.get(
   controller.listAnnouncements
 );
 
-// Coordinator or admin — create (lock-protected + validated)
+// Supervisor/Coordinator/Admin — create
+// Supervisors must supply a groupId; lock-protection applies to coordinator/admin only.
 router.post(
   '/',
   authenticate,
-  requireCoordinatorOrAdmin,
+  requireSupervisorOrCoordinatorOrAdmin,
   checkLocked('announcements'),
   validate(createAnnouncementSchema),
   controller.createAnnouncement
@@ -38,11 +39,12 @@ router.patch(
   controller.updateAnnouncement
 );
 
-// Coordinator or admin — delete
+// Supervisor/Coordinator/Admin — delete
+// Supervisors may only delete announcements they authored (enforced in controller).
 router.delete(
   '/:id',
   authenticate,
-  requireCoordinatorOrAdmin,
+  requireSupervisorOrCoordinatorOrAdmin,
   checkLocked('announcements'),
   controller.deleteAnnouncement
 );

@@ -68,6 +68,7 @@ async function getWeekStatuses(req, res) {
 async function openWeek(req, res) {
   try {
     const { id } = req.params;
+    const { courseId } = req.body || {};
     const updatedBy = req.user?.id;
 
     // Try with was_opened; fall back without it if column doesn't exist
@@ -97,7 +98,9 @@ async function openWeek(req, res) {
     // Send email to students on every open/reopen (best-effort, non-blocking)
     ;(async () => {
       try {
-        const emails = await getStudentEmailsForCourseType(weekRow.course_type);
+        const emails = courseId
+          ? await getStudentEmailsForCourse(courseId)
+          : await getStudentEmailsForCourseType(weekRow.course_type);
         if (emails.length === 0) {
           console.warn('[weekStatuses] No student emails found for course type:', weekRow.course_type);
           return;
@@ -207,7 +210,7 @@ async function lockWeek(req, res) {
 async function setDeadline(req, res) {
   try {
     const { id } = req.params;
-    const { open_at, close_at } = req.body;
+    const { open_at, close_at, courseId } = req.body;
     const updatedBy = req.user?.id;
 
     // Both undefined means no body fields at all — reject
@@ -219,8 +222,8 @@ async function setDeadline(req, res) {
       return res.status(400).json({ error: 'open_at must be before close_at.' });
     }
 
-    // Explicit null clears the column; omitted fields are left unchanged
-    const payload = { updated_by: updatedBy };
+    // Save deadline dates and open the week in one update
+    const payload = { updated_by: updatedBy, is_open: true, was_opened: true };
     if (open_at  !== undefined) payload.open_at  = open_at  || null;
     if (close_at !== undefined) payload.close_at = close_at || null;
 
@@ -233,46 +236,83 @@ async function setDeadline(req, res) {
 
     res.json({ success: true });
 
-    // Schedule pre-deadline reminder email (best-effort, non-blocking)
-    if (close_at) {
-      ;(async () => {
-        try {
-          const deadline = new Date(close_at);
-          const reminderTime = new Date(deadline.getTime() - 24 * 60 * 60 * 1000);
-          const msUntilReminder = reminderTime.getTime() - Date.now();
+    // Send "week opened" email + schedule 24h reminder (best-effort, non-blocking)
+    ;(async () => {
+      try {
+        const { data: weekRow } = await supabaseAdmin
+          .from('week_statuses')
+          .select('week_number, course_type')
+          .eq('id', id)
+          .single();
 
-          if (msUntilReminder <= 0) return; // deadline already within 24 h or passed
-
-          const { data: weekRow } = await supabaseAdmin
-            .from('week_statuses')
-            .select('week_number, course_type')
-            .eq('id', id)
-            .single();
-
-          if (!weekRow) return;
-
-          setTimeout(async () => {
-            try {
-              const emails = await getStudentEmailsForCourseType(weekRow.course_type);
-              if (emails.length === 0) return;
-              await emailService.sendDeadlineReminder(emails, {
-                weekNumber: weekRow.week_number,
-                courseType: weekRow.course_type,
-                closeAt: close_at,
-              });
-            } catch (e) {
-              console.error('[weekStatuses] Failed to send deadline-reminder emails:', e);
-            }
-          }, msUntilReminder);
-        } catch (e) {
-          console.error('[weekStatuses] Error scheduling deadline reminder:', e);
+        if (!weekRow) {
+          console.warn('[setDeadline] weekRow not found for id:', id);
+          return;
         }
-      })();
-    }
+
+        const emails = courseId
+          ? await getStudentEmailsForCourse(courseId)
+          : await getStudentEmailsForCourseType(weekRow.course_type);
+
+        if (emails.length === 0) {
+          console.warn('[setDeadline] No student emails found for', courseId || weekRow.course_type);
+          return;
+        }
+
+        // Notify students that the week is now open
+        await emailService.sendWeekOpened(emails, {
+          weekNumber: weekRow.week_number,
+          courseType: weekRow.course_type,
+        });
+        console.log(`[setDeadline] Week-opened email sent to ${emails.length} student(s) for week ${weekRow.week_number}`);
+
+        // Schedule 24h pre-deadline reminder
+        if (close_at) {
+          const deadline = new Date(close_at);
+          const msUntilReminder = deadline.getTime() - 24 * 60 * 60 * 1000 - Date.now();
+          if (msUntilReminder > 0) {
+            setTimeout(async () => {
+              try {
+                await emailService.sendDeadlineReminder(emails, {
+                  weekNumber: weekRow.week_number,
+                  courseType: weekRow.course_type,
+                  closeAt: close_at,
+                });
+              } catch (e) {
+                console.error('[setDeadline] Failed to send deadline-reminder emails:', e);
+              }
+            }, msUntilReminder);
+          }
+        }
+      } catch (e) {
+        console.error('[setDeadline] Failed to send emails:', e);
+      }
+    })();
   } catch (err) {
     console.error('Error setting deadline:', err);
     res.status(500).json({ error: 'Failed to set deadline' });
   }
+}
+
+/**
+ * Resolves student emails for a specific course ID (coordinator's exact course section).
+ * @param {string} courseId
+ * @returns {Promise<string[]>}
+ */
+async function getStudentEmailsForCourse(courseId) {
+  const { data: groups } = await supabaseAdmin
+    .from('groups').select('id').eq('course_id', courseId);
+  const groupIds = (groups || []).map((g) => g.id);
+  if (groupIds.length === 0) return [];
+
+  const { data: members } = await supabaseAdmin
+    .from('group_members').select('student_id').in('group_id', groupIds);
+  const studentIds = (members || []).map((m) => m.student_id);
+  if (studentIds.length === 0) return [];
+
+  const { data: profiles } = await supabaseAdmin
+    .from('profiles').select('email').in('id', studentIds);
+  return (profiles || []).map((p) => p.email).filter(Boolean);
 }
 
 /**

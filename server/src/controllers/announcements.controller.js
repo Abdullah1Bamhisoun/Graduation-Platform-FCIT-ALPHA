@@ -129,49 +129,69 @@ async function listAnnouncements(req, res) {
 
     let query = supabaseAdmin
       .from('announcements')
-      .select('id, title, content, author_id, published_at, expires_at, target_roles')
+      .select('id, title, content, author_id, published_at, expires_at, target_roles, course_id')
       .order('published_at', { ascending: false });
 
     if (role) {
       query = query.contains('target_roles', [role]);
     }
 
-    // ── Resolve the viewer's course ID ───────────────────────────────────────
+    // ── Resolve the viewer's course + group context ──────────────────────────
     // Used to scope announcements for students, supervisors, and coordinators.
-    let viewerCourseId = null;
+    let viewerCourseId  = null;
+    let viewerGroupId   = null;   // student's own group (migration 006)
+    let viewerCourseIds = [];     // all course IDs the viewer belongs to
+    let viewerGroupIds  = [];     // all group IDs the viewer supervises / belongs to
 
     if (req.user?.activeRole === 'coordinator') {
-      viewerCourseId = req.user.coordinatorCourseId ?? null;
+      viewerCourseId  = req.user.coordinatorCourseId ?? null;
+      viewerCourseIds = viewerCourseId ? [viewerCourseId] : [];
     } else if (req.user?.activeRole === 'student') {
-      // student → group_members → groups → course_id
+      // student → group_members → groups → course_id + group_id
       const { data: gm } = await supabaseAdmin
         .from('group_members').select('group_id').eq('student_id', req.user.id).limit(1).maybeSingle();
       if (gm?.group_id) {
+        viewerGroupId = gm.group_id;
+        viewerGroupIds = [gm.group_id];
         const { data: grp } = await supabaseAdmin
           .from('groups').select('course_id').eq('id', gm.group_id).single();
-        viewerCourseId = grp?.course_id ?? null;
+        viewerCourseId  = grp?.course_id ?? null;
+        viewerCourseIds = viewerCourseId ? [viewerCourseId] : [];
       }
     } else if (req.user?.activeRole === 'supervisor') {
-      // supervisor → groups → course_id  (take the first group's course)
-      const { data: grp } = await supabaseAdmin
-        .from('groups').select('course_id').eq('supervisor_id', req.user.id).limit(1).maybeSingle();
-      viewerCourseId = grp?.course_id ?? null;
+      // supervisor → all supervised groups → distinct course IDs + group IDs
+      const { data: grps } = await supabaseAdmin
+        .from('groups').select('id, course_id').eq('supervisor_id', req.user.id);
+      viewerGroupIds  = (grps || []).map((g) => g.id).filter(Boolean);
+      viewerCourseIds = [...new Set((grps || []).map((g) => g.course_id).filter(Boolean))];
+      viewerCourseId  = viewerCourseIds[0] ?? null; // kept for fallback compat
     }
 
     // ── Apply course-scoped filter ────────────────────────────────────────────
     // Include announcements that:
-    //   (a) belong to the viewer's course  (course_id = viewerCourseId), OR
+    //   (a) belong to any of the viewer's courses, OR
     //   (b) are platform-wide / admin-posted (course_id IS NULL)
-    // Strictly matching on course_id alone silently hides null-scoped announcements.
-    if (viewerCourseId) {
-      query = query.or(`course_id.eq.${viewerCourseId},course_id.is.null`);
+    if (viewerCourseIds.length > 0) {
+      const courseFilter = viewerCourseIds.map((id) => `course_id.eq.${id}`).join(',');
+      query = query.or(`${courseFilter},course_id.is.null`);
     } else if (req.user?.activeRole === 'coordinator') {
       query = query.eq('author_id', req.user.id);
     }
 
+    // ── Apply group-scoped filter (migration 006) ─────────────────────────────
+    // Include announcements that:
+    //   (a) are not group-specific (group_id IS NULL), OR
+    //   (b) are scoped to a group the viewer belongs to / supervises
+    // This ensures committee-evaluation and weekly-report announcements are only
+    // visible to the specific group's students and supervisor.
+    if (viewerGroupIds.length > 0) {
+      const groupParts = viewerGroupIds.map((id) => `group_id.eq.${id}`).join(',');
+      query = query.or(`group_id.is.null,${groupParts}`);
+    }
+
     let { data, error } = await query.range(from, to);
 
-    // Fallback when course_id column doesn't exist yet (pre-migration):
+    // Fallback when course_id / group_id column doesn't exist yet (pre-migration):
     // the filter above causes a DB error — resolve via platform_locks + user_roles instead.
     if (error && viewerCourseId) {
       // Gather coordinator IDs from both assignment mechanisms in parallel
@@ -209,26 +229,38 @@ async function listAnnouncements(req, res) {
 
     if (error) throw error;
 
-    // Batch-fetch author names
-    const authorIds = [...new Set((data || []).map((a) => a.author_id).filter(Boolean))];
-    let authorMap = {};
-    if (authorIds.length > 0) {
-      const { data: profiles } = await supabaseAdmin
-        .from('profiles')
-        .select('id, name')
-        .in('id', authorIds);
-      for (const p of (profiles || [])) authorMap[p.id] = p.name;
+    // Batch-fetch author names and course names in parallel
+    const authorIds  = [...new Set((data || []).map((a) => a.author_id).filter(Boolean))];
+    const courseIds  = [...new Set((data || []).map((a) => a.course_id).filter(Boolean))];
+
+    const [profilesRes, coursesRes] = await Promise.all([
+      authorIds.length > 0
+        ? supabaseAdmin.from('profiles').select('id, name').in('id', authorIds)
+        : Promise.resolve({ data: [] }),
+      courseIds.length > 0
+        ? supabaseAdmin.from('courses').select('id, code, name').in('id', courseIds)
+        : Promise.resolve({ data: [] }),
+    ]);
+
+    const authorMap = {};
+    for (const p of (profilesRes.data || [])) authorMap[p.id] = p.name;
+
+    const courseMap = {};
+    for (const c of (coursesRes.data || [])) {
+      courseMap[c.id] = normalizeCourseCode(c.code ?? '') || c.name || '';
     }
 
     res.set('Cache-Control', isManager ? 'no-store' : 'private, max-age=60');
 
     const payload = (data || []).map((a) => ({
-      id: a.id,
-      title: a.title,
-      content: a.content,
-      author: authorMap[a.author_id] ?? 'Admin',
+      id:          a.id,
+      title:       a.title,
+      content:     a.content,
+      author:      authorMap[a.author_id] ?? 'Admin',
+      authorId:    a.author_id ?? null,
+      courseName:  a.course_id ? (courseMap[a.course_id] ?? '') : '',
       publishedAt: a.published_at,
-      expiresAt: a.expires_at ?? undefined,
+      expiresAt:   a.expires_at ?? undefined,
       targetRoles: a.target_roles ?? [],
     }));
 
@@ -247,36 +279,73 @@ async function listAnnouncements(req, res) {
 
 /**
  * POST /api/announcements
- * Admin only — create a new announcement
+ * Supervisor/Coordinator/Admin — create a new announcement.
+ * Supervisors must supply a groupId; their announcement is scoped to that group
+ * and targets only the group's students (targetRoles is forced to ['student']).
  */
 async function createAnnouncement(req, res) {
   try {
-    const { title, content, targetRoles, expiresAt } = req.body;
+    const { title, content, targetRoles, expiresAt, groupId: bodyGroupId } = req.body;
 
     if (!title || !content || !Array.isArray(targetRoles) || targetRoles.length === 0) {
       return res.status(400).json({ error: 'title, content, and targetRoles are required' });
     }
 
+    const isAdmin      = req.user.roles && req.user.roles.includes('admin');
+    const isSupervisor = !isAdmin && req.user.roles && req.user.roles.includes('supervisor');
+
+    let courseId        = req.user.coordinatorCourseId ?? null;
+    let resolvedGroupId = null;
+    let effectiveRoles  = targetRoles;
+
+    if (isSupervisor) {
+      if (!bodyGroupId) {
+        return res.status(400).json({ error: 'groupId is required for supervisor-created announcements' });
+      }
+      // Validate the supervisor owns this group
+      const { data: grp, error: grpErr } = await supabaseAdmin
+        .from('groups')
+        .select('id, course_id')
+        .eq('id', bodyGroupId)
+        .eq('supervisor_id', req.user.id)
+        .maybeSingle();
+
+      if (grpErr || !grp) {
+        return res.status(403).json({ error: 'You are not the supervisor of this group' });
+      }
+      resolvedGroupId = grp.id;
+      courseId        = grp.course_id ?? null;
+      effectiveRoles  = ['student']; // supervisors can only target their group's students
+    }
+
     const basePayload = {
       title,
       content,
-      author_id: req.user.id,
-      target_roles: targetRoles,
-      expires_at: expiresAt ?? null,
+      author_id:    req.user.id,
+      target_roles: effectiveRoles,
+      expires_at:   expiresAt ?? null,
       published_at: new Date().toISOString(),
     };
 
-    // Try with course_id first (works after migration 005).
-    // Fall back to base payload if column doesn't exist yet.
-    let insertResult = req.user.coordinatorCourseId
-      ? await supabaseAdmin.from('announcements')
-          .insert({ ...basePayload, course_id: req.user.coordinatorCourseId })
-          .select('id').single()
-      : await supabaseAdmin.from('announcements')
-          .insert(basePayload).select('id').single();
+    // Try with course_id + group_id first; fall back progressively.
+    const fullPayload = {
+      ...basePayload,
+      ...(courseId        ? { course_id: courseId }        : {}),
+      ...(resolvedGroupId ? { group_id:  resolvedGroupId } : {}),
+    };
 
-    if (insertResult.error && req.user.coordinatorCourseId) {
-      // Pre-migration: column doesn't exist, retry without course_id
+    let insertResult = await supabaseAdmin.from('announcements')
+      .insert(fullPayload).select('id').single();
+
+    if (insertResult.error && resolvedGroupId) {
+      // group_id column missing — retry without it
+      insertResult = await supabaseAdmin.from('announcements')
+        .insert({ ...basePayload, ...(courseId ? { course_id: courseId } : {}) })
+        .select('id').single();
+    }
+
+    if (insertResult.error && courseId) {
+      // course_id column missing — retry without it
       insertResult = await supabaseAdmin.from('announcements')
         .insert(basePayload).select('id').single();
     }
@@ -287,16 +356,44 @@ async function createAnnouncement(req, res) {
     // Bust all announcement list caches so new entry appears immediately
     await cacheDelPattern('announcements:*');
 
-    // ── Queue email blast (retries automatically on SMTP failure) ─────────────
-    const coordinatorCourseId = req.user.coordinatorCourseId ?? null;
+    // ── Queue email blast ─────────────────────────────────────────────────────
+    // For supervisor group-scoped announcements: email only the group's students.
+    // For coordinator/admin announcements: use the standard course-scoped resolver.
     const publishedAt = new Date().toISOString();
 
-    resolveRecipientEmails(targetRoles, coordinatorCourseId)
-      .then(({ emails, courseName }) => {
-        if (emails.length === 0) return;
-        return queueAnnouncementEmail(emails, { title, content, courseName, publishedAt });
-      })
-      .catch((err) => console.error('[announcements] Failed to queue announcement emails:', err.message));
+    if (isSupervisor && resolvedGroupId) {
+      // Fetch only this group's students for the email blast
+      ;(async () => {
+        try {
+          const { data: members } = await supabaseAdmin
+            .from('group_members').select('student_id').eq('group_id', resolvedGroupId);
+          const studentIds = (members || []).map((m) => m.student_id).filter(Boolean);
+          if (studentIds.length === 0) return;
+
+          const { data: profiles } = await supabaseAdmin
+            .from('profiles').select('email').in('id', studentIds);
+          const emails = (profiles || []).map((p) => p.email).filter(Boolean);
+          if (emails.length === 0) return;
+
+          const { data: course } = courseId
+            ? await supabaseAdmin.from('courses').select('code').eq('id', courseId).single()
+            : { data: null };
+          const courseName = normalizeCourseCode(course?.code ?? '');
+
+          await queueAnnouncementEmail(emails, { title, content, courseName, publishedAt });
+        } catch (e) {
+          console.error('[announcements] supervisor group email blast failed:', e.message);
+        }
+      })();
+    } else {
+      const coordinatorCourseId = req.user.coordinatorCourseId ?? null;
+      resolveRecipientEmails(effectiveRoles, coordinatorCourseId)
+        .then(({ emails, courseName }) => {
+          if (emails.length === 0) return;
+          return queueAnnouncementEmail(emails, { title, content, courseName, publishedAt });
+        })
+        .catch((err) => console.error('[announcements] Failed to queue announcement emails:', err.message));
+    }
 
     res.json({ success: true, id: data.id });
   } catch (error) {
@@ -399,6 +496,18 @@ async function updateAnnouncement(req, res) {
 async function deleteAnnouncement(req, res) {
   try {
     const { id } = req.params;
+    const isAdmin      = req.user?.roles?.includes('admin');
+    const isSupervisor = !isAdmin && req.user?.roles?.includes('supervisor');
+
+    // Supervisors may only delete announcements they authored themselves
+    if (isSupervisor) {
+      const { data: existing } = await supabaseAdmin
+        .from('announcements').select('author_id').eq('id', id).maybeSingle();
+      if (!existing) return res.status(404).json({ error: 'Announcement not found' });
+      if (existing.author_id !== req.user.id) {
+        return res.status(403).json({ error: 'You can only delete announcements you posted' });
+      }
+    }
 
     // Coordinators may only delete announcements belonging to their course
     if (req.user?.activeRole === 'coordinator') {

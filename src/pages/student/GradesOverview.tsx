@@ -19,7 +19,11 @@ import {
   RefreshCw,
   MessageSquare,
   X,
+  Download,
+  Loader2,
 } from 'lucide-react';
+import { getSignedUrl } from '../../services/storage';
+import { toast } from 'sonner';
 import { useState, useEffect, useCallback } from 'react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -59,7 +63,13 @@ interface StudentMyGradesData {
     submissionStatus: string;
     comment?: string | null;
   } | null;
-  committeeEvaluation: { score: number; maxScore: number; comment?: string | null } | null;
+  committeeEvaluation: {
+    score: number;
+    maxScore: number;
+    comment?: string | null;
+    commentFileUrl?: string | null;
+    commentFileName?: string | null;
+  } | null;
   coordinatorComment?: string | null;
   approvalCounts: { total: number; pending: number; approved: number; rejected: number };
   weeklyScore: number;
@@ -77,6 +87,8 @@ interface StudentMyGradesData {
   };
   deliverables: Record<string, { score: number | null; maxScore: number; gradedAt: string | null }> | null;
   deliverablesTotal: number;
+  supervisorCriterionScores?: Record<string, number>;
+  committeeCriterionScores?: Record<string, number>;
   totalScore: number;
   finalGrade: string;
   prevCourseComments?: PrevCourseComment[] | null;
@@ -150,6 +162,8 @@ export function StudentGradesOverview() {
   const [criterionScores, setCriterionScores] = useState<Record<string, number>>({});
   const [expandedCriteria, setExpandedCriteria] = useState<Set<string>>(new Set());
 
+  const [downloadingFile, setDownloadingFile] = useState<string | null>(null);
+
   // Student marks dialog (click group member name)
   const [memberDialogOpen, setMemberDialogOpen]   = useState(false);
   const [memberDialogLoading, setMemberDialogLoading] = useState(false);
@@ -170,59 +184,31 @@ export function StudentGradesOverview() {
         setWeekStatuses(ws);
         setRubricCriteria(criteria);
 
-        // Seed criterion scores from the API response first (no RLS dependency).
-        // coordinator_deliverable keys (demo, poster_day, chapter_implementation, etc.)
-        // come from grades.deliverables which is already fetched server-side.
+        // Build criterion scores from server-provided data (no direct Supabase queries
+        // needed — RLS would block students from reading rubric tables directly).
         const scores: Record<string, number> = {};
+
+        // 1. Coordinator deliverable scores (demo, poster_day, chapter_*, etc.)
         for (const [key, d] of Object.entries(grades.deliverables ?? {})) {
           if (d.score != null) scores[key] = d.score;
         }
-        setCriterionScores(scores);
 
-        // Fetch supervisor + committee rubric scores (need course_id from courses table).
-        // If this query is blocked or returns nothing, the coordinator deliverable
-        // scores set above are still shown correctly.
-        const { data: courseRow } = await supabase
-          .from('courses')
-          .select('id')
-          .eq('code', grades.courseCode)
-          .limit(1)
-          .maybeSingle();
-
-        if (courseRow) {
-          const [{ data: supScores }, { data: commScores }] = await Promise.all([
-            supabase
-              .from('supervisor_rubric_scores')
-              .select('criterion_key, raw_score')
-              .eq('student_id', user.id)
-              .eq('group_id', grades.groupId)
-              .eq('course_id', courseRow.id),
-            supabase
-              .from('committee_rubric_scores')
-              .select('criterion_key, score')
-              .eq('group_id', grades.groupId)
-              .eq('course_id', courseRow.id)
-              .in('submission_status', ['submitted', 'locked']),
-          ]);
-
-          for (const s of supScores ?? []) {
-            scores[s.criterion_key] = Number(s.raw_score);
-          }
-          const commSums: Record<string, number[]> = {};
-          for (const s of commScores ?? []) {
-            (commSums[s.criterion_key] ??= []).push(Number(s.score));
-          }
-          for (const [key, vals] of Object.entries(commSums)) {
-            if (!(key in scores)) {
-              scores[key] = vals.reduce((a, b) => a + b, 0) / vals.length;
-            }
-          }
-          // Re-apply deliverable scores so they're never overwritten by empty rubric data
-          for (const [key, d] of Object.entries(grades.deliverables ?? {})) {
-            if (d.score != null) scores[key] = d.score;
-          }
-          setCriterionScores({ ...scores });
+        // 2. Supervisor per-criterion scores (fetched server-side)
+        for (const [key, val] of Object.entries(grades.supervisorCriterionScores ?? {})) {
+          scores[key] = Number(val);
         }
+
+        // 3. Committee per-criterion averaged scores (fetched server-side)
+        for (const [key, val] of Object.entries(grades.committeeCriterionScores ?? {})) {
+          if (!(key in scores)) scores[key] = Number(val);
+        }
+
+        // Re-apply deliverable scores so they're never overwritten by rubric data
+        for (const [key, d] of Object.entries(grades.deliverables ?? {})) {
+          if (d.score != null) scores[key] = d.score;
+        }
+
+        setCriterionScores({ ...scores });
       }
     } catch (err) {
       console.error('Failed to load grades:', err);
@@ -863,6 +849,49 @@ export function StudentGradesOverview() {
                     </p>
                   ) : (
                     <p className="text-sm text-[var(--color-text-500)] italic">No comment added yet</p>
+                  )}
+                  {g.committeeEvaluation?.commentFileUrl && g.committeeEvaluation?.commentFileName && (
+                    <div className="mt-3 pt-3 border-t border-[var(--color-border)]">
+                      <p className="text-xs font-semibold text-[var(--color-text-700)] uppercase tracking-wide mb-2">
+                        Feedback File
+                      </p>
+                      <button
+                        type="button"
+                        disabled={downloadingFile === g.committeeEvaluation.commentFileUrl}
+                        onClick={async () => {
+                          const fileUrl  = g.committeeEvaluation!.commentFileUrl!;
+                          const fileName = g.committeeEvaluation!.commentFileName!;
+                          setDownloadingFile(fileUrl);
+                          try {
+                            const url = await getSignedUrl(fileUrl);
+                            const res  = await fetch(url);
+                            const blob = await res.blob();
+                            const blobUrl = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href     = blobUrl;
+                            a.download = fileName;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(blobUrl);
+                          } catch {
+                            toast.error('Failed to download file. Please try again.');
+                          } finally {
+                            setDownloadingFile(null);
+                          }
+                        }}
+                        className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg border border-green-300 bg-green-50 text-green-700 hover:bg-green-100 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        {downloadingFile === g.committeeEvaluation.commentFileUrl
+                          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          : <Download className="w-3.5 h-3.5" />
+                        }
+                        {downloadingFile === g.committeeEvaluation.commentFileUrl
+                          ? 'Downloading…'
+                          : g.committeeEvaluation.commentFileName
+                        }
+                      </button>
+                    </div>
                   )}
                 </div>
 

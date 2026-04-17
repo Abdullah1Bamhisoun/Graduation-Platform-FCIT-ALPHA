@@ -38,10 +38,10 @@ async function listEvents(req, res) {
     const cachedEvents = await cacheGet(calendarCk);
     if (cachedEvents) return res.json(cachedEvents);
 
-    // ── Attempt 1: with course_id column ─────────────────────────────────────
+    // ── Attempt 1: with course_id + group_id columns ─────────────────────────
     let query = supabaseAdmin
       .from('calendar_events')
-      .select('id, title, date, type, time, location, course_id, created_at')
+      .select('id, title, date, type, time, location, course_id, group_id, created_at')
       .order('date', { ascending: true });
 
     if (!isAdmin && coordinatorCourseId) {
@@ -168,24 +168,52 @@ async function listEvents(req, res) {
 
 /**
  * POST /api/calendar-events
- * Coordinator or Admin — create a new calendar event.
- * Coordinators automatically have their assigned course_id applied.
+ * Supervisor/Coordinator/Admin — create a new calendar event.
+ * - Coordinators: event is scoped to their assigned course.
+ * - Supervisors: must supply a groupId; event is scoped to that group.
+ * - Admins: platform-wide (no course scope unless explicitly provided).
  *
- * Falls back gracefully if course_id column has not been migrated yet.
+ * Falls back gracefully if course_id / group_id column has not been migrated yet.
  */
 async function createEvent(req, res) {
   try {
-    const { title, date, type, time, location } = req.body;
+    const { title, date, type, time, location, groupId } = req.body;
 
     if (!title || !date || !type) {
       return res.status(400).json({ error: 'title, date, and type are required' });
     }
 
-    const isAdmin = req.user.roles && req.user.roles.includes('admin');
-    const courseId = isAdmin ? null : (req.user.coordinatorCourseId || null);
+    const isAdmin      = req.user.roles && req.user.roles.includes('admin');
+    const isSupervisor = !isAdmin && req.user.roles && req.user.roles.includes('supervisor');
 
-    if (!isAdmin && !courseId) {
-      return res.status(403).json({ error: 'No course assigned to your coordinator account. Please contact the admin.' });
+    let courseId     = null;
+    let resolvedGroupId = null;
+
+    if (isAdmin) {
+      // Admin: no forced scope
+    } else if (isSupervisor) {
+      // Supervisor must provide a groupId and must supervise that group
+      if (!groupId) {
+        return res.status(400).json({ error: 'groupId is required for supervisor-created events' });
+      }
+      const { data: grp, error: grpErr } = await supabaseAdmin
+        .from('groups')
+        .select('id, course_id')
+        .eq('id', groupId)
+        .eq('supervisor_id', req.user.id)
+        .maybeSingle();
+
+      if (grpErr || !grp) {
+        return res.status(403).json({ error: 'You are not the supervisor of this group' });
+      }
+      resolvedGroupId = grp.id;
+      courseId        = grp.course_id ?? null;
+    } else {
+      // Coordinator
+      courseId = req.user.coordinatorCourseId || null;
+      if (!courseId) {
+        return res.status(403).json({ error: 'No course assigned to your coordinator account. Please contact the admin.' });
+      }
     }
 
     const baseInsert = {
@@ -196,12 +224,27 @@ async function createEvent(req, res) {
       location: location || null,
     };
 
-    // ── Attempt 1: with course_id ─────────────────────────────────────────────
+    const fullInsert = {
+      ...baseInsert,
+      ...(courseId        ? { course_id: courseId }         : {}),
+      ...(resolvedGroupId ? { group_id:  resolvedGroupId }  : {}),
+    };
+
+    // ── Attempt 1: with course_id + group_id (migrations 005+006) ────────────
     let { data, error } = await supabaseAdmin
       .from('calendar_events')
-      .insert(courseId ? { ...baseInsert, course_id: courseId } : baseInsert)
+      .insert(fullInsert)
       .select('id')
       .single();
+
+    // ── Fallback: group_id column missing ────────────────────────────────────
+    if (error && resolvedGroupId) {
+      ({ data, error } = await supabaseAdmin
+        .from('calendar_events')
+        .insert({ ...baseInsert, ...(courseId ? { course_id: courseId } : {}) })
+        .select('id')
+        .single());
+    }
 
     // ── Fallback: course_id column not yet added ──────────────────────────────
     if (isMissingCourseIdColumn(error)) {
@@ -238,17 +281,22 @@ async function createEvent(req, res) {
 
     const targetRoles = isAdmin
       ? ['student', 'supervisor', 'coordinator']
-      : ['student', 'supervisor'];
+      : isSupervisor
+        ? ['student']   // supervisor events target their group's students
+        : ['student', 'supervisor'];
 
     try {
-      await supabaseAdmin.from('announcements').insert({
-        title: `New Event: ${title}`,
-        content: announcementLines,
-        author_id: req.user.id,
+      const annPayload = {
+        title:        `New Event: ${title}`,
+        content:      announcementLines,
+        author_id:    req.user.id,
         target_roles: targetRoles,
         published_at: new Date().toISOString(),
-        expires_at: null,
-      });
+        expires_at:   null,
+        ...(courseId        ? { course_id: courseId }        : {}),
+        ...(resolvedGroupId ? { group_id:  resolvedGroupId } : {}),
+      };
+      await supabaseAdmin.from('announcements').insert(annPayload);
     } catch (annErr) {
       console.warn('Failed to auto-create announcement for event:', annErr);
     }
@@ -268,28 +316,45 @@ async function createEvent(req, res) {
 
 /**
  * DELETE /api/calendar-events/:id
- * Coordinator or Admin — delete a calendar event.
- * Coordinators can only delete events belonging to their assigned course.
+ * Supervisor/Coordinator/Admin — delete a calendar event.
+ * - Coordinators can only delete events belonging to their assigned course.
+ * - Supervisors can only delete events scoped to their own groups.
+ * - Admins can delete any event.
  *
  * Falls back gracefully if course_id column has not been migrated yet.
  */
 async function deleteEvent(req, res) {
   try {
     const { id } = req.params;
-    const isAdmin = req.user.roles && req.user.roles.includes('admin');
+    const isAdmin      = req.user.roles && req.user.roles.includes('admin');
+    const isSupervisor = !isAdmin && req.user.roles && req.user.roles.includes('supervisor');
 
     if (!isAdmin) {
       const { data: existing, error: fetchError } = await supabaseAdmin
         .from('calendar_events')
-        .select('course_id')
+        .select('course_id, group_id')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       // If course_id column doesn't exist yet, allow the delete (migration pending)
       if (fetchError && isMissingCourseIdColumn(fetchError)) {
         // fall through to delete
       } else if (fetchError || !existing) {
         return res.status(404).json({ error: 'Event not found' });
+      } else if (isSupervisor) {
+        // Supervisor can only delete an event that is scoped to one of their groups
+        if (!existing.group_id) {
+          return res.status(403).json({ error: 'Access denied: you can only delete events you created for your groups' });
+        }
+        const { data: grp } = await supabaseAdmin
+          .from('groups')
+          .select('id')
+          .eq('id', existing.group_id)
+          .eq('supervisor_id', req.user.id)
+          .maybeSingle();
+        if (!grp) {
+          return res.status(403).json({ error: 'Access denied: this event does not belong to your group' });
+        }
       } else if (existing.course_id !== req.user.coordinatorCourseId) {
         return res.status(403).json({ error: 'Access denied: event does not belong to your course' });
       }

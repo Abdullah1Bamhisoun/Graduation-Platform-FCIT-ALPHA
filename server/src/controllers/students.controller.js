@@ -103,12 +103,23 @@ async function getMyGrades(req, res) {
       .order('display_order');
 
     // ── Step 4: Supervisor assessment for THIS student (read-only) ────────────
-    const { data: supRow } = await supabaseAdmin
-      .from('supervisor_assessments')
-      .select('score, max_score, graded_at, submission_status, comment')
-      .eq('student_id', studentId)
-      .eq('group_id', groupId)
-      .maybeSingle();
+    // NOTE: supervisor_assessments has no submission_status column — omit it.
+    const [
+      { data: supRow },
+      { data: supRubricRows },
+    ] = await Promise.all([
+      supabaseAdmin
+        .from('supervisor_assessments')
+        .select('score, max_score, graded_at, comment')
+        .eq('student_id', studentId)
+        .eq('group_id', groupId)
+        .maybeSingle(),
+      supabaseAdmin
+        .from('supervisor_rubric_scores')
+        .select('criterion_key, raw_score')
+        .eq('student_id', studentId)
+        .eq('group_id', groupId),
+    ]);
 
     const supervisorMaxScore = courseType === '499' ? 23 : 20;
     const supervisorEval = supRow
@@ -116,17 +127,43 @@ async function getMyGrades(req, res) {
           score:            supRow.score != null ? Number(supRow.score) : null,
           maxScore:         Number(supRow.max_score ?? supervisorMaxScore),
           gradedAt:         supRow.graded_at ?? null,
-          submissionStatus: supRow.submission_status ?? 'draft',
+          submissionStatus: 'submitted', // no column — if a row exists it was submitted
           comment:          supRow.comment ?? null,
         }
       : null;
 
+    // Per-criterion supervisor rubric scores (for student detail view)
+    const supervisorCriterionScores = {};
+    for (const r of supRubricRows ?? []) {
+      supervisorCriterionScores[r.criterion_key] = Number(r.raw_score);
+    }
+
     // ── Step 5: Committee evaluation for THIS student (read-only) ─────────────
-    const { data: commRows } = await supabaseAdmin
-      .from('committee_evaluations')
-      .select('score, max_score, comment, evaluator_id')
-      .eq('group_id', groupId)
-      .in('submission_status', ['submitted', 'locked']);
+    const [
+      { data: commRows },
+      { data: commRubricRows },
+    ] = await Promise.all([
+      supabaseAdmin
+        .from('committee_evaluations')
+        .select('score, max_score, comment, evaluator_id, comment_file_url, comment_file_name')
+        .eq('group_id', groupId)
+        .in('submission_status', ['submitted', 'locked']),
+      supabaseAdmin
+        .from('committee_rubric_scores')
+        .select('criterion_key, score')
+        .eq('group_id', groupId)
+        .in('submission_status', ['submitted', 'locked']),
+    ]);
+
+    // Average per-criterion across all submitted committee evaluators
+    const commCritSums = {};
+    for (const r of commRubricRows ?? []) {
+      (commCritSums[r.criterion_key] ??= []).push(Number(r.score));
+    }
+    const committeeCriterionScores = {};
+    for (const [key, vals] of Object.entries(commCritSums)) {
+      committeeCriterionScores[key] = vals.reduce((a, b) => a + b, 0) / vals.length;
+    }
 
     const committeeScore = commRows && commRows.length > 0
       ? commRows.reduce((s, r) => s + Number(r.score ?? 0), 0) / commRows.length
@@ -139,6 +176,13 @@ async function getMyGrades(req, res) {
     const committeeComment = committeeComments.length > 0
       ? committeeComments.join('\n\n---\n\n')
       : null;
+
+    // First submitted evaluation's file (shared for the whole group)
+    const committeeFileRow = (commRows ?? []).find(
+      (r) => r.comment_file_url && r.comment_file_name
+    );
+    const committeeFileUrl  = committeeFileRow?.comment_file_url  ?? null;
+    const committeeFileName = committeeFileRow?.comment_file_name ?? null;
 
     // ── Step 6: Coordinator deliverable scores for this group (498) ───────────
     const { data: delivScores } = await supabaseAdmin
@@ -368,7 +412,13 @@ async function getMyGrades(req, res) {
       components: assembledComponents,
       supervisorEvaluation: supervisorEval,
       committeeEvaluation: committeeScore != null
-        ? { score: committeeScore, maxScore: 40, comment: committeeComment }
+        ? {
+            score:           committeeScore,
+            maxScore:        40,
+            comment:         committeeComment,
+            commentFileUrl:  committeeFileUrl,
+            commentFileName: committeeFileName,
+          }
         : null,
       coordinatorComment,
       approvalCounts,
@@ -386,8 +436,11 @@ async function getMyGrades(req, res) {
         hasSubmitted:    hasSubmittedPeer,
       },
       // Per-deliverable breakdown — returned for both 498 and 499 (used for criteria scores)
-      deliverables:     deliverableDetail,
+      deliverables:              deliverableDetail,
       deliverablesTotal,
+      // Per-criterion rubric scores (fetched server-side to bypass RLS restrictions)
+      supervisorCriterionScores,
+      committeeCriterionScores,
       totalScore,
       finalGrade: finalGradeLetterOf(totalScore),
       // Previous CPIS-498 committee feedback (only populated for CPIS-499 students)

@@ -248,6 +248,7 @@ async function updateSubmissionApproval(req, res) {
               content:     `Your supervisor reviewed "${mileName}".\nDecision: ${decisionLabel}${feedback ? `\n\nFeedback: ${feedback}` : ''}`,
               targetRoles: ['student'],
               courseId,
+              groupId:     submission.group_id,
               authorId:    req.user.id,
             }),
             notificationService.createUserNotifications(studentIds, {
@@ -654,6 +655,7 @@ async function createSubmission(req, res) {
               content:     `${req.user.name || 'A student'} uploaded a new file for "${mileName}"${groupNum ? ` (Group ${groupNum})` : ''}.\nSubmitted: ${new Date().toLocaleString('en-US')}`,
               targetRoles: ['supervisor'],
               courseId,
+              groupId,
               authorId:    req.user.id,
             }),
             notificationService.createUserNotifications([group.supervisor_id], {
@@ -774,6 +776,7 @@ async function createSubmissionVersion(req, res) {
               content:     `${req.user.name || 'A student'} uploaded revision v${version} for "${mileName}"${groupNum ? ` (Group ${groupNum})` : ''}.\nSubmitted: ${new Date().toLocaleString('en-US')}`,
               targetRoles: ['supervisor'],
               courseId,
+              groupId:     submission.group_id,
               authorId:    req.user.id,
             }),
             notificationService.createUserNotifications([group.supervisor_id], {

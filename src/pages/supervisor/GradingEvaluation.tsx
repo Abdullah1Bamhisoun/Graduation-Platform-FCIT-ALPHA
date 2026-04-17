@@ -32,11 +32,11 @@ import { LockedBanner } from '../../components/ui/LockedBanner';
 import {
   getRubricCriteria,
   getCommitteeRubricScores,
-  saveCommitteeRubricScores,
   type RubricCriterion,
 } from '../../services/grading-rubric';
 import { getSignedUrl } from '../../services/storage';
 import { supabase } from '../../lib/supabase';
+import { apiUrl } from '@/lib/api';
 import { DocumentViewerWithAnnotations } from '../../components/DocumentViewerWithAnnotations';
 import {
   Save, Send, CheckCircle, AlertCircle, Info, FileText,
@@ -116,6 +116,7 @@ interface GroupOption {
   id: string;
   groupNumber: number;
   course: string;
+  courseId: string | null;
   projectTitle: string;
   evaluationActive: boolean;
 }
@@ -208,20 +209,26 @@ function MilestoneSubmissionCard({
     if (!feedback.trim()) return;
     setSaving(true);
     try {
-      await supabase
-        .from('committee_milestone_feedback')
-        .upsert({
-          group_id: groupId,
-          course_id: courseId,
-          milestone_id: milestone.id,
-          evaluator_id: evaluatorId,
-          comment: feedback.trim(),
-          created_at: new Date().toISOString(),
-        }, { onConflict: 'group_id,course_id,milestone_id,evaluator_id' });
+      const session = await supabase.auth.getSession();
+      const token   = session.data.session?.access_token ?? '';
+      const res = await fetch(apiUrl('/api/evaluations/milestone-feedback'), {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body:    JSON.stringify({
+          groupId,
+          courseId,
+          milestoneId: milestone.id,
+          comment:     feedback.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Request failed' }));
+        throw new Error(err.error || 'Request failed');
+      }
       setSavedFeedback(feedback.trim());
       toast.success('Feedback saved');
-    } catch {
-      toast.error('Failed to save feedback');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to save feedback');
     } finally {
       setSaving(false);
     }
@@ -367,6 +374,7 @@ export function SupervisorGradingEvaluation() {
         id: g.id,
         groupNumber: g.groupNumber ?? 0,
         course: g.courseCode,
+        courseId: (g as any).courseId ?? null,
         projectTitle: g.projectName,
         evaluationActive: g.evaluationActive,
       })));
@@ -382,7 +390,9 @@ export function SupervisorGradingEvaluation() {
     const ct = courseTypeFromCode(group.course);
 
     ;(async () => {
-      const cid = await getCourseIdByCode(group.course);
+      // Use the group's actual course_id directly — avoids fuzzy code lookup mismatch
+      const { data: gRow } = await supabase.from('groups').select('course_id').eq('id', selectedGroup).single();
+      const cid = gRow?.course_id ?? group.courseId ?? null;
       setCourseId(cid);
 
       const [crit, existingScores] = await Promise.all([
@@ -524,19 +534,37 @@ export function SupervisorGradingEvaluation() {
   const total          = Object.values(scores).reduce((s, v) => s + v, 0);
   const maxTotal       = criteria.length * 5;
   const allFilled      = criteria.length > 0 && criteria.every(c => scores[c.criterionKey] !== undefined);
-  const isReadOnly     = submissionStatus === 'submitted' || submissionStatus === 'locked' || isLocked;
+  // Only hard-lock when admin has locked grades or the record is locked by coordinator.
+  // 'submitted' can still be edited — evaluator can re-submit to update scores.
+  const isReadOnly     = submissionStatus === 'locked' || isLocked;
   const pct            = maxTotal > 0 ? Math.round((total / maxTotal) * 100) : 0;
 
   // ── Save draft ─────────────────────────────────────────────────────────────
 
+  const callCommitteeApi = async (submissionStatus: 'draft' | 'submitted') => {
+    const session = await supabase.auth.getSession();
+    const token   = session.data.session?.access_token ?? '';
+    const res = await fetch(apiUrl('/api/evaluations/committee-evaluation'), {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body:    JSON.stringify({
+        groupId:          selectedGroup,
+        scores:           Object.entries(scores).map(([criterionKey, score]) => ({ criterionKey, score })),
+        comment:          comment || null,
+        submissionStatus,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(err.error || 'Request failed');
+    }
+  };
+
   const saveDraft = async () => {
-    if (!currentGroup || !courseId || !user) return;
+    if (!currentGroup || !user) return;
     setSaving(true);
     try {
-      await saveCommitteeRubricScores({
-        groupId: selectedGroup, courseId, evaluatorId: user.id,
-        scores, submissionStatus: 'draft',
-      });
+      await callCommitteeApi('draft');
       toast.success('Draft saved.');
     } catch (err: any) {
       toast.error(err?.message || 'Failed to save draft.');
@@ -548,20 +576,11 @@ export function SupervisorGradingEvaluation() {
   // ── Submit ─────────────────────────────────────────────────────────────────
 
   const doSubmit = async () => {
-    if (!currentGroup || !courseId || !user) return;
+    if (!currentGroup || !user) return;
     setShowConfirm(false);
     setSaving(true);
     try {
-      await saveCommitteeRubricScores({
-        groupId: selectedGroup, courseId, evaluatorId: user.id,
-        scores, submissionStatus: 'submitted',
-      });
-      await supabase.from('committee_evaluations').upsert({
-        group_id: selectedGroup, course_id: courseId,
-        evaluator_id: user.id, score: total, max_score: 40, comment,
-        submission_status: 'submitted',
-      }, { onConflict: 'group_id,course_id,evaluator_id' });
-
+      await callCommitteeApi('submitted');
       setSubmissionStatus('submitted');
       toast.success(`Committee evaluation submitted. Total: ${total}/40`);
     } catch (err: any) {
@@ -773,7 +792,7 @@ export function SupervisorGradingEvaluation() {
                 </div>
                 <div className="text-xs text-[var(--color-text-600)]">{pct}% complete</div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 {!isReadOnly && (
                   <>
                     <Button variant="outline" size="sm" onClick={saveDraft} disabled={saving || !currentGroup.evaluationActive}>
@@ -782,7 +801,7 @@ export function SupervisorGradingEvaluation() {
                     <Button size="sm" onClick={() => setShowConfirm(true)}
                       disabled={saving || !allFilled || !currentGroup.evaluationActive}
                       className="bg-green-600 text-white hover:bg-green-700">
-                      <Send className="w-4 h-4 mr-1" />Submit
+                      <Send className="w-4 h-4 mr-1" />{submissionStatus === 'submitted' ? 'Re-submit' : 'Submit'}
                     </Button>
                     <Button variant="outline" size="sm"
                       onClick={() => setShowIP(true)}
@@ -792,9 +811,9 @@ export function SupervisorGradingEvaluation() {
                     </Button>
                   </>
                 )}
-                {isReadOnly && (
-                  <div className="flex items-center gap-2 text-green-700 text-sm">
-                    <CheckCircle className="w-4 h-4" />Submitted
+                {isReadOnly && submissionStatus === 'locked' && (
+                  <div className="flex items-center gap-2 text-red-700 text-sm">
+                    <CheckCircle className="w-4 h-4" />Locked
                   </div>
                 )}
               </div>
@@ -877,7 +896,7 @@ export function SupervisorGradingEvaluation() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Submit Committee Evaluation</DialogTitle>
-            <DialogDescription>Once submitted, your evaluation will be locked.</DialogDescription>
+            <DialogDescription>Submit your evaluation. You can re-edit and re-submit until grades are locked by the coordinator.</DialogDescription>
           </DialogHeader>
           <div className="py-3 space-y-2 text-sm">
             <div className="flex justify-between p-3 bg-gray-50 rounded-lg">

@@ -145,6 +145,11 @@ function requireCoordinatorOrAdmin(req, res, next) {
   return requireRole(['coordinator', 'admin'])(req, res, next);
 }
 
+/** Supervisor, coordinator, or admin shortcut */
+function requireSupervisorOrCoordinatorOrAdmin(req, res, next) {
+  return requireRole(['supervisor', 'coordinator', 'admin'])(req, res, next);
+}
+
 /**
  * Enforce that the coordinator's active course matches a specified field.
  * Must be used AFTER authenticate.
@@ -311,6 +316,7 @@ module.exports = {
   requireAdmin,
   requireSupervisorOrAdmin,
   requireCoordinatorOrAdmin,
+  requireSupervisorOrCoordinatorOrAdmin,
   enforceCourseScope,
   optionalAuth,
   validateCoordinatorCourseType,

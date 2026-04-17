@@ -19,7 +19,8 @@ export interface MeetingParticipant {
 export interface Meeting {
   id:           string;
   title:        string;
-  meeting_url:  string;
+  meeting_url:  string | null;
+  location?:    string | null;
   date_time:    string;
   status:       MeetingStatus;
   notes?:       string | null;
@@ -33,16 +34,18 @@ export interface Meeting {
 }
 
 export interface CreateMeetingPayload {
-  title:       string;
-  meeting_url: string;
-  date_time:   string;
-  group_id:    string;
-  notes?:      string;
+  title:        string;
+  meeting_url?: string | null;
+  location?:    string | null;
+  date_time:    string;
+  group_id:     string;
+  notes?:       string;
 }
 
 export interface UpdateMeetingPayload {
   title?:       string;
-  meeting_url?: string;
+  meeting_url?: string | null;
+  location?:    string | null;
   date_time?:   string;
   notes?:       string | null;
 }

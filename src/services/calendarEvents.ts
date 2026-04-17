@@ -9,6 +9,7 @@ export interface CalendarEvent {
   time?: string;
   location?: string;
   courseId?: string;
+  groupId?: string;
 }
 
 async function getToken(): Promise<string> {
@@ -36,6 +37,7 @@ export async function createCalendarEvent(event: {
   type: CalendarEvent['type'];
   time?: string;
   location?: string;
+  groupId?: string;
 }): Promise<string> {
   const token = await getToken();
   const res = await fetch(apiUrl('/api/calendar-events'), {

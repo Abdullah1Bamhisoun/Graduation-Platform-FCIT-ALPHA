@@ -42,16 +42,18 @@ export async function createAnnouncement(announcement: {
   authorId: string;
   targetRoles: UserRole[];
   expiresAt?: string;
+  groupId?: string;
 }): Promise<void> {
   const token = await getToken();
   const res = await fetch(apiUrl('/api/announcements'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({
-      title: announcement.title,
-      content: announcement.content,
+      title:       announcement.title,
+      content:     announcement.content,
       targetRoles: announcement.targetRoles,
-      expiresAt: announcement.expiresAt ?? null,
+      expiresAt:   announcement.expiresAt ?? null,
+      groupId:     announcement.groupId ?? null,
     }),
   });
   if (!res.ok) {

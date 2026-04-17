@@ -228,6 +228,93 @@ function sendSupervisorEvaluation(studentEmail, data) {
 }
 
 /**
+ * Grade summary email — sent to a student whenever an evaluation is submitted.
+ * Shows every grading component with score, max, and a visual progress bar.
+ *
+ * @param {string}   studentEmail
+ * @param {{
+ *   courseName:  string,
+ *   studentName: string,
+ *   trigger:     string,          // e.g. "Supervisor Evaluation Submitted"
+ *   components:  Array<{
+ *     name:     string,
+ *     score:    number|null,
+ *     maxScore: number,
+ *   }>,
+ *   totalScore:  number,
+ *   totalMax:    number,
+ *   appUrl?:     string,
+ * }} data
+ */
+function sendAllGrades(studentEmail, data) {
+  const { courseName, studentName, trigger, components, totalScore, totalMax, appUrl = APP_URL ? `${APP_URL}/student/grades` : '' } = data;
+
+  // ── Score bar helper (inline SVG-less version using a table) ──────────────
+  const pctBar = (score, max) => {
+    if (score == null || max <= 0) return '';
+    const pct = Math.min(100, Math.round((score / max) * 100));
+    const color = pct >= 80 ? '#16a34a' : pct >= 60 ? '#ca8a04' : '#dc2626';
+    return `<td style="padding-left:8px;width:90px;vertical-align:middle;">
+      <div style="background:#e5e7eb;border-radius:4px;height:6px;width:90px;">
+        <div style="background:${color};border-radius:4px;height:6px;width:${pct}%;"></div>
+      </div>
+    </td>`;
+  };
+
+  const componentRows = components.map((c, i) => {
+    const haScore  = c.score != null;
+    const scoreStr = haScore ? `<strong>${c.score}</strong>` : '<span style="color:#9ca3af;">—</span>';
+    const maxStr   = `/ ${c.maxScore}`;
+    return `<tr style="background:${i % 2 === 0 ? '#ffffff' : '#f9fafb'};">
+      <td style="padding:10px 14px;font-size:14px;color:#374151;border-bottom:1px solid #f3f4f6;">${c.name}</td>
+      <td style="padding:10px 14px;font-size:14px;color:#111827;white-space:nowrap;border-bottom:1px solid #f3f4f6;text-align:right;">
+        ${scoreStr} <span style="color:#9ca3af;font-size:12px;">${maxStr}</span>
+      </td>
+      ${pctBar(c.score, c.maxScore)}
+    </tr>`;
+  }).join('');
+
+  const totalPct = totalMax > 0 ? Math.round((totalScore / totalMax) * 100) : 0;
+  const totalColor = totalPct >= 80 ? '#16a34a' : totalPct >= 60 ? '#ca8a04' : '#dc2626';
+
+  const gradeTable = `
+    <table width="100%" cellpadding="0" cellspacing="0"
+           style="border:1px solid #e5e7eb;border-radius:8px;margin:0 0 24px;border-collapse:collapse;overflow:hidden;">
+      <thead>
+        <tr style="background:#f3f4f6;">
+          <th style="padding:10px 14px;font-size:12px;color:#6b7280;text-align:left;border-bottom:1px solid #e5e7eb;text-transform:uppercase;letter-spacing:0.5px;">Component</th>
+          <th style="padding:10px 14px;font-size:12px;color:#6b7280;text-align:right;border-bottom:1px solid #e5e7eb;text-transform:uppercase;letter-spacing:0.5px;">Score</th>
+          <th style="padding:10px 14px;font-size:12px;color:#6b7280;border-bottom:1px solid #e5e7eb;width:90px;"></th>
+        </tr>
+      </thead>
+      <tbody>${componentRows}</tbody>
+      <tfoot>
+        <tr style="background:#f0faf5;">
+          <td style="padding:12px 14px;font-size:15px;font-weight:700;color:#1a6b4a;">Total</td>
+          <td style="padding:12px 14px;font-size:15px;font-weight:700;color:${totalColor};text-align:right;">${totalScore} / ${totalMax}</td>
+          <td style="padding:12px 14px;font-size:13px;color:${totalColor};font-weight:600;">${totalPct}%</td>
+        </tr>
+      </tfoot>
+    </table>`;
+
+  const body = `
+    ${heading(trigger)}
+    ${paragraph(`Dear <strong>${studentName}</strong>, a new grade has been posted for your graduation project in <strong>${courseName}</strong>. Here is your current grade breakdown:`)}
+    ${gradeTable}
+    <p style="margin:0 0 8px;font-size:12px;color:#9ca3af;text-align:center;">
+      Components showing <em>—</em> have not yet been graded.
+    </p>
+    ${appUrl ? ctaButton('View My Grades', appUrl) : ''}
+  `;
+
+  return sendEmail(
+    studentEmail,
+    `[${courseName}] Grades Updated — ${trigger}`,
+    layout(body, 'Grade Summary')
+  );
+}
+
+/**
  * 4. Coordinator evaluation submitted → student
  *
  * @param {string} studentEmail
@@ -601,6 +688,27 @@ function sendMeetingCancelled(recipientEmails, data) {
   );
 }
 
+/**
+ * Discussion message notification → group members
+ *
+ * @param {string[]} recipientEmails
+ * @param {{ senderName: string, senderRole: string, groupName: string, message: string, appUrl?: string }} data
+ */
+async function sendDiscussionNotification(recipientEmails, { senderName, senderRole, groupName, message, appUrl }) {
+  const roleLabel = senderRole.charAt(0).toUpperCase() + senderRole.slice(1);
+  const body =
+    heading('New Discussion Message') +
+    paragraph(`<strong>${senderName}</strong> (${roleLabel}) posted a new message in <strong>${groupName}</strong>.`) +
+    infoTable([['Message', message]]) +
+    (appUrl ? ctaButton('View Discussion', `${appUrl}/supervisor/meetings`) : '');
+
+  return Promise.all(
+    recipientEmails.filter(Boolean).map((email) =>
+      sendEmail(email, `New Discussion Message — ${groupName}`, layout(body, 'Group Discussion'))
+    )
+  );
+}
+
 // ─── Exports ───────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -608,6 +716,7 @@ module.exports = {
   sendSubmissionReceived,
   sendSubmissionDecision,
   sendSupervisorEvaluation,
+  sendAllGrades,
   sendCoordinatorEvaluation,
   sendAnnouncement,
   sendPresentationScheduled,
@@ -619,4 +728,5 @@ module.exports = {
   sendMeetingInvitation,
   sendMeetingReminder,
   sendMeetingCancelled,
+  sendDiscussionNotification,
 };

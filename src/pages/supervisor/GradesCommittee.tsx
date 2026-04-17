@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '../../components/ui/dialog';
 import { useAuth } from '../../lib/AuthContext';
+import { supabase } from '../../lib/supabase';
 import { DocumentViewerWithAnnotations } from '../../components/DocumentViewerWithAnnotations';
 import { getGroupsForEvaluation } from '../../services/groups';
 import { getRubricCriteria } from '../../services/grading-rubric';
@@ -23,7 +24,8 @@ import {
   type PreviousCommitteeFeedback,
   type CommitteeEvalSubmission,
 } from '../../services/groupFiles';
-import { getSignedUrl } from '../../services/storage';
+import { getSignedUrl, uploadCommitteeFeedbackFile } from '../../services/storage';
+import { apiUrl } from '@/lib/api';
 import {
   Search,
   FileText,
@@ -38,6 +40,8 @@ import {
   Eye,
   Paperclip,
   History,
+  Upload,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -388,6 +392,10 @@ export function SupervisorGradesCommittee() {
 
   const [committeeComments, setCommitteeComments] = useState('');
 
+  // Feedback file state
+  const [feedbackFile, setFeedbackFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading]   = useState(false);
+
   // Filter groups
   const filteredGroups = assignedGroups.filter(group => {
     const matchesSearch = group.projectName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -434,6 +442,11 @@ export function SupervisorGradesCommittee() {
     setOpenCriterionId(null);
     setPrevFeedback(null);
     setShowPrevFeedback(false);
+    setFeedbackFile(null);
+    setCommitteeComments('');
+    setGradingStatus('draft');
+    setIsIP(false);
+    setIpReason('');
   };
 
   // Calculate committee total
@@ -454,9 +467,56 @@ export function SupervisorGradesCommittee() {
     setCommitteeCriteria(newCriteria);
   };
 
+  /** Calls the committee-evaluation API (draft or submitted). */
+  const callCommitteeEvaluationApi = async (
+    submissionStatus: 'draft' | 'submitted',
+    commentFilePath?: string,
+    commentFileName?: string
+  ) => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token ?? '';
+
+    const body = {
+      groupId:          selectedGroupForGrading!.id,
+      scores:           committeeCriteria.map((c) => ({ criterionKey: c.id, score: c.score ?? 0 })),
+      comment:          committeeComments || null,
+      commentFilePath:  commentFilePath  ?? null,
+      commentFileName:  commentFileName  ?? null,
+      submissionStatus,
+    };
+
+    const res = await fetch(apiUrl('/api/evaluations/committee-evaluation'), {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body:    JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(err.error || 'Failed to save evaluation');
+    }
+  };
+
   // Handle save draft
-  const handleSaveDraft = () => {
-    toast.success('Draft saved successfully');
+  const handleSaveDraft = async () => {
+    if (!selectedGroupForGrading) return;
+    setIsUploading(true);
+    try {
+      let filePath: string | undefined;
+      let fileName: string | undefined;
+
+      if (feedbackFile) {
+        filePath = await uploadCommitteeFeedbackFile(feedbackFile, selectedGroupForGrading.id, user!.id);
+        fileName = feedbackFile.name;
+      }
+
+      await callCommitteeEvaluationApi('draft', filePath, fileName);
+      toast.success('Draft saved successfully');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save draft');
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   // Handle submit grades
@@ -468,10 +528,27 @@ export function SupervisorGradesCommittee() {
     setShowSubmitModal(true);
   };
 
-  const confirmSubmitGrades = () => {
-    setGradingStatus('submitted');
+  const confirmSubmitGrades = async () => {
+    if (!selectedGroupForGrading) return;
+    setIsUploading(true);
     setShowSubmitModal(false);
-    toast.success('Grades submitted successfully');
+    try {
+      let filePath: string | undefined;
+      let fileName: string | undefined;
+
+      if (feedbackFile) {
+        filePath = await uploadCommitteeFeedbackFile(feedbackFile, selectedGroupForGrading.id, user!.id);
+        fileName = feedbackFile.name;
+      }
+
+      await callCommitteeEvaluationApi('submitted', filePath, fileName);
+      setGradingStatus('submitted');
+      toast.success('Grades submitted successfully');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to submit grades');
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   // Handle Mark IP
@@ -567,14 +644,14 @@ export function SupervisorGradesCommittee() {
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
-                <Button variant="outline" onClick={handleSaveDraft}>
+                <Button variant="outline" onClick={handleSaveDraft} disabled={isUploading || isReadOnly}>
                   <Save className="w-4 h-4 mr-2" />
-                  Save Draft
+                  {isUploading ? 'Saving…' : 'Save Draft'}
                 </Button>
                 <Button
                   onClick={handleSubmitGrades}
                   className="bg-green-600 hover:bg-green-700 text-[rgb(0,0,0)]"
-                  disabled={gradingStatus === 'submitted' || isIP}
+                  disabled={gradingStatus === 'submitted' || isIP || isUploading}
                 >
                   <Send className="w-4 h-4 mr-2" />
                   Submit Grades
@@ -747,7 +824,7 @@ export function SupervisorGradesCommittee() {
                 </div>
               )}
 
-              {/* Committee Comments */}
+              {/* Committee Comments + File Upload */}
               <div className="mt-6 pt-6 border-t border-[var(--color-border)]">
                 <div className="flex items-center gap-2 mb-3">
                   <span className="px-2 py-0.5 text-xs rounded-full font-medium bg-purple-100 text-purple-700 border border-purple-200">
@@ -768,6 +845,60 @@ export function SupervisorGradesCommittee() {
                 <p className="text-xs text-[var(--color-text-400)] mt-1">
                   Visible to: Committee members, Coordinator, Supervisor, and Students of this group.
                 </p>
+
+                {/* Feedback File Upload */}
+                <div className="mt-4">
+                  <Label className="text-[var(--color-text-900)] mb-2 block">
+                    Upload Evaluation Comments File
+                    <span className="ml-2 text-xs font-normal text-[var(--color-text-400)]">(PDF / DOCX / ZIP / PPTX — max 20 MB)</span>
+                  </Label>
+
+                  {feedbackFile ? (
+                    <div className="flex items-center gap-3 p-3 border border-purple-200 bg-purple-50 rounded-lg">
+                      <FileText className="w-5 h-5 text-purple-600 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-purple-900 truncate">{feedbackFile.name}</p>
+                        <p className="text-xs text-purple-600">{formatFileSize(feedbackFile.size)}</p>
+                      </div>
+                      {!isReadOnly && (
+                        <button
+                          type="button"
+                          onClick={() => setFeedbackFile(null)}
+                          className="text-purple-500 hover:text-purple-700 flex-shrink-0"
+                          title="Remove file"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    !isReadOnly && (
+                      <label className="flex flex-col items-center gap-2 p-5 border-2 border-dashed border-[var(--color-border)] rounded-lg cursor-pointer hover:border-purple-400 hover:bg-purple-50 transition-colors">
+                        <Upload className="w-6 h-6 text-[var(--color-text-400)]" />
+                        <span className="text-sm text-[var(--color-text-600)]">
+                          Click to choose a file or drag &amp; drop
+                        </span>
+                        <span className="text-xs text-[var(--color-text-400)]">
+                          Example: annotated report, feedback sheet
+                        </span>
+                        <input
+                          type="file"
+                          accept=".pdf,.doc,.docx,.zip,.pptx"
+                          className="sr-only"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0] ?? null;
+                            if (!file) return;
+                            if (file.size > 20 * 1024 * 1024) {
+                              toast.error('File exceeds 20 MB limit');
+                              return;
+                            }
+                            setFeedbackFile(file);
+                          }}
+                        />
+                      </label>
+                    )
+                  )}
+                </div>
               </div>
             </div>
 

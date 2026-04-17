@@ -35,6 +35,7 @@ import {
   Loader2,
   FileText,
   HighlighterIcon,
+  MapPin,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
@@ -168,6 +169,19 @@ export function DocumentViewerWithAnnotations({
 
   // Mobile sidebar toggle
   const [showSidebar, setShowSidebar] = useState(false);
+
+  // ── Scroll to highlight in PDF ─────────────────────────────────────────────
+  const scrollToHighlight = useCallback((h: Highlight) => {
+    setActiveHighlight(h);
+    setShowSidebar(false);
+    const pageEl = pageRefs.current[h.pageNumber - 1];
+    if (!pageEl || !pdfContainerRef.current) return;
+    const container = pdfContainerRef.current;
+    const pageOffsetTop = pageEl.offsetTop;
+    const highlightOffsetInPage = (h.yPercent / 100) * pageEl.offsetHeight;
+    const scrollTarget = pageOffsetTop + highlightOffsetInPage - container.offsetHeight * 0.2;
+    container.scrollTo({ top: Math.max(0, scrollTarget), behavior: 'smooth' });
+  }, []);
 
   // ── Responsive page width ──────────────────────────────────────────────────
   useEffect(() => {
@@ -551,13 +565,14 @@ export function DocumentViewerWithAnnotations({
                 onDeleteHighlight={() => handleDeleteHighlight(activeHighlight)}
                 onDeleteComment={(c) => handleDeleteComment(activeHighlight, c)}
                 onBack={() => setActiveHighlight(null)}
+                onJumpToHighlight={() => scrollToHighlight(activeHighlight)}
               />
             ) : (
               /* Highlights list */
               <HighlightsList
                 highlights={highlights}
                 loading={loadingHighlights}
-                onSelect={setActiveHighlight}
+                onSelect={scrollToHighlight}
               />
             )}
           </div>
@@ -707,6 +722,10 @@ function HighlightsList({
                     {roleLabel[h.role] ?? h.role}
                   </span>
                   <span className="text-xs text-gray-400">{h.userName}</span>
+                  <span className="text-xs text-gray-400 flex items-center gap-0.5">
+                    <MapPin className="w-3 h-3" />
+                    p.{h.pageNumber}
+                  </span>
                   {h.comments.length > 1 && (
                     <span className="ml-auto text-xs text-blue-600">
                       {h.comments.length} replies
@@ -734,6 +753,7 @@ function CommentThread({
   onDeleteHighlight,
   onDeleteComment,
   onBack,
+  onJumpToHighlight,
 }: {
   highlight: Highlight;
   userId: string;
@@ -744,6 +764,7 @@ function CommentThread({
   onDeleteHighlight: () => void;
   onDeleteComment: (c: HighlightComment) => void;
   onBack: () => void;
+  onJumpToHighlight: () => void;
 }) {
   const commentsEndRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -762,6 +783,13 @@ function CommentThread({
           <ChevronLeft className="w-4 h-4" />
         </button>
         <h3 className="text-sm font-semibold text-gray-900 flex-1">Comment Thread</h3>
+        <button
+          onClick={onJumpToHighlight}
+          className="p-1 rounded hover:bg-blue-50 text-blue-500 transition-colors"
+          title="Jump to highlight in PDF"
+        >
+          <MapPin className="w-4 h-4" />
+        </button>
         {highlight.userId === userId && (
           <button
             onClick={onDeleteHighlight}
@@ -780,7 +808,14 @@ function CommentThread({
             className="w-3 h-3 rounded-sm flex-shrink-0"
             style={{ backgroundColor: highlight.highlightColor }}
           />
-          <span className="text-xs text-gray-500">Page {highlight.pageNumber}</span>
+          <button
+            onClick={onJumpToHighlight}
+            className="text-xs text-blue-600 hover:underline flex items-center gap-1 transition-colors"
+            title="Jump to this highlight in the PDF"
+          >
+            <MapPin className="w-3 h-3" />
+            Page {highlight.pageNumber}
+          </button>
         </div>
         <blockquote className="text-sm text-gray-700 italic border-l-4 pl-3 py-1 rounded line-clamp-4"
           style={{ borderColor: highlight.highlightColor }}>

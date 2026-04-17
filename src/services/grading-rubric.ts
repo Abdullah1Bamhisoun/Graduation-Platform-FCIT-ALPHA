@@ -24,6 +24,16 @@ export interface GradingComponent {
   isActive: boolean;
 }
 
+export interface StudentOutcome {
+  id: string;
+  courseType: '498' | '499';
+  code: string;        // e.g. "SO1", "SO2"
+  title: string;       // e.g. "Engineering Knowledge"
+  description?: string;
+  displayOrder: number;
+  isActive: boolean;
+}
+
 export interface RubricCriterion {
   id: string;
   courseType: '498' | '499';
@@ -38,6 +48,7 @@ export interface RubricCriterion {
   description5?: string;
   displayOrder: number;
   isActive: boolean;
+  studentOutcomes: { id: string; code: string; title: string }[];
 }
 
 export interface SupervisorRubricScore {
@@ -100,6 +111,7 @@ function mapComponent(row: any): GradingComponent {
 }
 
 function mapCriterion(row: any): RubricCriterion {
+  const soRows: any[] = row.criterion_student_outcomes ?? [];
   return {
     id:            row.id,
     courseType:    row.course_type,
@@ -114,6 +126,22 @@ function mapCriterion(row: any): RubricCriterion {
     description5:  row.description_5 ?? undefined,
     displayOrder:  row.display_order,
     isActive:      row.is_active,
+    studentOutcomes: soRows
+      .map((r: any) => r.student_outcomes)
+      .filter(Boolean)
+      .map((so: any) => ({ id: so.id, code: so.code, title: so.title })),
+  };
+}
+
+function mapStudentOutcome(row: any): StudentOutcome {
+  return {
+    id:           row.id,
+    courseType:   row.course_type,
+    code:         row.code,
+    title:        row.title,
+    description:  row.description ?? undefined,
+    displayOrder: row.display_order,
+    isActive:     row.is_active,
   };
 }
 
@@ -170,7 +198,7 @@ export async function getRubricCriteria(
 ): Promise<RubricCriterion[]> {
   const { data, error } = await supabase
     .from('grading_rubric_criteria')
-    .select('*')
+    .select('*, criterion_student_outcomes(student_outcomes(id, code, title))')
     .eq('course_type', courseType)
     .eq('component_key', componentKey)
     .eq('is_active', true)
@@ -191,7 +219,7 @@ export async function getAllRubricCriteria(
 ): Promise<RubricCriterion[]> {
   const { data, error } = await supabase
     .from('grading_rubric_criteria')
-    .select('*')
+    .select('*, criterion_student_outcomes(student_outcomes(id, code, title))')
     .eq('course_type', courseType)
     .eq('is_active', true)
     .order('component_key')
@@ -301,6 +329,76 @@ export async function deleteRubricCriterion(id: string): Promise<void> {
     .update({ is_active: false, updated_at: new Date().toISOString() })
     .eq('id', id);
 
+  if (error) throw error;
+}
+
+// ─── Student Outcomes ─────────────────────────────────────────────────────────
+
+export async function getStudentOutcomes(courseType: '498' | '499'): Promise<StudentOutcome[]> {
+  const { data, error } = await supabase
+    .from('student_outcomes')
+    .select('*')
+    .eq('course_type', courseType)
+    .eq('is_active', true)
+    .order('display_order')
+    .order('code');
+  if (error) { console.error('getStudentOutcomes error:', error); return []; }
+  return (data || []).map(mapStudentOutcome);
+}
+
+export async function createStudentOutcome(params: {
+  courseType: '498' | '499';
+  code: string;
+  title: string;
+  description?: string;
+  displayOrder?: number;
+}): Promise<StudentOutcome> {
+  const { data, error } = await supabase
+    .from('student_outcomes')
+    .insert({
+      course_type:   params.courseType,
+      code:          params.code.trim().toUpperCase(),
+      title:         params.title.trim(),
+      description:   params.description?.trim() ?? null,
+      display_order: params.displayOrder ?? 0,
+      is_active:     true,
+    })
+    .select('*')
+    .single();
+  if (error) throw error;
+  return mapStudentOutcome(data);
+}
+
+export async function updateStudentOutcome(
+  id: string,
+  patch: { code?: string; title?: string; description?: string; displayOrder?: number }
+): Promise<void> {
+  const update: any = {};
+  if (patch.code         !== undefined) update.code          = patch.code.trim().toUpperCase();
+  if (patch.title        !== undefined) update.title         = patch.title.trim();
+  if (patch.description  !== undefined) update.description   = patch.description.trim() || null;
+  if (patch.displayOrder !== undefined) update.display_order = patch.displayOrder;
+  const { error } = await supabase.from('student_outcomes').update(update).eq('id', id);
+  if (error) throw error;
+}
+
+export async function deleteStudentOutcome(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('student_outcomes')
+    .update({ is_active: false })
+    .eq('id', id);
+  if (error) throw error;
+}
+
+/** Replace all SO links for a criterion (upsert). */
+export async function setCriterionOutcomes(
+  criterionId: string,
+  outcomeIds: string[]
+): Promise<void> {
+  await supabase.from('criterion_student_outcomes').delete().eq('criterion_id', criterionId);
+  if (outcomeIds.length === 0) return;
+  const rows = outcomeIds.map(oid => ({ criterion_id: criterionId, outcome_id: oid }));
+  const { error } = await supabase.from('criterion_student_outcomes').insert(rows);
   if (error) throw error;
 }
 

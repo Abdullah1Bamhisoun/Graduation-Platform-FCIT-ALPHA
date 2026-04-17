@@ -32,11 +32,12 @@ const { supabaseAdmin } = require('../config/supabase');
  * @param {string}   opts.content
  * @param {string[]} opts.targetRoles  e.g. ['supervisor'] or ['student']
  * @param {string|null} opts.courseId  UUID of the course (null = platform-wide)
+ * @param {string|null} [opts.groupId] UUID of the group (null = course-wide; set for group-specific announcements)
  * @param {string|null} opts.authorId  UUID of the actor (null → system)
  * @param {string|null} [opts.expiresAt]
  * @returns {Promise<{id: string}|null>}
  */
-async function createAnnouncement({ title, content, targetRoles, courseId, authorId, expiresAt = null }) {
+async function createAnnouncement({ title, content, targetRoles, courseId, groupId = null, authorId, expiresAt = null }) {
   try {
     const base = {
       title,
@@ -47,13 +48,22 @@ async function createAnnouncement({ title, content, targetRoles, courseId, autho
       expires_at:   expiresAt ?? null,
     };
 
-    // Try with course_id first (post-migration 005). Fallback without it.
-    let result = courseId
-      ? await supabaseAdmin.from('announcements').insert({ ...base, course_id: courseId }).select('id').single()
-      : await supabaseAdmin.from('announcements').insert(base).select('id').single();
+    // Build the full payload: try with course_id + group_id (migrations 005+006).
+    // Fall back progressively if columns don't exist yet.
+    const withCourseAndGroup = courseId
+      ? { ...base, course_id: courseId, ...(groupId ? { group_id: groupId } : {}) }
+      : base;
+
+    let result = await supabaseAdmin.from('announcements').insert(withCourseAndGroup).select('id').single();
+
+    if (result.error && groupId) {
+      // group_id column missing (migration 006 not applied) — retry without it
+      const withCourseOnly = courseId ? { ...base, course_id: courseId } : base;
+      result = await supabaseAdmin.from('announcements').insert(withCourseOnly).select('id').single();
+    }
 
     if (result.error && courseId) {
-      // Pre-migration: course_id column doesn't exist yet
+      // course_id column missing (migration 005 not applied) — retry without it
       result = await supabaseAdmin.from('announcements').insert(base).select('id').single();
     }
 

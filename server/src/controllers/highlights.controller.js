@@ -15,11 +15,60 @@ function isTableMissing(error) {
 }
 
 /**
+ * Resolves the group associated with a submission document path.
+ * document_id format: "submissions/{studentProfileId}/..."
+ * Returns { groupId, supervisorId, courseId } or null.
+ */
+async function resolveGroupFromDocument(documentId) {
+  const match = documentId.match(/^submissions\/([^/]+)\//);
+  if (!match) return null;
+  const docStudentId = match[1];
+
+  const { data: membership } = await supabaseAdmin
+    .from('group_members')
+    .select('group_id')
+    .eq('student_id', docStudentId)
+    .limit(1)
+    .maybeSingle();
+
+  if (!membership) return null;
+
+  const { data: group } = await supabaseAdmin
+    .from('groups')
+    .select('id, supervisor_id, course_id')
+    .eq('id', membership.group_id)
+    .maybeSingle();
+
+  if (!group) return null;
+  return { groupId: group.id, supervisorId: group.supervisor_id, courseId: group.course_id };
+}
+
+/**
+ * Which highlight-creator roles a given viewer role is allowed to see.
+ *
+ * Channels are intentionally isolated:
+ *   supervisor ↔ student  — invisible to coordinator / admin
+ *   coordinator ↔ student — invisible to supervisor / admin
+ *   committee   ↔ student — invisible to supervisor / coordinator / admin
+ *   admin channel         — only visible to admins
+ *
+ * Students sit at the centre and receive feedback from every channel.
+ */
+const CHANNEL_VISIBILITY = {
+  student:     new Set(['student', 'supervisor', 'coordinator', 'committee']),
+  supervisor:  new Set(['supervisor', 'student']),
+  coordinator: new Set(['coordinator', 'student']),
+  committee:   new Set(['committee', 'student']),
+  admin:       new Set(['admin']),
+};
+
+/**
  * GET /api/highlights?documentId=<file_path>
  *
- * Returns all highlights (with their comments) for a document.
- * Any authenticated user can read highlights — document-level access is
- * enforced by the signed URL that was used to open the viewer.
+ * Returns highlights for a document filtered by two rules:
+ * 1. Group access — viewer must be related to the document's group.
+ * 2. Channel visibility — each role sees only its own communication channel
+ *    (supervisor↔student, coordinator↔student, committee↔student, admin-only).
  */
 async function getHighlights(req, res) {
   try {
@@ -27,6 +76,58 @@ async function getHighlights(req, res) {
     if (!documentId) {
       return res.status(400).json({ error: 'documentId query param is required' });
     }
+
+    const userId = req.user.id;
+    const userRoles = req.user.roles || [];
+    const isAdmin = userRoles.includes('admin');
+
+    // ── Determine this viewer's relationship to THIS specific group ──────────
+    // Channels are granted per-relationship, not per global role list, so a
+    // user who supervises Group A and coordinates Course X only gets supervisor
+    // channel on Group A's docs and coordinator channel on Course X's docs.
+    let isSupervisorHere = false;
+    let isCoordinatorHere = false;
+    let isStudentHere = false;
+
+    if (!isAdmin && documentId.startsWith('submissions/')) {
+      const groupInfo = await resolveGroupFromDocument(documentId);
+
+      if (groupInfo) {
+        isSupervisorHere = groupInfo.supervisorId === userId;
+        isCoordinatorHere =
+          req.user.coordinatorCourseId != null &&
+          req.user.coordinatorCourseId === groupInfo.courseId;
+
+        if (!isSupervisorHere && !isCoordinatorHere) {
+          const { data: membership } = await supabaseAdmin
+            .from('group_members')
+            .select('group_id')
+            .eq('group_id', groupInfo.groupId)
+            .eq('student_id', userId)
+            .maybeSingle();
+          isStudentHere = !!membership;
+        }
+
+        if (!isSupervisorHere && !isCoordinatorHere && !isStudentHere) {
+          return res.json([]);
+        }
+      }
+    }
+
+    // Build allowed creator roles from THIS document's relationships only.
+    const allowedCreatorRoles = (() => {
+      if (isAdmin) return CHANNEL_VISIBILITY.admin;
+      const roles = new Set();
+      if (isSupervisorHere)  CHANNEL_VISIBILITY.supervisor.forEach((r)  => roles.add(r));
+      if (isCoordinatorHere) CHANNEL_VISIBILITY.coordinator.forEach((r) => roles.add(r));
+      if (isStudentHere)     CHANNEL_VISIBILITY.student.forEach((r)     => roles.add(r));
+      // Non-submission docs: fall back to the user's active role
+      if (roles.size === 0) {
+        const active = req.user.activeRole || req.user.role || 'student';
+        (CHANNEL_VISIBILITY[active] ?? [active]).forEach((r) => roles.add(r));
+      }
+      return roles;
+    })();
 
     const { data: highlights, error: hErr } = await supabaseAdmin
       .from('document_highlights')
@@ -79,24 +180,29 @@ async function getHighlights(req, res) {
       });
     }
 
-    const result = highlights.map((h) => ({
-      id: h.id,
-      documentId: h.document_id,
-      selectedText: h.selected_text,
-      pageNumber: h.page_number,
-      xPercent: h.x_percent,
-      yPercent: h.y_percent,
-      widthPercent: h.width_percent,
-      heightPercent: h.height_percent,
-      startPosition: h.start_position,
-      endPosition: h.end_position,
-      highlightColor: h.highlight_color,
-      userId: h.user_id,
-      userName: nameMap[h.user_id] ?? 'Unknown',
-      role: h.role,
-      createdAt: h.created_at,
-      comments: commentsByHighlight[h.id] || [],
-    }));
+    // ── Channel visibility filter ──────────────────────────────────────────
+    const result = highlights
+      .filter((h) => allowedCreatorRoles.has(h.role))
+      .map((h) => ({
+        id: h.id,
+        documentId: h.document_id,
+        selectedText: h.selected_text,
+        pageNumber: h.page_number,
+        xPercent: h.x_percent,
+        yPercent: h.y_percent,
+        widthPercent: h.width_percent,
+        heightPercent: h.height_percent,
+        startPosition: h.start_position,
+        endPosition: h.end_position,
+        highlightColor: h.highlight_color,
+        userId: h.user_id,
+        userName: nameMap[h.user_id] ?? 'Unknown',
+        role: h.role,
+        createdAt: h.created_at,
+        comments: (commentsByHighlight[h.id] || []).filter((c) =>
+          allowedCreatorRoles.has(c.role)
+        ),
+      }));
 
     res.json(result);
   } catch (err) {

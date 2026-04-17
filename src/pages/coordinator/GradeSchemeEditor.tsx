@@ -29,13 +29,20 @@ import {
   updateRubricCriterion,
   createRubricCriterion,
   deleteRubricCriterion,
+  getStudentOutcomes,
+  createStudentOutcome,
+  updateStudentOutcome,
+  deleteStudentOutcome,
+  setCriterionOutcomes,
   type GradingComponent,
   type RubricCriterion,
+  type StudentOutcome,
 } from '../../services/grading-rubric';
 import { getCourseTypeFromUUID } from '../../services/courses';
 import {
   Save, Edit2, Info, AlertCircle, CheckCircle, ChevronDown, ChevronUp,
   BookOpen, BarChart3, Award, FileText, Users, Plus, Trash2, Loader2,
+  GraduationCap,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -81,16 +88,27 @@ interface CriterionRowProps {
   onEdit: (c: RubricCriterion) => void;
   onDelete: (c: RubricCriterion) => void;
   isDeleting?: boolean;
+  isOverBudget?: boolean;
 }
 
-function CriterionRow({ criterion, onEdit, onDelete, isDeleting }: CriterionRowProps) {
+function CriterionRow({ criterion, onEdit, onDelete, isDeleting, isOverBudget }: CriterionRowProps) {
   return (
-    <tr className="border-b border-[var(--color-border)] hover:bg-gray-50 text-sm">
+    <tr className={`border-b border-[var(--color-border)] text-sm ${isOverBudget ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'}`}>
       <td className="py-3 px-4 text-[var(--color-text-900)] font-medium">
         {criterion.criterionName}
+        {criterion.studentOutcomes.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1">
+            {criterion.studentOutcomes.map(so => (
+              <span key={so.id} className="inline-block px-1.5 py-0.5 rounded text-xs font-semibold bg-indigo-100 text-indigo-700 border border-indigo-200">
+                {so.code}
+              </span>
+            ))}
+          </div>
+        )}
       </td>
-      <td className="py-3 px-4 text-center text-[var(--color-text-900)] font-semibold tabular-nums">
+      <td className={`py-3 px-4 text-center font-semibold tabular-nums ${isOverBudget ? 'text-red-700' : 'text-[var(--color-text-900)]'}`}>
         {criterion.maxRawScore}
+        {isOverBudget && <AlertCircle className="w-3 h-3 inline ml-1 text-red-500" />}
       </td>
       <td className="py-3 px-4 text-[var(--color-text-600)] text-xs max-w-[300px]">
         <div className="space-y-0.5">
@@ -133,7 +151,7 @@ function CriterionRow({ criterion, onEdit, onDelete, isDeleting }: CriterionRowP
 export function CoordinatorGradeSchemeEditor() {
   const { user } = useAuth();
 
-  const [activeCourse, setActiveCourse] = useState<'498' | '499'>('498');
+  const [activeCourse, setActiveCourse] = useState<'498' | '499' | 'student-outcomes'>('498');
 
   // Coordinator access control
   const [assignedCourseType, setAssignedCourseType] = useState<'498' | '499' | null>(null);
@@ -185,21 +203,36 @@ export function CoordinatorGradeSchemeEditor() {
   const [activeComponentName, setActiveComponentName] = useState<string>('Supervisor Evaluation');
   const [activeComponentCourseType, setActiveComponentCourseType] = useState<'498' | '499'>('498');
 
+  // Student Outcomes state
+  const [outcomes498, setOutcomes498] = useState<StudentOutcome[]>([]);
+  const [outcomes499, setOutcomes499] = useState<StudentOutcome[]>([]);
+  const [soDialogOpen, setSoDialogOpen] = useState(false);
+  const [editingSO, setEditingSO] = useState<StudentOutcome | null>(null);
+  const [soDraft, setSoDraft] = useState<{ code: string; title: string; description: string; displayOrder: string }>({ code: '', title: '', description: '', displayOrder: '0' });
+  const [savingSO, setSavingSO] = useState(false);
+  const [deletingSO, setDeletingSO] = useState<StudentOutcome | null>(null);
+  const [deletingSOId, setDeletingSOId] = useState(false);
+  const [criterionSODraft, setCriterionSODraft] = useState<string[]>([]);
+
   // ── Load data ──────────────────────────────────────────────────────────────
 
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [c498, c499, cr498, cr499] = await Promise.all([
+      const [c498, c499, cr498, cr499, so498, so499] = await Promise.all([
         getGradingComponents('498'),
         getGradingComponents('499'),
         getAllRubricCriteria('498'),
         getAllRubricCriteria('499'),
+        getStudentOutcomes('498'),
+        getStudentOutcomes('499'),
       ]);
       setComponents498(c498);
       setComponents499(c499);
       setCriteria498(cr498);
       setCriteria499(cr499);
+      setOutcomes498(so498);
+      setOutcomes499(so499);
 
       // Init drafts
       const d498: Record<string, { name: string; marks: string }> = {};
@@ -288,6 +321,7 @@ export function CoordinatorGradeSchemeEditor() {
       description4:  criterion.description4,
       description5:  criterion.description5,
     });
+    setCriterionSODraft(criterion.studentOutcomes.map(so => so.id));
   };
 
   // ── Save criterion ─────────────────────────────────────────────────────────
@@ -297,6 +331,7 @@ export function CoordinatorGradeSchemeEditor() {
     setSavingCriterion(true);
     try {
       await updateRubricCriterion(editCriterion.id, criterionDraft);
+      await setCriterionOutcomes(editCriterion.id, criterionSODraft);
       await loadAll();
       setEditCriterion(null);
       toast.success('Criterion updated successfully.');
@@ -304,6 +339,61 @@ export function CoordinatorGradeSchemeEditor() {
       toast.error(err?.message || 'Failed to update criterion.');
     } finally {
       setSavingCriterion(false);
+    }
+  };
+
+  // ── Student Outcome handlers ───────────────────────────────────────────────
+
+  const openSODialog = (so?: StudentOutcome) => {
+    setEditingSO(so ?? null);
+    setSoDraft({
+      code:         so?.code ?? '',
+      title:        so?.title ?? '',
+      description:  so?.description ?? '',
+      displayOrder: String(so?.displayOrder ?? 0),
+    });
+    setSoDialogOpen(true);
+  };
+
+  const handleSaveSO = async (courseType: '498' | '499') => {
+    if (!soDraft.code.trim() || !soDraft.title.trim()) {
+      toast.error('Code and title are required'); return;
+    }
+    setSavingSO(true);
+    try {
+      if (editingSO) {
+        await updateStudentOutcome(editingSO.id, {
+          code: soDraft.code, title: soDraft.title,
+          description: soDraft.description, displayOrder: parseInt(soDraft.displayOrder) || 0,
+        });
+      } else {
+        await createStudentOutcome({
+          courseType, code: soDraft.code, title: soDraft.title,
+          description: soDraft.description, displayOrder: parseInt(soDraft.displayOrder) || 0,
+        });
+      }
+      await loadAll();
+      setSoDialogOpen(false);
+      toast.success(editingSO ? 'Student outcome updated.' : 'Student outcome created.');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to save student outcome.');
+    } finally {
+      setSavingSO(false);
+    }
+  };
+
+  const handleDeleteSO = async () => {
+    if (!deletingSO) return;
+    setDeletingSOId(true);
+    try {
+      await deleteStudentOutcome(deletingSO.id);
+      await loadAll();
+      setDeletingSO(null);
+      toast.success('Student outcome removed.');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to remove student outcome.');
+    } finally {
+      setDeletingSOId(false);
     }
   };
 
@@ -340,20 +430,14 @@ export function CoordinatorGradeSchemeEditor() {
         displayOrder: createDraft.displayOrder,
       });
 
-      // Optimistic update: add to local state
-      if (activeComponentCourseType === '498') {
-        setCriteria498(prev => [...prev, newCrit].sort((a, b) => a.displayOrder - b.displayOrder));
-      } else {
-        setCriteria499(prev => [...prev, newCrit].sort((a, b) => a.displayOrder - b.displayOrder));
+      if (criterionSODraft.length > 0) {
+        await setCriterionOutcomes(newCrit.id, criterionSODraft);
       }
 
       setCreateCriterionOpen(false);
-      setCreateDraft({
-        criterionName: '',
-        maxRawScore: 5,
-        displayOrder: 0,
-        descriptions: {},
-      });
+      setCreateDraft({ criterionName: '', maxRawScore: 5, displayOrder: 0, descriptions: {} });
+      setCriterionSODraft([]);
+      await loadAll();
 
       toast.success('Rubric criterion created successfully');
     } catch (err: any) {
@@ -412,30 +496,52 @@ export function CoordinatorGradeSchemeEditor() {
     const total = getTotalMarks(draft);
     const totalOk = total === 100;
 
+    // Check if any deliverable component has criteria sum exceeding its total marks
+    const overBudgetComponents = components
+      .filter(comp => comp.componentKey === 'coordinator_deliverables')
+      .map(comp => {
+        const compCriteria = criteria.filter(c => c.componentKey === comp.componentKey);
+        const criteriaSum = compCriteria.reduce((s, c) => s + c.maxRawScore, 0);
+        const compTotal = parseInt(draft[comp.componentKey]?.marks ?? String(comp.totalMarks)) || 0;
+        return { name: draft[comp.componentKey]?.name ?? comp.componentName, criteriaSum, compTotal, over: criteriaSum > compTotal };
+      })
+      .filter(x => x.over);
+
+    const criteriaOk = overBudgetComponents.length === 0;
+    const canSave = totalOk && criteriaOk;
+
     return (
       <div className="space-y-6">
         {/* Total mark indicator */}
         <div className={`flex flex-wrap items-center gap-3 p-4 rounded-xl border ${
-          totalOk
+          canSave
             ? 'bg-green-50 border-green-200'
             : 'bg-red-50 border-red-200'
         }`}>
-          {totalOk
+          {canSave
             ? <CheckCircle className="w-5 h-5 text-green-600 shrink-0" />
             : <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />}
           <div className="flex-1 min-w-0">
-            <p className={`font-semibold text-sm ${totalOk ? 'text-green-800' : 'text-red-700'}`}>
-              {totalOk
-                ? 'Total = 100 marks ✓ Valid scheme'
-                : `Total = ${total} marks — must equal exactly 100`}
+            <p className={`font-semibold text-sm ${canSave ? 'text-green-800' : 'text-red-700'}`}>
+              {!totalOk
+                ? total > 100
+                  ? `Total = ${total} marks — ${total - 100} marks over the 100-mark limit`
+                  : `Total = ${total} marks — ${100 - total} marks remaining to allocate`
+                : !criteriaOk
+                ? `Criteria error in: ${overBudgetComponents.map(x => `${x.name} (${x.criteriaSum} / ${x.compTotal})`).join(', ')}`
+                : 'Total = 100 marks ✓ Valid scheme'}
             </p>
             <p className="text-xs text-[var(--color-text-600)] mt-0.5">
-              Adjust component weights below then click Save Components.
+              {canSave
+                ? 'All component weights are balanced correctly.'
+                : !totalOk
+                ? 'Adjust component weights below so they sum to exactly 100.'
+                : 'Criteria sum exceeds component total — edit the highlighted criteria before saving.'}
             </p>
           </div>
           <Button
             onClick={() => saveComponents(courseType)}
-            disabled={savingComponents || !totalOk}
+            disabled={savingComponents || !canSave}
             className="bg-[#10B981] text-white hover:bg-[#0ea572] w-full sm:w-auto"
             size="sm"
           >
@@ -486,17 +592,41 @@ export function CoordinatorGradeSchemeEditor() {
                 <div className="flex items-center gap-2 self-end sm:self-auto">
                   <div>
                     <Label className="text-xs text-[var(--color-text-600)]">Total Marks</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={draft[comp.componentKey]?.marks ?? comp.totalMarks}
-                      onChange={e => setDraft(prev => ({
-                        ...prev,
-                        [comp.componentKey]: { ...prev[comp.componentKey], marks: e.target.value }
-                      }))}
-                      className="w-20 text-center h-8 text-sm font-bold bg-white border-[var(--color-border)]"
-                    />
+                    {(() => {
+                      const thisVal = parseInt(draft[comp.componentKey]?.marks ?? String(comp.totalMarks)) || 0;
+                      const otherTotal = total - thisVal;
+                      const maxAllowed = 100 - otherTotal;
+                      const isOver = thisVal > maxAllowed;
+                      return (
+                        <div>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={maxAllowed}
+                            value={draft[comp.componentKey]?.marks ?? comp.totalMarks}
+                            onChange={e => {
+                              const val = parseInt(e.target.value) || 0;
+                              const newOtherTotal = total - thisVal;
+                              if (val > 100 - newOtherTotal) return;
+                              setDraft(prev => ({
+                                ...prev,
+                                [comp.componentKey]: { ...prev[comp.componentKey], marks: e.target.value }
+                              }));
+                            }}
+                            className={`w-20 text-center h-8 text-sm font-bold bg-white ${
+                              isOver
+                                ? 'border-red-400 ring-1 ring-red-400 text-red-700'
+                                : 'border-[var(--color-border)]'
+                            }`}
+                          />
+                          <p className={`text-xs mt-0.5 text-center tabular-nums ${
+                            isOver ? 'text-red-600 font-semibold' : 'text-[var(--color-text-400)]'
+                          }`}>
+                            {isOver ? `max ${maxAllowed}` : `/ ${maxAllowed} avail.`}
+                          </p>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {!isAutoCalc && (
@@ -514,83 +644,127 @@ export function CoordinatorGradeSchemeEditor() {
               </div>
 
               {/* Criteria table (expanded) */}
-              {isExpanded && !isAutoCalc && (
-                <div className="border-t border-[var(--color-border)] bg-white">
-                  <div className="px-4 py-3 flex items-center justify-between border-b border-[var(--color-border)]">
-                    <div>
-                      <p className="text-xs font-semibold text-[var(--color-text-700)] uppercase tracking-wide">
-                        Rubric Criteria ({compCriteria.length} items)
-                        {!isDeliverable && ` · Raw max = ${compCriteria.reduce((s, c) => s + c.maxRawScore, 0)}`}
-                        {isDeliverable && ` · Sum max = ${compCriteria.reduce((s, c) => s + c.maxRawScore, 0)}`}
-                      </p>
-                      {!isDeliverable && (
-                        <p className="text-xs text-[var(--color-text-600)] mt-0.5">
-                          Normalized to {draft[comp.componentKey]?.marks ?? comp.totalMarks} marks
-                        </p>
-                      )}
-                    </div>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setActiveComponentKey(comp.componentKey);
-                        setActiveComponentName(draft[comp.componentKey]?.name ?? comp.componentName);
-                        setActiveComponentCourseType(courseType);
-                        setCreateCriterionOpen(true);
-                      }}
-                      className="bg-purple-600 text-white hover:bg-purple-700 gap-1.5 h-7"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      Add Criterion
-                    </Button>
-                  </div>
+              {isExpanded && !isAutoCalc && (() => {
+                const criteriaSum = compCriteria.reduce((s, c) => s + c.maxRawScore, 0);
+                const compTotalMarks = parseInt(draft[comp.componentKey]?.marks ?? String(comp.totalMarks)) || 0;
+                const criteriaOver = isDeliverable && criteriaSum > compTotalMarks;
+                const criteriaRemaining = isDeliverable ? compTotalMarks - criteriaSum : null;
 
-                  {compCriteria.length === 0 ? (
-                    <div className="px-4 py-6 text-center text-sm text-[var(--color-text-600)]">
-                      No criteria defined yet.
+                return (
+                  <div className="border-t border-[var(--color-border)] bg-white">
+                    <div className="px-4 py-3 flex items-center justify-between border-b border-[var(--color-border)]">
+                      <div>
+                        <p className={`text-xs font-semibold uppercase tracking-wide ${criteriaOver ? 'text-red-700' : 'text-[var(--color-text-700)]'}`}>
+                          Rubric Criteria ({compCriteria.length} items)
+                          {` · Sum = ${criteriaSum}`}
+                          {isDeliverable && ` / ${compTotalMarks}`}
+                        </p>
+                        {isDeliverable ? (
+                          criteriaOver ? (
+                            <p className="text-xs text-red-600 font-semibold mt-0.5 flex items-center gap-1">
+                              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                              Criteria sum ({criteriaSum}) exceeds component total ({compTotalMarks}) — reduce criterion scores by {criteriaSum - compTotalMarks}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-[var(--color-text-600)] mt-0.5">
+                              {criteriaRemaining === 0
+                                ? '✓ Criteria sum matches component total'
+                                : `${criteriaRemaining} marks remaining to allocate across criteria`}
+                            </p>
+                          )
+                        ) : (
+                          <p className="text-xs text-[var(--color-text-600)] mt-0.5">
+                            Normalized to {compTotalMarks} marks
+                          </p>
+                        )}
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          setActiveComponentKey(comp.componentKey);
+                          setActiveComponentName(draft[comp.componentKey]?.name ?? comp.componentName);
+                          setActiveComponentCourseType(courseType);
+                          setCreateCriterionOpen(true);
+                        }}
+                        disabled={isDeliverable && criteriaRemaining !== null && criteriaRemaining <= 0}
+                        className="bg-purple-600 text-white hover:bg-purple-700 gap-1.5 h-7 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={isDeliverable && criteriaRemaining !== null && criteriaRemaining <= 0 ? 'No marks remaining — increase component total or reduce existing criteria' : undefined}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Add Criterion
+                        {isDeliverable && criteriaRemaining !== null && criteriaRemaining > 0 && (
+                          <span className="ml-1 text-purple-200">({criteriaRemaining} left)</span>
+                        )}
+                      </Button>
                     </div>
-                  ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-[var(--color-surface-alt)] border-b border-[var(--color-border)]">
-                        <tr>
-                          <th className="py-2 px-4 text-left text-xs text-[var(--color-text-700)]">Criterion</th>
-                          <th className="py-2 px-4 text-center text-xs text-[var(--color-text-700)] w-24">
-                            Max Score
-                          </th>
-                          <th className="py-2 px-4 text-left text-xs text-[var(--color-text-700)]">Scale Descriptions</th>
-                          <th className="py-2 px-4 text-right text-xs text-[var(--color-text-700)] w-20">Edit</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {compCriteria.map(c => (
-                          <CriterionRow
-                            key={c.id}
-                            criterion={c}
-                            isDeliverable={isDeliverable}
-                            onEdit={openCriterionEditor}
-                            onDelete={crit => {
-                              setActiveComponentCourseType(courseType);
-                              setDeleteCriterionTarget(crit);
-                            }}
-                            isDeleting={deletingCriterion && deleteCriterionTarget?.id === c.id}
-                          />
-                        ))}
-                      </tbody>
-                      <tfoot>
-                        <tr className="bg-[var(--color-primary-50)] border-t-2 border-[var(--color-border)]">
-                          <td className="py-2 px-4 text-xs font-bold text-[var(--color-text-800)]">Total</td>
-                          <td className="py-2 px-4 text-center text-xs font-bold tabular-nums">
-                            {compCriteria.reduce((s, c) => s + c.maxRawScore, 0)}
-                          </td>
-                          <td />
-                          <td />
-                        </tr>
-                      </tfoot>
-                    </table>
+
+                    {/* Over-budget warning banner */}
+                    {criteriaOver && (
+                      <div className="mx-4 mt-3 flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
+                        <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                        <span>
+                          The sum of criteria max scores ({criteriaSum}) exceeds the component's total marks ({compTotalMarks}).
+                          Edit the highlighted criteria to bring the sum down to {compTotalMarks} or increase the component's Total Marks above.
+                        </span>
+                      </div>
+                    )}
+
+                    {compCriteria.length === 0 ? (
+                      <div className="px-4 py-6 text-center text-sm text-[var(--color-text-600)]">
+                        No criteria defined yet.
+                      </div>
+                    ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-[var(--color-surface-alt)] border-b border-[var(--color-border)]">
+                          <tr>
+                            <th className="py-2 px-4 text-left text-xs text-[var(--color-text-700)]">Criterion</th>
+                            <th className="py-2 px-4 text-center text-xs text-[var(--color-text-700)] w-24">
+                              Max Score
+                            </th>
+                            <th className="py-2 px-4 text-left text-xs text-[var(--color-text-700)]">Scale Descriptions</th>
+                            <th className="py-2 px-4 text-right text-xs text-[var(--color-text-700)] w-20">Edit</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {compCriteria.map(c => (
+                            <CriterionRow
+                              key={c.id}
+                              criterion={c}
+                              isDeliverable={isDeliverable}
+                              onEdit={openCriterionEditor}
+                              onDelete={crit => {
+                                setActiveComponentCourseType(courseType);
+                                setDeleteCriterionTarget(crit);
+                              }}
+                              isDeleting={deletingCriterion && deleteCriterionTarget?.id === c.id}
+                              isOverBudget={criteriaOver}
+                            />
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className={`border-t-2 ${criteriaOver ? 'bg-red-50 border-red-300' : 'bg-[var(--color-primary-50)] border-[var(--color-border)]'}`}>
+                            <td className={`py-2 px-4 text-xs font-bold ${criteriaOver ? 'text-red-800' : 'text-[var(--color-text-800)]'}`}>
+                              Total
+                            </td>
+                            <td className={`py-2 px-4 text-center text-xs font-bold tabular-nums ${criteriaOver ? 'text-red-700' : ''}`}>
+                              {criteriaSum}
+                              {isDeliverable && (
+                                <span className={`ml-1 font-normal ${criteriaOver ? 'text-red-500' : 'text-[var(--color-text-400)]'}`}>
+                                  / {compTotalMarks}
+                                </span>
+                              )}
+                            </td>
+                            <td />
+                            <td />
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                    )}
                   </div>
-                  )}
-                </div>
-              )}
+                );
+              })()}
             </div>
           );
         })}
@@ -633,6 +807,135 @@ export function CoordinatorGradeSchemeEditor() {
     );
   };
 
+  // ── Student Outcomes Panel ────────────────────────────────────────────────
+
+  const StudentOutcomesPanel = () => {
+    const soCoursePairs: { label: string; courseType: '498' | '499'; outcomes: StudentOutcome[] }[] = isCoordinator && assignedCourseType
+      ? [{ label: `CPIS-${assignedCourseType}`, courseType: assignedCourseType, outcomes: assignedCourseType === '498' ? outcomes498 : outcomes499 }]
+      : [
+          { label: 'CPIS-498', courseType: '498', outcomes: outcomes498 },
+          { label: 'CPIS-499', courseType: '499', outcomes: outcomes499 },
+        ];
+
+    return (
+      <div className="space-y-8">
+        <div className="flex items-start gap-2 p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-sm text-indigo-800">
+          <Info className="w-4 h-4 mt-0.5 shrink-0" />
+          <span>
+            Define Student Outcomes (SO1, SO2…) here, then link them to rubric criteria when editing a criterion.
+            Linked SOs appear on each criterion row and in CSV exports.
+          </span>
+        </div>
+
+        {soCoursePairs.map(({ label, courseType, outcomes }) => (
+          <div key={courseType} className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] overflow-hidden">
+            <div className="px-5 py-4 flex items-center justify-between border-b border-[var(--color-border)] bg-indigo-50">
+              <h3 className="font-semibold text-indigo-900 flex items-center gap-2">
+                <GraduationCap className="w-5 h-5" />
+                {label} — Student Outcomes ({outcomes.length})
+              </h3>
+              <Button
+                size="sm"
+                onClick={() => { setActiveComponentCourseType(courseType); openSODialog(); }}
+                className="bg-indigo-600 text-white hover:bg-indigo-700 gap-1.5 h-8"
+              >
+                <Plus className="w-3.5 h-3.5" />Add Outcome
+              </Button>
+            </div>
+
+            {outcomes.length === 0 ? (
+              <div className="px-5 py-8 text-center text-sm text-[var(--color-text-500)]">
+                No student outcomes defined yet. Click <strong>Add Outcome</strong> to create SO1, SO2, etc.
+              </div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="bg-[var(--color-surface-alt)] border-b border-[var(--color-border)]">
+                  <tr>
+                    <th className="py-2 px-4 text-left text-xs text-[var(--color-text-700)] w-24">Code</th>
+                    <th className="py-2 px-4 text-left text-xs text-[var(--color-text-700)]">Title</th>
+                    <th className="py-2 px-4 text-left text-xs text-[var(--color-text-700)]">Description</th>
+                    <th className="py-2 px-4 text-right text-xs text-[var(--color-text-700)] w-28">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {outcomes.map(so => (
+                    <tr key={so.id} className="border-b border-[var(--color-border)] hover:bg-gray-50">
+                      <td className="py-3 px-4">
+                        <span className="inline-block px-2 py-0.5 rounded font-bold text-xs bg-indigo-100 text-indigo-700 border border-indigo-200">
+                          {so.code}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 font-medium text-[var(--color-text-900)]">{so.title}</td>
+                      <td className="py-3 px-4 text-[var(--color-text-600)] text-xs max-w-xs">{so.description || '—'}</td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
+                            onClick={() => { setActiveComponentCourseType(courseType); openSODialog(so); }}>
+                            <Edit2 className="w-3 h-3" />Edit
+                          </Button>
+                          <Button size="sm" variant="outline" className="h-7 text-xs gap-1 border-red-300 text-red-700 hover:bg-red-50"
+                            onClick={() => setDeletingSO(so)}>
+                            <Trash2 className="w-3 h-3" />Delete
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        ))}
+
+        {/* Criteria × SO mapping overview */}
+        {soCoursePairs.map(({ label, courseType, outcomes }) => {
+          if (outcomes.length === 0) return null;
+          const critList = courseType === '498' ? criteria498 : criteria499;
+          const withSOs = critList.filter(c => c.studentOutcomes.length > 0);
+          if (withSOs.length === 0) return null;
+          return (
+            <div key={`map-${courseType}`} className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] p-5">
+              <h4 className="font-semibold text-[var(--color-text-800)] mb-3 flex items-center gap-2">
+                <GraduationCap className="w-4 h-4 text-indigo-600" />
+                {label} — Criteria to SO Mapping
+              </h4>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-[var(--color-surface-alt)] border-b border-[var(--color-border)]">
+                    <tr>
+                      <th className="py-2 px-3 text-left text-xs text-[var(--color-text-700)]">Criterion</th>
+                      <th className="py-2 px-3 text-left text-xs text-[var(--color-text-700)]">Component</th>
+                      {outcomes.map(so => (
+                        <th key={so.id} className="py-2 px-2 text-center text-xs text-[var(--color-text-700)] w-14">
+                          <span className="inline-block px-1.5 rounded bg-indigo-100 text-indigo-700 font-bold">{so.code}</span>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {withSOs.map(c => (
+                      <tr key={c.id} className="border-b border-[var(--color-border)] hover:bg-gray-50">
+                        <td className="py-2 px-3 font-medium text-[var(--color-text-900)]">{c.criterionName}</td>
+                        <td className="py-2 px-3 text-[var(--color-text-600)] text-xs capitalize">{c.componentKey.replace(/_/g, ' ')}</td>
+                        {outcomes.map(so => (
+                          <td key={so.id} className="py-2 px-2 text-center">
+                            {c.studentOutcomes.some(s => s.id === so.id)
+                              ? <CheckCircle className="w-4 h-4 text-indigo-600 mx-auto" />
+                              : <span className="text-gray-200">—</span>}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   if (loading) {
@@ -652,42 +955,52 @@ export function CoordinatorGradeSchemeEditor() {
         </p>
       </div>
 
-      <Tabs value={activeCourse} onValueChange={isCoordinator ? undefined : (v => setActiveCourse(v as '498' | '499'))}>
-        {isCoordinator ? (
-          // COORDINATOR VIEW: Static single-course header
-          <div className="mb-6 border-b-2 border-[var(--color-border)] pb-3">
-            {courseTypeLoading ? (
-              <div className="text-sm text-[var(--color-text-500)]">Loading course...</div>
-            ) : assignedCourseType ? (
-              <h2 className="text-lg font-semibold text-[var(--color-text-900)]">
-                Grade Scheme Editor — CPIS-{assignedCourseType} — {assignedCourseType === '498' ? 'Senior Project I' : 'Senior Project II'}
-              </h2>
-            ) : (
-              <div className="text-sm text-red-600">Unable to load your assigned course</div>
-            )}
-          </div>
-        ) : (
-          // ADMIN VIEW: Keep existing dual-option tabs
-          <TabsList className="mb-6 flex flex-wrap gap-3 bg-transparent p-1 h-auto">
-            <TabsTrigger
-              value="498"
-              className="px-4 py-2.5 border-2 border-[var(--color-border)] rounded-lg font-medium transition-all duration-200 data-[state=active]:border-green-600 data-[state=active]:bg-green-600 data-[state=active]:text-white data-[state=inactive]:hover:border-[var(--color-primary-400)] data-[state=inactive]:hover:bg-[var(--color-surface-alt)]"
-            >
-              <span className="sm:hidden">CPIS-498</span>
-              <span className="hidden sm:inline">CPIS-498 — Senior Project I</span>
-            </TabsTrigger>
-            <TabsTrigger
-              value="499"
-              className="px-4 py-2.5 border-2 border-[var(--color-border)] rounded-lg font-medium transition-all duration-200 data-[state=active]:border-green-600 data-[state=active]:bg-green-600 data-[state=active]:text-white data-[state=inactive]:hover:border-[var(--color-primary-400)] data-[state=inactive]:hover:bg-[var(--color-surface-alt)]"
-            >
-              <span className="sm:hidden">CPIS-499</span>
-              <span className="hidden sm:inline">CPIS-499 — Senior Project II</span>
-            </TabsTrigger>
-          </TabsList>
-        )}
+      <Tabs value={activeCourse} onValueChange={v => setActiveCourse(v as any)}>
+        <TabsList className="mb-6 flex flex-wrap gap-3 bg-transparent p-1 h-auto">
+          {isCoordinator ? (
+            /* Coordinator: single course tab + Student Outcomes */
+            <>
+              {courseTypeLoading ? (
+                <div className="text-sm text-[var(--color-text-500)] px-4 py-2">Loading...</div>
+              ) : assignedCourseType ? (
+                <TabsTrigger
+                  value={assignedCourseType}
+                  className="px-4 py-2.5 border-2 border-[var(--color-border)] rounded-lg font-medium transition-all duration-200 data-[state=active]:border-green-600 data-[state=active]:bg-green-600 data-[state=active]:text-white data-[state=inactive]:hover:border-[var(--color-primary-400)] data-[state=inactive]:hover:bg-[var(--color-surface-alt)]"
+                >
+                  CPIS-{assignedCourseType} — {assignedCourseType === '498' ? 'Senior Project I' : 'Senior Project II'}
+                </TabsTrigger>
+              ) : null}
+            </>
+          ) : (
+            /* Admin: both course tabs */
+            <>
+              <TabsTrigger value="498" className="px-4 py-2.5 border-2 border-[var(--color-border)] rounded-lg font-medium transition-all duration-200 data-[state=active]:border-green-600 data-[state=active]:bg-green-600 data-[state=active]:text-white data-[state=inactive]:hover:border-[var(--color-primary-400)] data-[state=inactive]:hover:bg-[var(--color-surface-alt)]">
+                <span className="sm:hidden">CPIS-498</span>
+                <span className="hidden sm:inline">CPIS-498 — Senior Project I</span>
+              </TabsTrigger>
+              <TabsTrigger value="499" className="px-4 py-2.5 border-2 border-[var(--color-border)] rounded-lg font-medium transition-all duration-200 data-[state=active]:border-green-600 data-[state=active]:bg-green-600 data-[state=active]:text-white data-[state=inactive]:hover:border-[var(--color-primary-400)] data-[state=inactive]:hover:bg-[var(--color-surface-alt)]">
+                <span className="sm:hidden">CPIS-499</span>
+                <span className="hidden sm:inline">CPIS-499 — Senior Project II</span>
+              </TabsTrigger>
+            </>
+          )}
+          {/* Student Outcomes tab — always shown */}
+          <TabsTrigger
+            value="student-outcomes"
+            className="px-4 py-2.5 border-2 border-[var(--color-border)] rounded-lg font-medium transition-all duration-200 data-[state=active]:border-indigo-600 data-[state=active]:bg-indigo-600 data-[state=active]:text-white data-[state=inactive]:hover:border-indigo-400 data-[state=inactive]:hover:bg-indigo-50 flex items-center gap-2"
+          >
+            <GraduationCap className="w-4 h-4" />
+            Student Outcomes
+          </TabsTrigger>
+        </TabsList>
 
         <TabsContent value="498"><CoursePanel courseType="498" /></TabsContent>
         <TabsContent value="499"><CoursePanel courseType="499" /></TabsContent>
+
+        {/* ── Student Outcomes Tab ─────────────────────────────────────────── */}
+        <TabsContent value="student-outcomes">
+          <StudentOutcomesPanel />
+        </TabsContent>
       </Tabs>
 
       {/* ── Criterion Edit Dialog ───────────────────────────────────────────── */}
@@ -740,6 +1053,47 @@ export function CoordinatorGradeSchemeEditor() {
                   </div>
                 ))}
               </div>
+
+              {/* Student Outcomes picker */}
+              {(() => {
+                const soList = editCriterion?.courseType === '499' ? outcomes499 : outcomes498;
+                if (soList.length === 0) return (
+                  <div className="text-xs text-[var(--color-text-500)] border border-dashed border-[var(--color-border)] rounded-lg px-3 py-2">
+                    No student outcomes defined yet — add them in the <strong>Student Outcomes</strong> tab.
+                  </div>
+                );
+                return (
+                  <div>
+                    <Label className="mb-2 block flex items-center gap-1.5">
+                      <GraduationCap className="w-4 h-4 text-indigo-600" />
+                      Student Outcomes (SO) <span className="text-xs font-normal text-[var(--color-text-500)]">— select all that apply</span>
+                    </Label>
+                    <div className="flex flex-wrap gap-2">
+                      {soList.map(so => {
+                        const checked = criterionSODraft.includes(so.id);
+                        return (
+                          <button
+                            key={so.id}
+                            type="button"
+                            onClick={() => setCriterionSODraft(prev =>
+                              checked ? prev.filter(id => id !== so.id) : [...prev, so.id]
+                            )}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 text-sm font-medium transition-all ${
+                              checked
+                                ? 'border-indigo-500 bg-indigo-50 text-indigo-800'
+                                : 'border-gray-200 bg-white text-gray-600 hover:border-indigo-300'
+                            }`}
+                          >
+                            {checked && <CheckCircle className="w-3.5 h-3.5 text-indigo-600" />}
+                            <span className="font-bold">{so.code}</span>
+                            <span className="text-xs opacity-75">— {so.title}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -835,6 +1189,47 @@ export function CoordinatorGradeSchemeEditor() {
                 Lower numbers appear first in the table
               </p>
             </div>
+
+            {/* Student Outcomes picker for create dialog */}
+            {(() => {
+              const soList = activeComponentCourseType === '499' ? outcomes499 : outcomes498;
+              if (soList.length === 0) return (
+                <div className="text-xs text-[var(--color-text-500)] border border-dashed border-[var(--color-border)] rounded-lg px-3 py-2">
+                  No student outcomes defined — add them in the <strong>Student Outcomes</strong> tab first.
+                </div>
+              );
+              return (
+                <div>
+                  <Label className="mb-2 block flex items-center gap-1.5">
+                    <GraduationCap className="w-4 h-4 text-indigo-600" />
+                    Student Outcomes (SO)
+                  </Label>
+                  <div className="flex flex-wrap gap-2">
+                    {soList.map(so => {
+                      const checked = criterionSODraft.includes(so.id);
+                      return (
+                        <button
+                          key={so.id}
+                          type="button"
+                          onClick={() => setCriterionSODraft(prev =>
+                            checked ? prev.filter(id => id !== so.id) : [...prev, so.id]
+                          )}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 text-sm font-medium transition-all ${
+                            checked
+                              ? 'border-indigo-500 bg-indigo-50 text-indigo-800'
+                              : 'border-gray-200 bg-white text-gray-600 hover:border-indigo-300'
+                          }`}
+                        >
+                          {checked && <CheckCircle className="w-3.5 h-3.5 text-indigo-600" />}
+                          <span className="font-bold">{so.code}</span>
+                          <span className="text-xs opacity-75">— {so.title}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           <DialogFooter>
@@ -842,6 +1237,7 @@ export function CoordinatorGradeSchemeEditor() {
               variant="outline"
               onClick={() => {
                 setCreateCriterionOpen(false);
+                setCriterionSODraft([]);
                 setCreateDraft({
                   criterionName: '',
                   maxRawScore: 5,
@@ -894,6 +1290,103 @@ export function CoordinatorGradeSchemeEditor() {
               className="bg-red-600 hover:bg-red-700 text-black"
             >
               {deletingCriterion ? 'Deleting…' : 'Delete Permanently'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Student Outcome Create / Edit Dialog ─────────────────────────────── */}
+      <Dialog open={soDialogOpen} onOpenChange={open => { if (!open) setSoDialogOpen(false); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <GraduationCap className="w-5 h-5 text-indigo-600" />
+              {editingSO ? 'Edit Student Outcome' : 'Add Student Outcome'}
+            </DialogTitle>
+            <DialogDescription>
+              {editingSO
+                ? `Update the details for ${editingSO.code}.`
+                : `Define a new Student Outcome (SO) for CPIS-${activeComponentCourseType}.`}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="mb-1 block">Code <span className="text-red-500">*</span></Label>
+                <Input
+                  placeholder="e.g. SO1"
+                  value={soDraft.code}
+                  onChange={e => setSoDraft(p => ({ ...p, code: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label className="mb-1 block">Display Order</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={soDraft.displayOrder}
+                  onChange={e => setSoDraft(p => ({ ...p, displayOrder: e.target.value }))}
+                  className="w-full"
+                />
+              </div>
+            </div>
+            <div>
+              <Label className="mb-1 block">Title <span className="text-red-500">*</span></Label>
+              <Input
+                placeholder="e.g. Apply computing knowledge to solve real-world problems"
+                value={soDraft.title}
+                onChange={e => setSoDraft(p => ({ ...p, title: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label className="mb-1 block">Description <span className="text-xs font-normal text-[var(--color-text-500)]">— optional</span></Label>
+              <Textarea
+                placeholder="Detailed description of this student outcome…"
+                value={soDraft.description}
+                onChange={e => setSoDraft(p => ({ ...p, description: e.target.value }))}
+                className="min-h-[80px] text-sm"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSoDialogOpen(false)}>Cancel</Button>
+            <Button
+              onClick={() => handleSaveSO(activeComponentCourseType)}
+              disabled={savingSO}
+              className="bg-indigo-600 text-white hover:bg-indigo-700"
+            >
+              {savingSO ? (
+                <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving…</>
+              ) : (
+                <><Save className="w-4 h-4 mr-2" />{editingSO ? 'Update Outcome' : 'Create Outcome'}</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Student Outcome Delete Confirmation ──────────────────────────────── */}
+      <AlertDialog open={!!deletingSO} onOpenChange={open => { if (!open) setDeletingSO(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Student Outcome?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>{deletingSO?.code} — {deletingSO?.title}</strong> will be permanently removed.
+              {'\n\n'}
+              All criteria currently linked to this outcome will lose that link.
+              This cannot be undone through the UI.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteSO}
+              disabled={deletingSOId}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {deletingSOId ? 'Deleting…' : 'Delete Permanently'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
