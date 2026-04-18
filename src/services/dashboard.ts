@@ -316,10 +316,9 @@ const KPI_EMPTY: KpiData = {
   pendingReviewGroups: 0, noRecentSubmissionGroups: 0, overdueGroups: 0, totalAttentionCount: 0,
 };
 
-export async function getKpiData(courseId?: string): Promise<KpiData> {
+export async function getKpiData(courseId?: string, since?: string): Promise<KpiData> {
   try {
     const now = new Date().toISOString();
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 3_600_000).toISOString();
     const sixWeeksAgo  = new Date(Date.now() - 42 * 24 * 3_600_000).toISOString();
 
     // Groups in scope (approved projects only) — include course_id for overdue scoping
@@ -330,10 +329,14 @@ export async function getKpiData(courseId?: string): Promise<KpiData> {
     const totalGroups = groupIds.length;
     const safe = groupIds.length > 0 ? groupIds : ['__none__'];
 
+    // Base queries — optionally scoped to a time window via `since`
+    const recentBase = supabase.from('submissions').select('group_id').in('group_id', safe);
+    const allSubsBase = supabase.from('submissions').select('group_id, status').in('group_id', safe).neq('status', 'draft');
+
     // Parallel DB queries
     const [recentR, allSubsR, sparkR, overdueMillR] = await Promise.all([
-      supabase.from('submissions').select('group_id').in('group_id', safe).gte('created_at', thirtyDaysAgo),
-      supabase.from('submissions').select('group_id, status').in('group_id', safe).neq('status', 'draft'),
+      since ? recentBase.gte('created_at', since) : recentBase,
+      since ? allSubsBase.gte('created_at', since) : allSubsBase,
       supabase.from('submissions').select('created_at').in('group_id', safe).gte('created_at', sixWeeksAgo),
       courseId
         ? supabase.from('milestones').select('id, course_id').eq('course_id', courseId).eq('visible', true).lt('due_date', now)
@@ -407,7 +410,7 @@ export async function getKpiData(courseId?: string): Promise<KpiData> {
   }
 }
 
-export async function getAllCourseKpis(): Promise<CourseKpi[]> {
+export async function getAllCourseKpis(since?: string): Promise<CourseKpi[]> {
   try {
     const { data: courses } = await supabase.from('courses').select('id, code, name').order('code');
     if (!courses?.length) return [];
@@ -416,7 +419,7 @@ export async function getAllCourseKpis(): Promise<CourseKpi[]> {
         courseId: c.id as string,
         courseCode: (c.code as string).replace('_', '-'),
         courseName: c.name as string,
-        kpi: await getKpiData(c.id),
+        kpi: await getKpiData(c.id, since),
       }))
     );
   } catch (err) {

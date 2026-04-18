@@ -11,6 +11,12 @@ import {
   Clock, AlertOctagon, CheckCircle2, TrendingUp,
 } from 'lucide-react';
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type TimeRange = '30d' | 'all';
+type KpiBoth = { d30: KpiData; all: KpiData };
+type CourseKpiBoth = { d30: CourseKpi[]; all: CourseKpi[] };
+
 // ─── Primitives ───────────────────────────────────────────────────────────────
 
 function KpiCard({ children, className = '' }: { children: React.ReactNode; className?: string }) {
@@ -47,13 +53,38 @@ function CardHeader({
   );
 }
 
+function TimeRangeToggle({ value, onChange }: { value: TimeRange; onChange: (v: TimeRange) => void }) {
+  return (
+    <div className="flex rounded-lg border border-(--color-border) overflow-hidden text-[11px] ml-auto shrink-0">
+      {(['30d', 'all'] as const).map((v) => (
+        <button
+          key={v}
+          onClick={() => onChange(v)}
+          className={`px-2.5 py-1 font-medium transition-colors ${
+            value === v
+              ? 'bg-(--color-primary-600) text-white'
+              : 'bg-(--color-surface-white) text-(--color-text-500) hover:bg-(--color-surface-alt)'
+          }`}
+        >
+          {v === '30d' ? 'Last 30d' : 'All Time'}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ─── KPI 1: Active Projects + Sparkline ──────────────────────────────────────
 
-function ActiveProjectsCard({ kpi }: { kpi: KpiData }) {
+function ActiveProjectsCard({ kpis }: { kpis: KpiBoth }) {
+  const [range, setRange] = useState<TimeRange>('30d');
+  const kpi = range === '30d' ? kpis.d30 : kpis.all;
   const trend = kpi.sparkline[5] - kpi.sparkline[4];
   return (
     <KpiCard>
-      <CardHeader icon={FolderGit2} label="Total Active Projects" />
+      <div className="flex items-center gap-2">
+        <CardHeader icon={FolderGit2} label="Total Active Projects" />
+        <TimeRangeToggle value={range} onChange={setRange} />
+      </div>
       <div>
         <p className="text-4xl font-bold text-(--color-text-900) leading-none tabular-nums">
           {kpi.totalActiveProjects}
@@ -79,14 +110,19 @@ function ActiveProjectsCard({ kpi }: { kpi: KpiData }) {
 
 // ─── KPI 2: Submission Activity Rate (Donut) ──────────────────────────────────
 
-function SubmissionActivityCard({ kpi }: { kpi: KpiData }) {
+function SubmissionActivityCard({ kpis }: { kpis: KpiBoth }) {
+  const [range, setRange] = useState<TimeRange>('30d');
+  const kpi = range === '30d' ? kpis.d30 : kpis.all;
   const rateColor =
     kpi.submissionActivityRate >= 70 ? 'text-green-600'
     : kpi.submissionActivityRate >= 40 ? 'text-amber-600'
     : 'text-red-600';
   return (
     <KpiCard>
-      <CardHeader icon={Activity} label="Submission Activity" iconBg="bg-green-50" iconColor="text-green-700" />
+      <div className="flex items-center gap-2">
+        <CardHeader icon={Activity} label="Submission Activity" iconBg="bg-green-50" iconColor="text-green-700" />
+        <TimeRangeToggle value={range} onChange={setRange} />
+      </div>
       <div className="flex items-center gap-5">
         <DonutChart activeCount={kpi.activeGroupsCount} totalCount={kpi.totalGroupsCount} />
         <div className="flex flex-col gap-2.5 min-w-0">
@@ -94,7 +130,9 @@ function SubmissionActivityCard({ kpi }: { kpi: KpiData }) {
             <p className={`text-2xl font-bold leading-none tabular-nums ${rateColor}`}>
               {kpi.submissionActivityRate}%
             </p>
-            <p className="text-xs text-(--color-text-500) mt-0.5">Activity rate (30d)</p>
+            <p className="text-xs text-(--color-text-500) mt-0.5">
+              {range === '30d' ? 'Activity rate (30d)' : 'Activity rate (all time)'}
+            </p>
           </div>
           <div className="space-y-1">
             <div className="flex items-center gap-1.5 text-xs text-(--color-text-600)">
@@ -116,14 +154,19 @@ function SubmissionActivityCard({ kpi }: { kpi: KpiData }) {
 
 // ─── KPI 3: Review Completion Rate (Gauge) ────────────────────────────────────
 
-function ReviewCompletionCard({ kpi }: { kpi: KpiData }) {
+function ReviewCompletionCard({ kpis }: { kpis: KpiBoth }) {
+  const [range, setRange] = useState<TimeRange>('30d');
+  const kpi = range === '30d' ? kpis.d30 : kpis.all;
   const rateColor =
     kpi.reviewCompletionRate >= 70 ? 'text-green-600'
     : kpi.reviewCompletionRate >= 40 ? 'text-amber-600'
     : 'text-red-600';
   return (
     <KpiCard>
-      <CardHeader icon={ShieldCheck} label="Review Completion" iconBg="bg-blue-50" iconColor="text-blue-600" />
+      <div className="flex items-center gap-2">
+        <CardHeader icon={ShieldCheck} label="Review Completion" iconBg="bg-blue-50" iconColor="text-blue-600" />
+        <TimeRangeToggle value={range} onChange={setRange} />
+      </div>
       <GaugeChart value={kpi.reviewCompletionRate} />
       <div className="flex items-center justify-between text-xs text-(--color-text-600) pt-1 border-t border-(--color-border)">
         <span className="flex items-center gap-1">
@@ -140,7 +183,9 @@ function ReviewCompletionCard({ kpi }: { kpi: KpiData }) {
 
 // ─── KPI 4: Projects Requiring Attention ─────────────────────────────────────
 
-function AttentionSection({ kpi }: { kpi: KpiData }) {
+function AttentionSection({ kpis }: { kpis: KpiBoth }) {
+  const [range, setRange] = useState<TimeRange>('30d');
+  const kpi = range === '30d' ? kpis.d30 : kpis.all;
   const urgency =
     kpi.totalAttentionCount === 0 ? 'none'
     : kpi.overdueGroups > 0          ? 'high'
@@ -165,9 +210,12 @@ function AttentionSection({ kpi }: { kpi: KpiData }) {
             <h2 className="text-sm font-semibold text-(--color-text-900)">Projects Requiring Attention</h2>
             <span className="text-xs text-(--color-text-400) hidden sm:inline">— Primary decision-making KPI</span>
           </div>
-          <span className={`px-3 py-1 rounded-full text-xs font-bold tabular-nums ${band.badge}`}>
-            {kpi.totalAttentionCount} {kpi.totalAttentionCount === 1 ? 'project' : 'projects'}
-          </span>
+          <div className="flex items-center gap-3">
+            <TimeRangeToggle value={range} onChange={setRange} />
+            <span className={`px-3 py-1 rounded-full text-xs font-bold tabular-nums ${band.badge}`}>
+              {kpi.totalAttentionCount} {kpi.totalAttentionCount === 1 ? 'project' : 'projects'}
+            </span>
+          </div>
         </>
       }
     >
@@ -213,30 +261,34 @@ function AttentionSection({ kpi }: { kpi: KpiData }) {
 
 // ─── Course KPI Comparison ────────────────────────────────────────────────────
 
-function CourseComparisonSection({ courseKpis }: { courseKpis: CourseKpi[] }) {
-  const isComparison = courseKpis.length > 1;
+function CourseComparisonSection({ courseKpis }: { courseKpis: CourseKpiBoth }) {
+  const [range, setRange] = useState<TimeRange>('30d');
+  const list = range === '30d' ? courseKpis.d30 : courseKpis.all;
+  const isComparison = list.length > 1;
   return (
     <SectionCard
       header={
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-(--color-primary-100) flex items-center justify-center">
-            <Activity className="w-3.5 h-3.5 text-(--color-primary-600)" />
+        <div className="flex items-center justify-between w-full gap-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-(--color-primary-100) flex items-center justify-center">
+              <Activity className="w-3.5 h-3.5 text-(--color-primary-600)" />
+            </div>
+            <h2 className="text-sm font-semibold text-(--color-text-900)">
+              {isComparison ? 'Course KPI Comparison' : 'Course Overview'}
+            </h2>
           </div>
-          <h2 className="text-sm font-semibold text-(--color-text-900)">
-            {isComparison ? 'Course KPI Comparison' : 'Course Overview'}
-          </h2>
+          <TimeRangeToggle value={range} onChange={setRange} />
         </div>
       }
     >
       <div className={`grid gap-5 ${isComparison ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
-        {courseKpis.map((ck) => {
+        {list.map((ck) => {
           const actColor = ck.kpi.submissionActivityRate >= 70 ? 'text-green-600' : ck.kpi.submissionActivityRate >= 40 ? 'text-amber-600' : 'text-red-600';
           const revColor = ck.kpi.reviewCompletionRate    >= 70 ? 'text-green-600' : ck.kpi.reviewCompletionRate    >= 40 ? 'text-amber-600' : 'text-red-600';
           const attColor = ck.kpi.totalAttentionCount     === 0 ? 'text-green-600' : ck.kpi.overdueGroups > 0        ? 'text-red-600'   : 'text-amber-600';
 
           return (
             <div key={ck.courseId} className="rounded-xl border border-(--color-border) p-5 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
-              {/* Course badge + name */}
               <div className="mb-4">
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-(--color-primary-100) text-(--color-primary-700) border border-[#1F7A5C]/20">
                   {ck.courseCode}
@@ -244,7 +296,6 @@ function CourseComparisonSection({ courseKpis }: { courseKpis: CourseKpi[] }) {
                 <p className="text-sm font-semibold text-(--color-text-900) mt-1.5">{ck.courseName}</p>
               </div>
 
-              {/* 4-metric grid */}
               <div className="grid grid-cols-4 gap-2 mb-4">
                 {[
                   { label: 'Projects',  value: ck.kpi.totalActiveProjects,       color: 'text-(--color-text-900)' },
@@ -259,7 +310,6 @@ function CourseComparisonSection({ courseKpis }: { courseKpis: CourseKpi[] }) {
                 ))}
               </div>
 
-              {/* Activity mini-bar */}
               <div>
                 <div className="flex justify-between text-[10px] text-(--color-text-400) mb-1">
                   <span>Submission Activity</span>
@@ -298,25 +348,34 @@ function LoadingSkeleton() {
 
 // ─── Admin Dashboard ──────────────────────────────────────────────────────────
 
+const THIRTY_DAYS_AGO = () => new Date(Date.now() - 30 * 24 * 3_600_000).toISOString();
+
 export function AdminDashboard() {
   const { user } = useAuth();
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
-  const [kpi, setKpi] = useState<KpiData | null>(null);
-  const [allCourseKpis, setAllCourseKpis] = useState<CourseKpi[]>([]);
+  const [kpis, setKpis] = useState<KpiBoth | null>(null);
+  const [courseKpis, setCourseKpis] = useState<CourseKpiBoth>({ d30: [], all: [] });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { getAllCourses().then(setCourses); }, []);
 
   useEffect(() => {
     setLoading(true);
-    const base = getKpiData(selectedCourseId ?? undefined);
-    // Always load all-course KPIs for comparison; cache them after first load
-    const comp = allCourseKpis.length === 0 ? getAllCourseKpis() : Promise.resolve(allCourseKpis);
+    const since30d = THIRTY_DAYS_AGO();
+    const cid = selectedCourseId ?? undefined;
 
-    Promise.all([base, comp]).then(([kpiData, courseData]) => {
-      setKpi(kpiData);
-      if (allCourseKpis.length === 0) setAllCourseKpis(courseData);
+    const fetchCourseKpis = courseKpis.d30.length === 0
+      ? Promise.all([getAllCourseKpis(since30d), getAllCourseKpis()])
+      : Promise.resolve([courseKpis.d30, courseKpis.all] as [CourseKpi[], CourseKpi[]]);
+
+    Promise.all([
+      getKpiData(cid, since30d),
+      getKpiData(cid),
+      fetchCourseKpis,
+    ]).then(([d30, all, [ck30d, ckAll]]) => {
+      setKpis({ d30, all });
+      if (courseKpis.d30.length === 0) setCourseKpis({ d30: ck30d, all: ckAll });
     }).finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCourseId]);
@@ -328,10 +387,12 @@ export function AdminDashboard() {
     ? `${selected.code.replace('_', '-')} · ${selected.name}`
     : 'All Courses · Platform-Wide KPIs';
 
-  // Which course cards to show in the comparison section
-  const comparisonKpis: CourseKpi[] = selectedCourseId && selected && kpi
-    ? [{ courseId: selected.id, courseCode: selected.code.replace('_', '-'), courseName: selected.name, kpi }]
-    : allCourseKpis;
+  const comparisonKpis: CourseKpiBoth = selectedCourseId && selected && kpis
+    ? {
+        d30: [{ courseId: selected.id, courseCode: selected.code.replace('_', '-'), courseName: selected.name, kpi: kpis.d30 }],
+        all: [{ courseId: selected.id, courseCode: selected.code.replace('_', '-'), courseName: selected.name, kpi: kpis.all }],
+      }
+    : courseKpis;
 
   return (
     <Layout user={user} pageTitle="Analytical Dashboard" subtitle={subtitle}>
@@ -354,15 +415,17 @@ export function AdminDashboard() {
         ))}
       </div>
 
-      {loading || !kpi ? <LoadingSkeleton /> : (
+      {loading || !kpis ? <LoadingSkeleton /> : (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            <ActiveProjectsCard kpi={kpi} />
-            <SubmissionActivityCard kpi={kpi} />
-            <ReviewCompletionCard kpi={kpi} />
+            <ActiveProjectsCard kpis={kpis} />
+            <SubmissionActivityCard kpis={kpis} />
+            <ReviewCompletionCard kpis={kpis} />
           </div>
-          <AttentionSection kpi={kpi} />
-          {comparisonKpis.length > 0 && <CourseComparisonSection courseKpis={comparisonKpis} />}
+          <AttentionSection kpis={kpis} />
+          {(comparisonKpis.d30.length > 0 || comparisonKpis.all.length > 0) && (
+            <CourseComparisonSection courseKpis={comparisonKpis} />
+          )}
         </div>
       )}
 

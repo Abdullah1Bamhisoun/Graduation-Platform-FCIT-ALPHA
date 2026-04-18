@@ -12,6 +12,11 @@ import {
   Clock, FileX, AlertOctagon, CheckCircle2, TrendingUp, AlertCircle,
 } from 'lucide-react';
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type TimeRange = '30d' | 'all';
+type KpiBoth = { d30: KpiData; all: KpiData };
+
 // ─── Primitives ───────────────────────────────────────────────────────────────
 
 function KpiCard({ children, className = '' }: { children: React.ReactNode; className?: string }) {
@@ -48,13 +53,38 @@ function CardHeader({
   );
 }
 
+function TimeRangeToggle({ value, onChange }: { value: TimeRange; onChange: (v: TimeRange) => void }) {
+  return (
+    <div className="flex rounded-lg border border-(--color-border) overflow-hidden text-[11px] ml-auto shrink-0">
+      {(['30d', 'all'] as const).map((v) => (
+        <button
+          key={v}
+          onClick={() => onChange(v)}
+          className={`px-2.5 py-1 font-medium transition-colors ${
+            value === v
+              ? 'bg-(--color-primary-600) text-white'
+              : 'bg-(--color-surface-white) text-(--color-text-500) hover:bg-(--color-surface-alt)'
+          }`}
+        >
+          {v === '30d' ? 'Last 30d' : 'All Time'}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ─── KPI 1: Active Projects + Sparkline ──────────────────────────────────────
 
-function ActiveProjectsCard({ kpi }: { kpi: KpiData }) {
+function ActiveProjectsCard({ kpis }: { kpis: KpiBoth }) {
+  const [range, setRange] = useState<TimeRange>('30d');
+  const kpi = range === '30d' ? kpis.d30 : kpis.all;
   const trend = kpi.sparkline[5] - kpi.sparkline[4];
   return (
     <KpiCard>
-      <CardHeader icon={FolderGit2} label="Total Active Projects" />
+      <div className="flex items-center gap-2">
+        <CardHeader icon={FolderGit2} label="Total Active Projects" />
+        <TimeRangeToggle value={range} onChange={setRange} />
+      </div>
       <div>
         <p className="text-4xl font-bold text-(--color-text-900) leading-none tabular-nums">
           {kpi.totalActiveProjects}
@@ -80,14 +110,19 @@ function ActiveProjectsCard({ kpi }: { kpi: KpiData }) {
 
 // ─── KPI 2: Submission Activity Rate (Donut) ──────────────────────────────────
 
-function SubmissionActivityCard({ kpi }: { kpi: KpiData }) {
+function SubmissionActivityCard({ kpis }: { kpis: KpiBoth }) {
+  const [range, setRange] = useState<TimeRange>('30d');
+  const kpi = range === '30d' ? kpis.d30 : kpis.all;
   const rateColor =
     kpi.submissionActivityRate >= 70 ? 'text-green-600'
     : kpi.submissionActivityRate >= 40 ? 'text-amber-600'
     : 'text-red-600';
   return (
     <KpiCard>
-      <CardHeader icon={Activity} label="Submission Activity" iconBg="bg-green-50" iconColor="text-green-700" />
+      <div className="flex items-center gap-2">
+        <CardHeader icon={Activity} label="Submission Activity" iconBg="bg-green-50" iconColor="text-green-700" />
+        <TimeRangeToggle value={range} onChange={setRange} />
+      </div>
       <div className="flex items-center gap-5">
         <DonutChart activeCount={kpi.activeGroupsCount} totalCount={kpi.totalGroupsCount} />
         <div className="flex flex-col gap-2.5 min-w-0">
@@ -95,7 +130,9 @@ function SubmissionActivityCard({ kpi }: { kpi: KpiData }) {
             <p className={`text-2xl font-bold leading-none tabular-nums ${rateColor}`}>
               {kpi.submissionActivityRate}%
             </p>
-            <p className="text-xs text-(--color-text-500) mt-0.5">Activity rate (30d)</p>
+            <p className="text-xs text-(--color-text-500) mt-0.5">
+              {range === '30d' ? 'Activity rate (30d)' : 'Activity rate (all time)'}
+            </p>
           </div>
           <div className="space-y-1">
             <div className="flex items-center gap-1.5 text-xs text-(--color-text-600)">
@@ -117,14 +154,19 @@ function SubmissionActivityCard({ kpi }: { kpi: KpiData }) {
 
 // ─── KPI 3: Review Completion Rate (Gauge) ────────────────────────────────────
 
-function ReviewCompletionCard({ kpi }: { kpi: KpiData }) {
+function ReviewCompletionCard({ kpis }: { kpis: KpiBoth }) {
+  const [range, setRange] = useState<TimeRange>('30d');
+  const kpi = range === '30d' ? kpis.d30 : kpis.all;
   const rateColor =
     kpi.reviewCompletionRate >= 70 ? 'text-green-600'
     : kpi.reviewCompletionRate >= 40 ? 'text-amber-600'
     : 'text-red-600';
   return (
     <KpiCard>
-      <CardHeader icon={ShieldCheck} label="Review Completion" iconBg="bg-blue-50" iconColor="text-blue-600" />
+      <div className="flex items-center gap-2">
+        <CardHeader icon={ShieldCheck} label="Review Completion" iconBg="bg-blue-50" iconColor="text-blue-600" />
+        <TimeRangeToggle value={range} onChange={setRange} />
+      </div>
       <GaugeChart value={kpi.reviewCompletionRate} />
       <div className="flex items-center justify-between text-xs text-(--color-text-600) pt-1 border-t border-(--color-border)">
         <span className="flex items-center gap-1">
@@ -141,7 +183,9 @@ function ReviewCompletionCard({ kpi }: { kpi: KpiData }) {
 
 // ─── KPI 4: Projects Requiring Attention ─────────────────────────────────────
 
-function AttentionSection({ kpi }: { kpi: KpiData }) {
+function AttentionSection({ kpis }: { kpis: KpiBoth }) {
+  const [range, setRange] = useState<TimeRange>('30d');
+  const kpi = range === '30d' ? kpis.d30 : kpis.all;
   const urgency =
     kpi.totalAttentionCount === 0 ? 'none'
     : kpi.overdueGroups > 0          ? 'high'
@@ -166,9 +210,12 @@ function AttentionSection({ kpi }: { kpi: KpiData }) {
             <h2 className="text-sm font-semibold text-(--color-text-900)">Projects Requiring Attention</h2>
             <span className="text-xs text-(--color-text-400) hidden sm:inline">— Primary decision-making KPI</span>
           </div>
-          <span className={`px-3 py-1 rounded-full text-xs font-bold tabular-nums ${band.badge}`}>
-            {kpi.totalAttentionCount} {kpi.totalAttentionCount === 1 ? 'project' : 'projects'}
-          </span>
+          <div className="flex items-center gap-3">
+            <TimeRangeToggle value={range} onChange={setRange} />
+            <span className={`px-3 py-1 rounded-full text-xs font-bold tabular-nums ${band.badge}`}>
+              {kpi.totalAttentionCount} {kpi.totalAttentionCount === 1 ? 'project' : 'projects'}
+            </span>
+          </div>
         </>
       }
     >
@@ -219,24 +266,35 @@ function AttentionSection({ kpi }: { kpi: KpiData }) {
 
 // ─── Course Overview (coordinator sees only their own course) ─────────────────
 
-function CourseOverviewSection({ courseKpi }: { courseKpi: CourseKpi }) {
-  const actColor = courseKpi.kpi.submissionActivityRate >= 70 ? 'text-green-600' : courseKpi.kpi.submissionActivityRate >= 40 ? 'text-amber-600' : 'text-red-600';
-  const revColor = courseKpi.kpi.reviewCompletionRate    >= 70 ? 'text-green-600' : courseKpi.kpi.reviewCompletionRate    >= 40 ? 'text-amber-600' : 'text-red-600';
-  const attColor = courseKpi.kpi.totalAttentionCount     === 0 ? 'text-green-600' : courseKpi.kpi.overdueGroups > 0        ? 'text-red-600'   : 'text-amber-600';
+function CourseOverviewSection({ course, kpis }: { course: Course; kpis: KpiBoth }) {
+  const [range, setRange] = useState<TimeRange>('30d');
+  const kpi = range === '30d' ? kpis.d30 : kpis.all;
+  const courseKpi: CourseKpi = {
+    courseId: course.id,
+    courseCode: course.code.replace('_', '-'),
+    courseName: course.name,
+    kpi,
+  };
+
+  const actColor = kpi.submissionActivityRate >= 70 ? 'text-green-600' : kpi.submissionActivityRate >= 40 ? 'text-amber-600' : 'text-red-600';
+  const revColor = kpi.reviewCompletionRate    >= 70 ? 'text-green-600' : kpi.reviewCompletionRate    >= 40 ? 'text-amber-600' : 'text-red-600';
+  const attColor = kpi.totalAttentionCount     === 0 ? 'text-green-600' : kpi.overdueGroups > 0        ? 'text-red-600'   : 'text-amber-600';
 
   return (
     <SectionCard
       header={
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-(--color-primary-100) flex items-center justify-center">
-            <Activity className="w-3.5 h-3.5 text-(--color-primary-600)" />
+        <div className="flex items-center justify-between w-full gap-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-(--color-primary-100) flex items-center justify-center">
+              <Activity className="w-3.5 h-3.5 text-(--color-primary-600)" />
+            </div>
+            <h2 className="text-sm font-semibold text-(--color-text-900)">Course Overview</h2>
           </div>
-          <h2 className="text-sm font-semibold text-(--color-text-900)">Course Overview</h2>
+          <TimeRangeToggle value={range} onChange={setRange} />
         </div>
       }
     >
       <div className="rounded-xl border border-(--color-border) p-5">
-        {/* Course badge + name */}
         <div className="mb-4">
           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-(--color-primary-100) text-(--color-primary-700) border border-[#1F7A5C]/20">
             {courseKpi.courseCode}
@@ -244,13 +302,12 @@ function CourseOverviewSection({ courseKpi }: { courseKpi: CourseKpi }) {
           <p className="text-sm font-semibold text-(--color-text-900) mt-1.5">{courseKpi.courseName}</p>
         </div>
 
-        {/* 4-metric grid */}
         <div className="grid grid-cols-4 gap-2 mb-4">
           {[
-            { label: 'Projects',  value: courseKpi.kpi.totalActiveProjects,         color: 'text-(--color-text-900)' },
-            { label: 'Activity',  value: `${courseKpi.kpi.submissionActivityRate}%`, color: actColor },
-            { label: 'Reviews',   value: `${courseKpi.kpi.reviewCompletionRate}%`,   color: revColor },
-            { label: 'Attention', value: courseKpi.kpi.totalAttentionCount,           color: attColor },
+            { label: 'Projects',  value: kpi.totalActiveProjects,         color: 'text-(--color-text-900)' },
+            { label: 'Activity',  value: `${kpi.submissionActivityRate}%`, color: actColor },
+            { label: 'Reviews',   value: `${kpi.reviewCompletionRate}%`,   color: revColor },
+            { label: 'Attention', value: kpi.totalAttentionCount,           color: attColor },
           ].map(({ label, value, color }) => (
             <div key={label} className="text-center">
               <p className={`text-xl font-bold tabular-nums ${color}`}>{value}</p>
@@ -259,16 +316,15 @@ function CourseOverviewSection({ courseKpi }: { courseKpi: CourseKpi }) {
           ))}
         </div>
 
-        {/* Activity mini-bar */}
         <div>
           <div className="flex justify-between text-[10px] text-(--color-text-400) mb-1">
             <span>Submission Activity</span>
-            <span>{courseKpi.kpi.activeGroupsCount}/{courseKpi.kpi.totalGroupsCount} groups</span>
+            <span>{kpi.activeGroupsCount}/{kpi.totalGroupsCount} groups</span>
           </div>
           <div className="h-1.5 bg-(--color-surface-alt) rounded-full overflow-hidden">
             <div
               className="h-full bg-[#1F7A5C] rounded-full transition-all duration-700"
-              style={{ width: `${courseKpi.kpi.submissionActivityRate}%` }}
+              style={{ width: `${kpi.submissionActivityRate}%` }}
             />
           </div>
         </div>
@@ -279,10 +335,12 @@ function CourseOverviewSection({ courseKpi }: { courseKpi: CourseKpi }) {
 
 // ─── Coordinator Dashboard ────────────────────────────────────────────────────
 
+const THIRTY_DAYS_AGO = () => new Date(Date.now() - 30 * 24 * 3_600_000).toISOString();
+
 export function CoordinatorDashboard() {
   const { user } = useAuth();
   const [course, setCourse] = useState<Course | null>(null);
-  const [kpi, setKpi] = useState<KpiData | null>(null);
+  const [kpis, setKpis] = useState<KpiBoth | null>(null);
   const [loading, setLoading] = useState(true);
   const [noCourse, setNoCourse] = useState(false);
 
@@ -292,10 +350,8 @@ export function CoordinatorDashboard() {
       try {
         let courseId: string | null = null;
 
-        // 1. Use coordinatorCourseId already in the auth context (fastest)
         if (user?.coordinatorCourseId) courseId = user.coordinatorCourseId;
 
-        // 2. Fetch fresh from server (catches stale cache / post-login assignments)
         if (!courseId) {
           const { data: { session } } = await supabase.auth.getSession();
           const token = session?.access_token;
@@ -315,13 +371,15 @@ export function CoordinatorDashboard() {
 
         if (!courseId) { setNoCourse(true); setLoading(false); return; }
 
-        const [courseData, kpiData] = await Promise.all([
+        const since30d = THIRTY_DAYS_AGO();
+        const [courseData, d30, all] = await Promise.all([
           getCourseById(courseId),
+          getKpiData(courseId, since30d),
           getKpiData(courseId),
         ]);
 
         setCourse(courseData);
-        setKpi(kpiData);
+        setKpis({ d30, all });
       } catch (err) {
         console.error('Error loading coordinator dashboard:', err);
         setNoCourse(true);
@@ -354,7 +412,7 @@ export function CoordinatorDashboard() {
     );
   }
 
-  if (noCourse || !kpi || !course) {
+  if (noCourse || !kpis || !course) {
     return (
       <Layout user={user} pageTitle="Analytical Dashboard">
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 flex items-start gap-3">
@@ -370,23 +428,16 @@ export function CoordinatorDashboard() {
     );
   }
 
-  const courseKpi: CourseKpi = {
-    courseId: course.id,
-    courseCode: course.code.replace('_', '-'),
-    courseName: course.name,
-    kpi,
-  };
-
   return (
     <Layout user={user} pageTitle="Analytical Dashboard" subtitle={subtitle}>
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          <ActiveProjectsCard kpi={kpi} />
-          <SubmissionActivityCard kpi={kpi} />
-          <ReviewCompletionCard kpi={kpi} />
+          <ActiveProjectsCard kpis={kpis} />
+          <SubmissionActivityCard kpis={kpis} />
+          <ReviewCompletionCard kpis={kpis} />
         </div>
-        <AttentionSection kpi={kpi} />
-        <CourseOverviewSection courseKpi={courseKpi} />
+        <AttentionSection kpis={kpis} />
+        <CourseOverviewSection course={course} kpis={kpis} />
       </div>
     </Layout>
   );
