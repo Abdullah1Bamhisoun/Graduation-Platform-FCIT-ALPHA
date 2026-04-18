@@ -50,15 +50,6 @@ function courseTypeFromCode(code: string): '498' | '499' {
   return code.includes('499') ? '499' : '498';
 }
 
-async function getCourseIdByCode(courseCode: string): Promise<string | null> {
-  const { data } = await supabase
-    .from('courses')
-    .select('id')
-    .ilike('code', '%' + (courseCode.includes('499') ? '499' : '498') + '%')
-    .limit(1);
-  return data?.[0]?.id ?? null;
-}
-
 // ─── Committee Criterion Row ──────────────────────────────────────────────────
 
 interface CommitteeRowProps {

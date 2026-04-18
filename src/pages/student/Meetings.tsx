@@ -37,7 +37,7 @@ function JoinBar({ meeting }: { meeting: Meeting }) {
 
   return (
     <a
-      href={isFinished ? undefined : meeting_url}
+      href={isFinished ? undefined : meeting_url ?? undefined}
       target="_blank"
       rel="noopener noreferrer"
       className={`flex items-center justify-between w-full px-4 py-3 rounded-xl border text-sm font-semibold transition-all
