@@ -14,6 +14,7 @@ import {
   type Meeting, type CreateMeetingPayload, type UpdateMeetingPayload,
 } from '../../services/meetings';
 import { supabase } from '../../lib/supabase';
+import { apiUrl } from '../../lib/api';
 import { DiscussionTab } from '../../components/meetings/DiscussionTab';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -461,18 +462,33 @@ export function SupervisorMeetings() {
   useEffect(() => {
     async function fetchMyGroups() {
       try {
-        const { data: { user: authUser } } = await supabase.auth.getUser();
-        if (!authUser) return;
-        const { data, error } = await supabase
-          .from('groups')
-          .select('id, project_name, group_code, group_number')
-          .eq('supervisor_id', authUser.id)
-          .order('group_number', { ascending: true });
-        if (error) throw new Error(error.message);
-        setGroups((data || []).map((g: any) => ({
-          id:   g.id,
-          name: g.project_name || g.group_code || `Group ${g.group_number}`,
-        })));
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+
+        if (activeRole === 'coordinator' || activeRole === 'admin') {
+          // Use the dedicated coordinator-groups endpoint which scopes to their course
+          const res = await fetch(apiUrl('/api/meetings/coordinator-groups'), {
+            headers: {
+              Authorization:   `Bearer ${session.access_token}`,
+              'X-Active-Role': activeRole,
+            },
+          });
+          if (!res.ok) throw new Error('Could not load groups');
+          const data: Group[] = await res.json();
+          setGroups(data);
+        } else {
+          // Supervisor: fetch groups where they are the supervisor
+          const { data, error } = await supabase
+            .from('groups')
+            .select('id, project_name, group_code, group_number')
+            .eq('supervisor_id', session.user.id)
+            .order('group_number', { ascending: true });
+          if (error) throw new Error(error.message);
+          setGroups((data || []).map((g: any) => ({
+            id:   g.id,
+            name: g.project_name || g.group_code || `Group ${g.group_number}`,
+          })));
+        }
       } catch (err: any) {
         toast.error(err.message || 'Could not load groups');
       } finally {
