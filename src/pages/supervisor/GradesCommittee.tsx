@@ -666,7 +666,7 @@ export function SupervisorGradesCommittee() {
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
-                <Button variant="outline" onClick={handleSaveDraft} disabled={isUploading || isReadOnly}>
+                <Button variant="outline" onClick={handleSaveDraft} disabled={isUploading || isReadOnly || gradingStatus === 'submitted'}>
                   <Save className="w-4 h-4 mr-2" />
                   {isUploading ? 'Saving…' : 'Save Draft'}
                 </Button>

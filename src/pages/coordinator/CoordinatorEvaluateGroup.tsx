@@ -315,7 +315,7 @@ export function CoordinatorEvaluateGroup() {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
-              <Button variant="outline" onClick={handleSaveDraft} disabled={saving || isReadOnly}>
+              <Button variant="outline" onClick={handleSaveDraft} disabled={saving || isReadOnly || isSubmitted}>
                 <Save className="w-4 h-4 mr-2" />
                 Save Draft
               </Button>
