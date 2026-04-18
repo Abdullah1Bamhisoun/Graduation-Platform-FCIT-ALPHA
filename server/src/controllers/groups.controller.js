@@ -466,7 +466,7 @@ async function createGroup(req, res) {
     const section     = String(sectionNumber || 1).padStart(2, '0');
     const courseNum   = (course?.code || '000').replace(/[^0-9]/g, '').slice(-3);
     const groupNum    = String(nextNum).padStart(2, '0');
-    const genderCode  = gender === 'male' ? 'M' : gender === 'female' ? 'F' : 'U';
+    const genderCode  = gender === 'female' ? 'F' : 'M';
     const groupCode   = `${dept}_${section}_${courseNum}_${year}_${groupNum}_${genderCode}`;
 
     const { data: newGroup, error: insertErr } = await supabaseAdmin

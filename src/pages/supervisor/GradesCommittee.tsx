@@ -357,20 +357,42 @@ export function SupervisorGradesCommittee() {
   const [showPrevFeedback, setShowPrevFeedback] = useState(false);
 
   useEffect(() => {
-    if (!selectedGroupForGrading) return;
+    if (!selectedGroupForGrading || !user) return;
     const courseType = selectedGroupForGrading.course === 'CPIS-499' ? '499' : '498';
-    getRubricCriteria(courseType, 'committee_eval').then((criteria) => {
+
+    Promise.all([
+      getRubricCriteria(courseType, 'committee_eval'),
+      supabase
+        .from('committee_rubric_scores')
+        .select('criterion_key, score')
+        .eq('group_id', selectedGroupForGrading.id)
+        .eq('evaluator_id', user.id),
+      supabase
+        .from('committee_evaluations')
+        .select('submission_status, comment')
+        .eq('group_id', selectedGroupForGrading.id)
+        .eq('evaluator_id', user.id)
+        .maybeSingle(),
+    ]).then(([criteria, scoresResult, evalResult]) => {
+      const scoreMap: Record<string, number> = {};
+      for (const row of (scoresResult.data ?? [])) {
+        scoreMap[row.criterion_key] = row.score;
+      }
       setCommitteeCriteria(criteria.map((c) => ({
         id: c.criterionKey,
         name: c.criterionName,
         maxScore: c.maxRawScore as 5,
-        score: null,
+        score: scoreMap[c.criterionKey] ?? null,
         description1: c.description1,
         description2: c.description2,
         description3: c.description3,
         description4: c.description4,
         description5: c.description5,
       })));
+      if (evalResult.data) {
+        setGradingStatus(evalResult.data.submission_status as 'draft' | 'submitted');
+        setCommitteeComments(evalResult.data.comment ?? '');
+      }
     });
 
     // Load milestone submissions flagged for committee eval
@@ -584,7 +606,7 @@ export function SupervisorGradesCommittee() {
 
   // ─── Grading / Evaluation View ────────────────────────────────────────────
   if (isGrading && selectedGroupForGrading) {
-    const isReadOnly = isIP || gradingStatus === 'submitted';
+    const isReadOnly = isIP;
     const total = calculateCommitteeTotal();
     const percentage = committeeCriteria.length > 0
       ? Math.round((total / 40) * 100)
@@ -651,10 +673,10 @@ export function SupervisorGradesCommittee() {
                 <Button
                   onClick={handleSubmitGrades}
                   className="bg-green-600 hover:bg-green-700 text-[rgb(0,0,0)]"
-                  disabled={gradingStatus === 'submitted' || isIP || isUploading}
+                  disabled={isIP || isUploading}
                 >
                   <Send className="w-4 h-4 mr-2" />
-                  Submit Grades
+                  {gradingStatus === 'submitted' ? 'Re-submit Grades' : 'Submit Grades'}
                 </Button>
                 <Button
                   variant="outline"

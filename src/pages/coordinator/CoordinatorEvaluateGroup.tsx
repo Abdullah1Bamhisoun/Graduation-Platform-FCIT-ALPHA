@@ -179,7 +179,7 @@ export function CoordinatorEvaluateGroup() {
   const allFilled   = criteria.length > 0 && gradedCount === criteria.length;
 
   const isSubmitted = existingStatus === 'submitted';
-  const isReadOnly  = existingStatus === 'submitted' || isLocked;
+  const isReadOnly  = isLocked;
 
   // ── Score change ───────────────────────────────────────────────────────────
 
