@@ -588,7 +588,7 @@ function sendDeadlineReminder(studentEmails, data) {
  * @param {{ meetingTitle: string, groupName: string, dateTime: string, meetingUrl: string, creatorName: string, notes?: string, appUrl?: string }} data
  */
 function sendMeetingInvitation(recipientEmails, data) {
-  const { meetingTitle, groupName, dateTime, meetingUrl, creatorName, notes, appUrl = '' } = data;
+  const { meetingTitle, groupName, dateTime, meetingUrl, location, creatorName, notes, appUrl = '' } = data;
   const formatted = new Date(dateTime).toLocaleString('en-US', {
     dateStyle: 'full', timeStyle: 'short',
   });
@@ -599,13 +599,14 @@ function sendMeetingInvitation(recipientEmails, data) {
     ['Date & Time', `<strong>${formatted}</strong>`],
     ['Organiser',   creatorName],
   ];
-  if (notes) rows.push(['Notes', notes]);
+  if (location)   rows.push(['Location', location]);
+  if (notes)      rows.push(['Notes', notes]);
 
   const body = `
     ${heading('📅 Meeting Invitation')}
     ${paragraph(`You have been invited to a meeting for <strong>${groupName}</strong>.`)}
     ${infoTable(rows)}
-    ${ctaButton('Join Meeting', meetingUrl)}
+    ${meetingUrl ? ctaButton('Join Meeting', meetingUrl) : ''}
     ${appUrl ? `<p style="margin:0 0 24px;font-size:13px;color:#6b7280;text-align:center;">Or open the platform: <a href="${appUrl}" style="color:#1a6b4a;">${appUrl}</a></p>` : ''}
   `;
 
@@ -695,12 +696,13 @@ function sendMeetingCancelled(recipientEmails, data) {
  * @param {{ senderName: string, senderRole: string, groupName: string, message: string, appUrl?: string }} data
  */
 async function sendDiscussionNotification(recipientEmails, { senderName, senderRole, groupName, message, appUrl }) {
-  const roleLabel = senderRole.charAt(0).toUpperCase() + senderRole.slice(1);
+  const roleLabel = (senderRole || 'user').charAt(0).toUpperCase() + (senderRole || 'user').slice(1);
+  const discussionPath = senderRole === 'student' ? '/student/meetings' : '/supervisor/meetings';
   const body =
     heading('New Discussion Message') +
     paragraph(`<strong>${senderName}</strong> (${roleLabel}) posted a new message in <strong>${groupName}</strong>.`) +
     infoTable([['Message', message]]) +
-    (appUrl ? ctaButton('View Discussion', `${appUrl}/supervisor/meetings`) : '');
+    (appUrl ? ctaButton('View Discussion', `${appUrl}${discussionPath}`) : '');
 
   return Promise.all(
     recipientEmails.filter(Boolean).map((email) =>

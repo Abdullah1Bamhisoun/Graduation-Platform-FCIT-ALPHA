@@ -285,7 +285,7 @@ async function getMeeting(req, res) {
 async function createMeeting(req, res) {
   try {
     const { activeRole, id: userId, name: creatorName } = req.user;
-    const { title, meeting_url, date_time, group_id, notes } = req.body;
+    const { title, meeting_url, location, date_time, group_id, notes } = req.body;
 
     // Supervisor can only create for their own groups
     if (activeRole === 'supervisor') {
@@ -309,11 +309,12 @@ async function createMeeting(req, res) {
       .from('meetings')
       .insert({
         title,
-        meeting_url,
+        meeting_url:  meeting_url  || null,
+        location:     location     || null,
         date_time,
         group_id,
         created_by:   userId,
-        creator_role: toCreatorRole(activeRole), // 'coordinator' | 'supervisor' only
+        creator_role: toCreatorRole(activeRole),
         notes:        notes ?? null,
         status:       resolveStatus(date_time),
       })
@@ -334,10 +335,11 @@ async function createMeeting(req, res) {
         meetingTitle: title,
         groupName,
         dateTime:     date_time,
-        meetingUrl:   meeting_url,
-        creatorName:  creatorName ?? 'Platform',
-        notes:        notes ?? null,
-        appUrl:       APP_URL ?? '',
+        meetingUrl:   meeting_url  ?? null,
+        location:     location     ?? null,
+        creatorName:  creatorName  ?? 'Platform',
+        notes:        notes        ?? null,
+        appUrl:       APP_URL      ?? '',
       });
 
       await supabaseAdmin
@@ -374,11 +376,12 @@ async function updateMeeting(req, res) {
     }
 
     const patch = {};
-    if (updates.title)       patch.title       = updates.title;
-    if (updates.meeting_url) patch.meeting_url = updates.meeting_url;
-    if (updates.date_time)   patch.date_time   = updates.date_time;
-    if ('notes' in updates)  patch.notes       = updates.notes ?? null;
-    if (updates.date_time)   patch.status      = resolveStatus(updates.date_time);
+    if (updates.title)              patch.title       = updates.title;
+    if ('meeting_url' in updates)   patch.meeting_url = updates.meeting_url || null;
+    if ('location' in updates)      patch.location    = updates.location    || null;
+    if (updates.date_time)          patch.date_time   = updates.date_time;
+    if ('notes' in updates)         patch.notes       = updates.notes ?? null;
+    if (updates.date_time)          patch.status      = resolveStatus(updates.date_time);
 
     const { data: updated, error } = await supabaseAdmin
       .from('meetings')

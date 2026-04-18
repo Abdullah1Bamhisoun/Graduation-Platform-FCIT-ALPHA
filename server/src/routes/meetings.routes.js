@@ -81,7 +81,7 @@ router.post('/:id/resend-invitation', authenticate, canManageMeetings, controlle
  * Sends an email to all members of a group when a discussion message is posted.
  * Scoped: supervisor → only their own groups; coordinator → only their course groups.
  */
-router.post('/discussions/notify', authenticate, requireRole(['supervisor', 'coordinator', 'admin']), async (req, res) => {
+router.post('/discussions/notify', authenticate, requireRole(['supervisor', 'coordinator', 'admin', 'student']), async (req, res) => {
   try {
     const { group_id, sender_name, sender_role, message } = req.body;
     if (!group_id || !message) {
@@ -94,6 +94,15 @@ router.post('/discussions/notify', authenticate, requireRole(['supervisor', 'coo
         .from('groups').select('supervisor_id').eq('id', group_id).single();
       if (!group || group.supervisor_id !== req.user.id) {
         return res.status(403).json({ error: 'You are not the supervisor of this group' });
+      }
+    }
+
+    // Verify student belongs to this group
+    if (req.user.activeRole === 'student') {
+      const { data: member } = await supabaseAdmin
+        .from('group_members').select('group_id').eq('student_id', req.user.id).eq('group_id', group_id).maybeSingle();
+      if (!member) {
+        return res.status(403).json({ error: 'You are not a member of this group' });
       }
     }
 
@@ -128,7 +137,7 @@ router.post('/discussions/notify', authenticate, requireRole(['supervisor', 'coo
     if (emails.length > 0 && cooledDown) {
       lastDiscussionEmailAt.set(group_id, now);
       await queueDiscussionNotificationEmail(emails, {
-        senderName: sender_name || req.user.name || 'Supervisor',
+        senderName: sender_name || req.user.name || 'User',
         senderRole: sender_role || req.user.activeRole,
         groupName,
         message,

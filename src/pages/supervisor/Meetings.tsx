@@ -436,9 +436,10 @@ type Tab = 'meetings' | 'discussion';
 
 export function SupervisorMeetings() {
   const { user } = useAuth();
-  const [meetings, setMeetings] = useState<Meeting[]>([]);
-  const [groups,   setGroups]   = useState<Group[]>([]);
-  const [loading,  setLoading]  = useState(true);
+  const [meetings,      setMeetings]      = useState<Meeting[]>([]);
+  const [groups,        setGroups]        = useState<Group[]>([]);
+  const [loading,       setLoading]       = useState(true);
+  const [groupsLoading, setGroupsLoading] = useState(true);
   const [showDialog, setShowDialog] = useState(false);
   const [editTarget, setEditTarget] = useState<Meeting | null>(null);
   const [activeTab,  setActiveTab]  = useState<Tab>('meetings');
@@ -474,6 +475,8 @@ export function SupervisorMeetings() {
         })));
       } catch (err: any) {
         toast.error(err.message || 'Could not load groups');
+      } finally {
+        setGroupsLoading(false);
       }
     }
     fetchMyGroups();
@@ -594,12 +597,18 @@ export function SupervisorMeetings() {
 
         {/* Discussion Tab */}
         {activeTab === 'discussion' && (
-          <DiscussionTab
-            groups={groups}
-            currentUserId={user?.id ?? ''}
-            currentUserName={user?.name ?? 'Supervisor'}
-            currentUserRole="supervisor"
-          />
+          groupsLoading ? (
+            <div className="flex items-center justify-center h-48 text-gray-500 text-sm">
+              Loading discussion…
+            </div>
+          ) : (
+            <DiscussionTab
+              groups={groups}
+              currentUserId={user?.id ?? ''}
+              currentUserName={user?.name ?? 'Supervisor'}
+              currentUserRole="supervisor"
+            />
+          )
         )}
       </div>
 
