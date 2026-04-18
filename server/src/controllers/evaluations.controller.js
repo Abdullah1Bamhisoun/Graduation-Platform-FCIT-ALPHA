@@ -238,6 +238,7 @@ async function saveScores(req, res) {
             content:     `${evaluatorLabel} evaluation scores have been submitted for Group ${group.group_number ?? groupId}.`,
             targetRoles: ['student'],
             courseId,
+            groupId,
             authorId:    evaluatorId,
           }),
           notificationService.createUserNotifications(studentIds, {

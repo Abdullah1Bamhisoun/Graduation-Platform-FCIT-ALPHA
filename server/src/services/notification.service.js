@@ -57,9 +57,11 @@ async function createAnnouncement({ title, content, targetRoles, courseId, group
     let result = await supabaseAdmin.from('announcements').insert(withCourseAndGroup).select('id').single();
 
     if (result.error && groupId) {
-      // group_id column missing (migration 006 not applied) — retry without it
-      const withCourseOnly = courseId ? { ...base, course_id: courseId } : base;
-      result = await supabaseAdmin.from('announcements').insert(withCourseOnly).select('id').single();
+      // group_id column missing (migration 006 not applied).
+      // Saving without group_id would expose this announcement to all course members,
+      // not just the target group. Skip creation — bell notifications handle the alert.
+      console.warn('[notification.service] group_id column missing — skipping group-scoped announcement for group', groupId);
+      return null;
     }
 
     if (result.error && courseId) {
