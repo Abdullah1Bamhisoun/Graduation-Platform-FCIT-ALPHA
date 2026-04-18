@@ -1375,7 +1375,7 @@ export function AdminUserManagement() {
                   ...addingMemberIds,
                 ]);
                 const availableStudents = users.filter(
-                  (u) => u.role === 'student' && !currentIds.has(u.id)
+                  (u) => u.role === 'student' && !currentIds.has(u.id) && !groupedStudentIds.has(u.id)
                 );
                 return availableStudents.length > 0 ? (
                   <div>
