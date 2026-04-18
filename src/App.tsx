@@ -58,6 +58,7 @@ import { AdminGradesDeliverables } from './pages/admin/GradesDeliverables';
 import { AdminCourseGrades } from './pages/admin/AdminCourseGrades';
 import { AdminPresentationCommittee } from './pages/admin/PresentationCommittee';
 import { AdminLockManager } from './pages/admin/LockManager';
+import { AdminTermMigration } from './pages/admin/TermMigration';
 
 // Meeting Pages
 import { CoordinatorMeetings } from './pages/coordinator/Meetings';
@@ -156,6 +157,7 @@ export default function App() {
           <Route path="/admin/important-files" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><ImportantFilesManager /></ProtectedRoute>} />
           <Route path="/admin/locks" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><AdminLockManager /></ProtectedRoute>} />
           <Route path="/admin/settings" element={<ProtectedRoute allowedRoles={['admin']}><Settings /></ProtectedRoute>} />
+          <Route path="/admin/term-migration" element={<ProtectedRoute allowedRoles={['admin']}><AdminTermMigration /></ProtectedRoute>} />
           <Route path="/admin/contact"  element={<ProtectedRoute allowedRoles={['admin']}><ContactUs /></ProtectedRoute>} />
 
           {/* Legacy / catch-all */}

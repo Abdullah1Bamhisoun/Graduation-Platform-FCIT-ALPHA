@@ -24,7 +24,7 @@ const submitRegistrationSchema = Joi.object({
   studentId:             Joi.string().max(20).trim().allow('', null).optional(),
   course:                Joi.string().max(50).trim().allow('', null).optional(),
   courseId:              Joi.string().uuid().allow('', null).optional(),
-  term:                  Joi.string().valid('First', 'Second', 'Summer').allow('', null).optional(),
+  term:                  Joi.string().valid('First', 'Second').allow('', null).optional(),
   groupId:               Joi.string().uuid().allow('', null).optional(),
   projectName:           Joi.string().max(200).trim().allow('', null).optional(),
   projectIdea:           Joi.string().max(2000).trim().allow('', null).optional(),

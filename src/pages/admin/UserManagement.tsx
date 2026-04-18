@@ -711,7 +711,6 @@ export function AdminUserManagement() {
                 <SelectItem value="all">All Semesters</SelectItem>
                 <SelectItem value="01">First Semester</SelectItem>
                 <SelectItem value="02">Second Semester</SelectItem>
-                <SelectItem value="03">Summer</SelectItem>
               </SelectContent>
             </Select>
             <Select value={filterCourse} onValueChange={setFilterCourse}>
@@ -878,7 +877,6 @@ export function AdminUserManagement() {
                 <SelectItem value="all">All Semesters</SelectItem>
                 <SelectItem value="01">First Semester</SelectItem>
                 <SelectItem value="02">Second Semester</SelectItem>
-                <SelectItem value="03">Summer</SelectItem>
               </SelectContent>
             </Select>
             <Select value={groupFilterCourse} onValueChange={setGroupFilterCourse}>

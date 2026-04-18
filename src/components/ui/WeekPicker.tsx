@@ -102,9 +102,12 @@ export function WeekPicker({ value, onChange }: WeekPickerProps) {
     setOpen(false);
   };
 
-  const label = /^\d{4}-W\d{2}$/.test(value)
-    ? `Week ${parseInt(value.split('-W')[1], 10)} · ${value.split('-W')[0]}`
-    : 'Select Week';
+  const label = (() => {
+    if (!/^\d{4}-W\d{2}$/.test(value)) return 'Select Week';
+    const sunday = isoWeekToSunday(value);
+    if (!sunday) return 'Select Week';
+    return sunday.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  })();
 
   const weeks = getCalendarWeeks(viewYear, viewMonth);
 

@@ -17,12 +17,11 @@ import type { Course } from '../../../types';
 import { supabase } from '../../../lib/supabase';
 
 type AccountType = 'student' | 'supervisor';
-type Term = 'First' | 'Second' | 'Summer' | '';
+type Term = 'First' | 'Second' | '';
 
 const terms = [
   { value: 'First',  label: 'First' },
   { value: 'Second', label: 'Second' },
-  { value: 'Summer', label: 'Summer' },
 ];
 
 // ── Password Input helper ──────────────────────────────────────────────────────

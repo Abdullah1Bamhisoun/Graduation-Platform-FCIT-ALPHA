@@ -6,7 +6,9 @@ import { getProfilesByRole } from '../../services/profiles';
 import { getAllGroups } from '../../services/groups';
 import type { GroupData } from '../../services/groups';
 import { Button } from '../../components/ui/button';
-import { Eye, ChevronDown, ChevronRight, Unlock, EyeOff, Lock, ChevronUp, CheckCircle, Clock } from 'lucide-react';
+import { DatePicker } from '../../components/ui/DatePicker';
+import { TimePicker } from '../../components/ui/TimePicker';
+import { Eye, ChevronDown, ChevronRight, Unlock, EyeOff, Lock, ChevronUp, CheckCircle, Clock, Calendar, X } from 'lucide-react';
 import { WeeklyReport } from '../../types';
 import type { User, WeekStatus, WeekDisplayStatus } from '../../types';
 import {
@@ -14,6 +16,7 @@ import {
   getDisplayStatus,
   openWeek,
   closeWeek,
+  setWeekDeadline,
 } from '../../services/week-statuses';
 import { toast } from 'sonner';
 
@@ -44,6 +47,12 @@ export function AdminWeeklyReports() {
   const [weekError, setWeekError]                 = useState<string | null>(null);
   const [weekActionLoading, setWeekActionLoading] = useState<string | null>(null);
   const [weekPanelOpen, setWeekPanelOpen]         = useState(true);
+
+  // ── Deadline dialog state ─────────────────────────────────────────────────
+  const [deadlineTarget,  setDeadlineTarget]  = useState<WeekStatus | null>(null);
+  const [deadlineOpenAt,  setDeadlineOpenAt]  = useState('');
+  const [deadlineCloseAt, setDeadlineCloseAt] = useState('');
+  const [deadlineSaving,  setDeadlineSaving]  = useState(false);
 
   // ── Group-level week statuses (for selected group's week cards) ──────────
   const [groupWeekStatuses, setGroupWeekStatuses] = useState<WeekStatus[]>([]);
@@ -114,6 +123,46 @@ export function AdminWeeklyReports() {
       toast.error(err?.message || 'Failed to close week');
     } finally {
       setWeekActionLoading(null);
+    }
+  };
+
+  const openDeadlineDialog = (ws: WeekStatus) => {
+    setDeadlineTarget(ws);
+    setDeadlineOpenAt(ws.openAt  ? ws.openAt.slice(0, 16)  : '');
+    setDeadlineCloseAt(ws.closeAt ? ws.closeAt.slice(0, 16) : '');
+  };
+
+  const handleSaveDeadline = async () => {
+    if (!deadlineTarget) return;
+    setDeadlineSaving(true);
+    try {
+      await setWeekDeadline(
+        deadlineTarget.id,
+        deadlineOpenAt  ? new Date(deadlineOpenAt).toISOString()  : null,
+        deadlineCloseAt ? new Date(deadlineCloseAt).toISOString() : null,
+      );
+      await loadWeekStatuses(activeCourse);
+      toast.success(`Deadline saved for Week ${deadlineTarget.weekNumber}`);
+      setDeadlineTarget(null);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to save deadline');
+    } finally {
+      setDeadlineSaving(false);
+    }
+  };
+
+  const handleClearDeadline = async () => {
+    if (!deadlineTarget) return;
+    setDeadlineSaving(true);
+    try {
+      await setWeekDeadline(deadlineTarget.id, null, null);
+      await loadWeekStatuses(activeCourse);
+      toast.success(`Deadline cleared for Week ${deadlineTarget.weekNumber}`);
+      setDeadlineTarget(null);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to clear deadline');
+    } finally {
+      setDeadlineSaving(false);
     }
   };
 
@@ -328,6 +377,22 @@ $$;`}</pre>
                       )}
                       {!ws && (
                         <span className="text-xs text-[var(--color-text-400)] italic">—</span>
+                      )}
+
+                      {/* Deadline button */}
+                      {ws && !ws.isLocked && (
+                        <button
+                          onClick={() => openDeadlineDialog(ws)}
+                          title={ws.closeAt ? `Deadline: ${new Date(ws.closeAt).toLocaleString()}` : 'Set deadline'}
+                          className={`w-full text-xs flex items-center justify-center gap-1 px-1.5 py-1 rounded border transition-colors ${
+                            ws.closeAt
+                              ? 'border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100'
+                              : 'border-[var(--color-border)] text-[var(--color-text-500)] bg-white hover:bg-[var(--color-surface-alt)]'
+                          }`}
+                        >
+                          <Calendar className="w-2.5 h-2.5" />
+                          {ws.closeAt ? 'Edit' : 'Deadline'}
+                        </button>
                       )}
                     </div>
                   );
@@ -566,6 +631,117 @@ $$;`}</pre>
           </div>
         </>
       )}
+      {/* Deadline Modal */}
+      {deadlineTarget && (
+        <>
+          <div className="fixed inset-0 bg-black/50 z-40" onClick={() => !deadlineSaving && setDeadlineTarget(null)} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="bg-[var(--color-surface-white)] rounded-xl shadow-2xl w-full max-w-md">
+              <div className="flex items-center justify-between p-5 border-b border-[var(--color-border)]">
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-amber-600" />
+                  <h2 className="font-semibold text-[var(--color-text-900)]">
+                    Set Deadline — Week {deadlineTarget.weekNumber}
+                  </h2>
+                </div>
+                <button
+                  onClick={() => setDeadlineTarget(null)}
+                  disabled={deadlineSaving}
+                  className="text-[var(--color-text-500)] hover:text-[var(--color-text-900)] disabled:opacity-50"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                <p className="text-sm text-[var(--color-text-600)]">
+                  Set the submission window for <strong>CPIS-{deadlineTarget.courseType} — Week {deadlineTarget.weekNumber}</strong>.
+                  Leave both fields empty to rely on manual Open/Close controls.
+                </p>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-[var(--color-text-700)] mb-1">
+                      Opens at
+                    </label>
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <DatePicker
+                          value={deadlineOpenAt.split('T')[0] ?? ''}
+                          onChange={date => setDeadlineOpenAt(date + 'T' + (deadlineOpenAt.split('T')[1] ?? '08:00'))}
+                          placeholder="Select date"
+                        />
+                      </div>
+                      <TimePicker
+                        value={deadlineOpenAt.split('T')[1] ?? ''}
+                        onChange={time => setDeadlineOpenAt((deadlineOpenAt.split('T')[0] ?? '') + 'T' + time)}
+                        placeholder="Time"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[var(--color-text-700)] mb-1">
+                      Closes at <span className="text-red-500">*</span>
+                    </label>
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <DatePicker
+                          value={deadlineCloseAt.split('T')[0] ?? ''}
+                          onChange={date => setDeadlineCloseAt(date + 'T' + (deadlineCloseAt.split('T')[1] ?? '23:59'))}
+                          placeholder="Select date"
+                        />
+                      </div>
+                      <TimePicker
+                        value={deadlineCloseAt.split('T')[1] ?? ''}
+                        onChange={time => setDeadlineCloseAt((deadlineCloseAt.split('T')[0] ?? '') + 'T' + time)}
+                        placeholder="Time"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {deadlineTarget.closeAt && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                    Current deadline: <strong>{new Date(deadlineTarget.closeAt).toLocaleString()}</strong>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between gap-3 p-5 border-t border-[var(--color-border)]">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleClearDeadline}
+                  disabled={deadlineSaving || (!deadlineTarget.openAt && !deadlineTarget.closeAt)}
+                  className="text-gray-600 border-gray-300 hover:bg-gray-50"
+                >
+                  Clear Deadline
+                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setDeadlineTarget(null)}
+                    disabled={deadlineSaving}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleSaveDeadline}
+                    disabled={deadlineSaving}
+                    className="bg-amber-600 hover:bg-amber-700 text-white"
+                  >
+                    <Calendar className="w-4 h-4 mr-1.5" />
+                    {deadlineSaving ? 'Saving…' : 'Save Deadline'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
     </Layout>
   );
 }

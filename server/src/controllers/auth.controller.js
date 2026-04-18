@@ -186,7 +186,7 @@ async function approveRegistration(req, res) {
     // ── Group assignment (students only) ──────────────────────────────────────
     if (registration.account_type === 'student') {
       const userId = authUser.user.id;
-      const termMap = { First: '01', Second: '02', Summer: '03' };
+      const termMap = { First: '01', Second: '02' };
       const termCode = termMap[registration.term] || '01';
       const year = new Date().getFullYear().toString();
 
@@ -545,7 +545,7 @@ async function repairGroups(req, res) {
       if (lastNum >= 50) { skipped++; continue; }
 
       const nextNum = lastNum + 1;
-      const termMap = { First: '01', Second: '02', Summer: '03' };
+      const termMap = { First: '01', Second: '02' };
       const termCode = termMap[reg.term] || '01';
       const year = new Date(reg.submitted_at || Date.now()).getFullYear().toString();
       const courseCode = (reg.course || 'GRP').replace(/[^A-Z0-9]/gi, '');
