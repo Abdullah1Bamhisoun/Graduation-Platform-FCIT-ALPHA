@@ -327,9 +327,12 @@ export function AdminCommitteeManagement() {
                 <div>
                   <Label htmlFor="supervisor-select" className="mb-2 block text-[var(--color-text-900)]">Select Supervisor *</Label>
                   {(() => {
-                    const groupSupervisorName = schedules.find(s => s.groupId === selectedSchedule)?.supervisorName?.trim().toLowerCase();
+                    const currentSchedule = schedules.find(s => s.groupId === selectedSchedule);
+                    const groupSupervisorName = currentSchedule?.supervisorName?.trim().toLowerCase();
+                    const alreadyAssigned = new Set((currentSchedule?.committeeMembers ?? []).map(m => m.trim().toLowerCase()));
                     const filteredSupervisors = availableSupervisors.filter(
-                      s => !groupSupervisorName || s.trim().toLowerCase() !== groupSupervisorName
+                      s => (!groupSupervisorName || s.trim().toLowerCase() !== groupSupervisorName)
+                        && !alreadyAssigned.has(s.trim().toLowerCase())
                     );
                     const groupSupervisorDisplay = schedules.find(s => s.groupId === selectedSchedule)?.supervisorName;
                     return (

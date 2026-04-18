@@ -156,6 +156,7 @@ async function listEvents(req, res) {
       time: e.time ?? undefined,
       location: e.location ?? undefined,
       courseId: e.course_id ?? undefined,
+      groupId: e.group_id ?? undefined,
     }));
 
     await cacheSet(calendarCk, calendarPayload, TTL.SHORT);
@@ -183,8 +184,9 @@ async function createEvent(req, res) {
       return res.status(400).json({ error: 'title, date, and type are required' });
     }
 
-    const isAdmin      = req.user.roles && req.user.roles.includes('admin');
-    const isSupervisor = !isAdmin && req.user.roles && req.user.roles.includes('supervisor');
+    const isAdmin        = req.user.roles && req.user.roles.includes('admin');
+    const isCoordinator  = !isAdmin && !!req.user.coordinatorCourseId;
+    const isSupervisor   = !isAdmin && !isCoordinator && req.user.roles && req.user.roles.includes('supervisor');
 
     let courseId     = null;
     let resolvedGroupId = null;
@@ -326,8 +328,9 @@ async function createEvent(req, res) {
 async function deleteEvent(req, res) {
   try {
     const { id } = req.params;
-    const isAdmin      = req.user.roles && req.user.roles.includes('admin');
-    const isSupervisor = !isAdmin && req.user.roles && req.user.roles.includes('supervisor');
+    const isAdmin       = req.user.roles && req.user.roles.includes('admin');
+    const isCoordinator = !isAdmin && !!req.user.coordinatorCourseId;
+    const isSupervisor  = !isAdmin && !isCoordinator && req.user.roles && req.user.roles.includes('supervisor');
 
     if (!isAdmin) {
       const { data: existing, error: fetchError } = await supabaseAdmin

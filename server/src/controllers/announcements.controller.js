@@ -291,8 +291,9 @@ async function createAnnouncement(req, res) {
       return res.status(400).json({ error: 'title, content, and targetRoles are required' });
     }
 
-    const isAdmin      = req.user.roles && req.user.roles.includes('admin');
-    const isSupervisor = !isAdmin && req.user.roles && req.user.roles.includes('supervisor');
+    const isAdmin       = req.user.roles && req.user.roles.includes('admin');
+    const isCoordinator = !isAdmin && !!req.user.coordinatorCourseId;
+    const isSupervisor  = !isAdmin && !isCoordinator && req.user.roles && req.user.roles.includes('supervisor');
 
     let courseId        = req.user.coordinatorCourseId ?? null;
     let resolvedGroupId = null;
@@ -496,8 +497,9 @@ async function updateAnnouncement(req, res) {
 async function deleteAnnouncement(req, res) {
   try {
     const { id } = req.params;
-    const isAdmin      = req.user?.roles?.includes('admin');
-    const isSupervisor = !isAdmin && req.user?.roles?.includes('supervisor');
+    const isAdmin       = req.user?.roles?.includes('admin');
+    const isCoordinator = !isAdmin && !!req.user?.coordinatorCourseId;
+    const isSupervisor  = !isAdmin && !isCoordinator && req.user?.roles?.includes('supervisor');
 
     // Supervisors may only delete announcements they authored themselves
     if (isSupervisor) {
