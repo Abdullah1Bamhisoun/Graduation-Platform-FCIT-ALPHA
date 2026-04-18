@@ -2,11 +2,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
 import { toast } from 'sonner';
-import { Video, ExternalLink, Calendar, Clock, Tag, Users } from 'lucide-react';
+import { Video, ExternalLink, Calendar, Clock, Tag, Users, MessageSquare } from 'lucide-react';
 import {
   listMeetings, statusLabel, statusColors,
   type Meeting,
 } from '../../services/meetings';
+import { getGroupForStudent } from '../../services/groups';
+import { DiscussionTab } from '../../components/meetings/DiscussionTab';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -108,10 +110,15 @@ function MeetingCard({ meeting }: { meeting: Meeting }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+type Tab = 'meetings' | 'discussion';
+
 export function StudentMeetings() {
   const { user } = useAuth();
-  const [meetings, setMeetings] = useState<Meeting[]>([]);
-  const [loading,  setLoading]  = useState(true);
+  const [meetings,   setMeetings]   = useState<Meeting[]>([]);
+  const [loading,    setLoading]    = useState(true);
+  const [activeTab,  setActiveTab]  = useState<Tab>('meetings');
+  const [myGroups,      setMyGroups]      = useState<{ id: string; name: string }[]>([]);
+  const [groupsLoading, setGroupsLoading] = useState(true);
 
   const load = useCallback(async () => {
     try {
@@ -127,59 +134,107 @@ export function StudentMeetings() {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    if (!user) return;
+    getGroupForStudent(user.id).then((g) => {
+      if (g) setMyGroups([{ id: g.id, name: g.projectName || g.groupCode || `Group ${g.groupNumber}` }]);
+      setGroupsLoading(false);
+    });
+  }, [user]);
+
   // Split into upcoming (scheduled + live) and past (finished)
   const upcoming = meetings.filter((m) => m.status !== 'finished');
   const past     = meetings.filter((m) => m.status === 'finished');
 
   return (
-    <Layout user={user!} pageTitle="Meetings">
+    <Layout user={user!} pageTitle="Meetings & Discussions">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
         {/* Page header */}
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <Video className="w-6 h-6 text-[var(--color-primary-600)]" />
-            My Meetings
+            Meetings & Discussions
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            Meetings scheduled for your graduation project group
+            Meetings and group discussions for your graduation project
           </p>
         </div>
 
-        {loading ? (
-          <div className="flex items-center justify-center h-48 text-gray-500 text-sm">
-            Loading meetings…
-          </div>
-        ) : meetings.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-48 gap-3 text-gray-400">
-            <Video className="w-10 h-10 opacity-30" />
-            <p className="text-sm">No meetings scheduled for your group yet.</p>
-          </div>
-        ) : (
-          <div className="space-y-8">
-            {/* Upcoming */}
-            {upcoming.length > 0 && (
-              <section>
-                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                  Upcoming Meetings ({upcoming.length})
-                </h2>
-                <div className="space-y-4">
-                  {upcoming.map((m) => <MeetingCard key={m.id} meeting={m} />)}
-                </div>
-              </section>
-            )}
+        {/* Tabs */}
+        <div className="flex border-b border-gray-200 mb-6">
+          <button
+            onClick={() => setActiveTab('meetings')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px
+              ${activeTab === 'meetings'
+                ? 'border-[var(--color-primary-600)] text-[var(--color-primary-700)]'
+                : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            <Video className="w-4 h-4" />
+            Meetings
+          </button>
+          <button
+            onClick={() => setActiveTab('discussion')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px
+              ${activeTab === 'discussion'
+                ? 'border-[var(--color-primary-600)] text-[var(--color-primary-700)]'
+                : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            <MessageSquare className="w-4 h-4" />
+            Discussion
+          </button>
+        </div>
 
-            {/* Past */}
-            {past.length > 0 && (
-              <section>
-                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                  Past Meetings ({past.length})
-                </h2>
-                <div className="space-y-4">
-                  {past.map((m) => <MeetingCard key={m.id} meeting={m} />)}
-                </div>
-              </section>
-            )}
-          </div>
+        {/* Meetings Tab */}
+        {activeTab === 'meetings' && (
+          loading ? (
+            <div className="flex items-center justify-center h-48 text-gray-500 text-sm">
+              Loading meetings…
+            </div>
+          ) : meetings.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 gap-3 text-gray-400">
+              <Video className="w-10 h-10 opacity-30" />
+              <p className="text-sm">No meetings scheduled for your group yet.</p>
+            </div>
+          ) : (
+            <div className="space-y-8">
+              {upcoming.length > 0 && (
+                <section>
+                  <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                    Upcoming Meetings ({upcoming.length})
+                  </h2>
+                  <div className="space-y-4">
+                    {upcoming.map((m) => <MeetingCard key={m.id} meeting={m} />)}
+                  </div>
+                </section>
+              )}
+              {past.length > 0 && (
+                <section>
+                  <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                    Past Meetings ({past.length})
+                  </h2>
+                  <div className="space-y-4">
+                    {past.map((m) => <MeetingCard key={m.id} meeting={m} />)}
+                  </div>
+                </section>
+              )}
+            </div>
+          )
+        )}
+
+        {/* Discussion Tab */}
+        {activeTab === 'discussion' && (
+          groupsLoading ? (
+            <div className="flex items-center justify-center h-48 text-gray-500 text-sm">
+              Loading discussion…
+            </div>
+          ) : (
+            <DiscussionTab
+              groups={myGroups}
+              currentUserId={user?.id ?? ''}
+              currentUserName={user?.name ?? 'Student'}
+              currentUserRole="student"
+            />
+          )
         )}
       </div>
     </Layout>
