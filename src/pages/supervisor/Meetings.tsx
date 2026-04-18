@@ -356,23 +356,13 @@ function MeetingCard({ meeting, userId, onEdit, onDelete, onResend }: CardProps)
         </p>
       )}
 
-      {/* Meeting Bars */}
-      <div className="space-y-2">
-        <MeetingBar
-          label="Student Meeting"
-          url={meeting.meeting_url}
-          location={meeting.location}
-          status={meeting.status}
-        />
-        {meeting.creator_role !== 'supervisor' && (
-          <MeetingBar
-            label="Supervisor Meeting"
-            url={meeting.meeting_url}
-            location={meeting.location}
-            status={meeting.status}
-          />
-        )}
-      </div>
+      {/* Meeting Bar */}
+      <MeetingBar
+        label="Join Meeting"
+        url={meeting.meeting_url}
+        location={meeting.location}
+        status={meeting.status}
+      />
 
       {/* Actions (only for own meetings) */}
       {isOwner && (
