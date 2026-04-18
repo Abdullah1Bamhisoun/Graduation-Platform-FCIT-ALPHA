@@ -224,7 +224,7 @@ export function AdminUserManagement() {
       toast.success(`${reg.name} approved — they can now log in`);
       setIsViewDialogOpen(false);
       setViewingReg(null);
-      reloadUsers();
+      await Promise.all([reloadUsers(), reloadGroups()]);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to approve');
     }
@@ -318,9 +318,11 @@ export function AdminUserManagement() {
       try { json = JSON.parse(text); } catch { /* non-JSON response */ }
       if (!res.ok) throw new Error(json.error || `Server error (${res.status})`);
 
+      const deletedId = deletingUser.id;
       toast.success(`${deletingUser.name} has been deleted`);
       setIsDeleteDialogOpen(false);
       setDeletingUser(null);
+      setUsers((prev) => prev.filter((u) => u.id !== deletedId));
       reloadUsers();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to delete user');

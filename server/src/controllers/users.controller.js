@@ -124,15 +124,39 @@ async function deleteUser(req, res) {
       return res.status(403).json({ error: 'Coordinators cannot delete admin users' });
     }
 
+    // Nullify FK references where preserving the record makes sense
+    await Promise.all([
+      supabaseAdmin.from('groups').update({ supervisor_id: null }).eq('supervisor_id', id),
+      supabaseAdmin.from('audit_log').update({ actor_id: null }).eq('actor_id', id),
+      supabaseAdmin.from('courses').update({ created_by: null }).eq('created_by', id),
+      supabaseAdmin.from('platform_locks').update({ locked_by: null }).eq('locked_by', id),
+      supabaseAdmin.from('platform_locks').update({ unlocked_by: null }).eq('unlocked_by', id),
+      supabaseAdmin.from('pending_registrations').update({ reviewed_by: null }).eq('reviewed_by', id),
+      supabaseAdmin.from('submission_feedback').update({ reviewed_by: null }).eq('reviewed_by', id),
+      supabaseAdmin.from('week_statuses').update({ updated_by: null }).eq('updated_by', id),
+      supabaseAdmin.from('weekly_reports').update({ reviewed_by: null }).eq('reviewed_by', id),
+      supabaseAdmin.from('announcements').update({ author_id: null }).eq('author_id', id),
+    ]);
+
+    // Delete records that belong to this user and have no value without them
+    await Promise.all([
+      supabaseAdmin.from('group_members').delete().eq('student_id', id),
+      supabaseAdmin.from('supervisor_rubric_scores').delete().eq('student_id', id),
+      supabaseAdmin.from('supervisor_rubric_scores').delete().eq('graded_by', id),
+      supabaseAdmin.from('coordinator_deliverable_scores').delete().eq('graded_by', id),
+      supabaseAdmin.from('committee_evaluations').delete().eq('evaluator_id', id),
+      supabaseAdmin.from('group_deliverable_grades').delete().eq('graded_by', id),
+      supabaseAdmin.from('supervisor_assessments').delete().eq('graded_by', id),
+      supabaseAdmin.from('weekly_report_comments').delete().eq('author_id', id),
+      supabaseAdmin.from('pending_registrations').delete().eq('email', profile.email),
+    ]);
+
     // Delete from Supabase Auth (cascades to profile via DB trigger if configured)
     const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(id);
     if (authError) throw authError;
 
     // Also delete profile row directly in case there is no cascade
     await supabaseAdmin.from('profiles').delete().eq('id', id);
-
-    // Remove pending_registrations record so the email can be re-used
-    await supabaseAdmin.from('pending_registrations').delete().eq('email', profile.email);
 
     // Audit log (non-fatal)
     try {
@@ -147,7 +171,8 @@ async function deleteUser(req, res) {
     res.json({ success: true, message: `User ${profile.name} deleted successfully` });
   } catch (error) {
     console.error('Error deleting user:', error);
-    res.status(500).json({ error: 'Failed to delete user' });
+    const message = error?.message ?? 'Failed to delete user';
+    res.status(500).json({ error: message });
   }
 }
 
