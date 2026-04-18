@@ -189,6 +189,7 @@ export function AdminExportsAudit() {
           criteriaAndSOsByCT.set(ct, { criteria, outcomes498: so498, outcomes499: so499 });
         }));
 
+
         const componentMeta = Array.from(componentMetaMap.values());
         const totalMax = componentMeta.reduce((s, c) => s + c.maxScore, 0);
         const allGroupIds = allGroups.map(g => g.id);
@@ -211,16 +212,55 @@ export function AdminExportsAudit() {
           }
         }
 
-        // Bulk-fetch all coordinator_evaluations for all groups
+        // Bulk-fetch all score tables needed for Grade Details
+        // supervisor_rubric_scores: per student × criterion
+        const supRubricByStudentGroup = new Map<string, Map<string, number>>(); // `${studentId}:${groupId}` → criterionKey → score
+        // committee_rubric_scores: per group × criterion (averaged across evaluators)
+        const commRubricByGroup = new Map<string, Map<string, number>>(); // groupId → criterionKey → avgScore
+        // coordinator_evaluations: per group × criterion
         const coordEvalByGroup = new Map<string, Map<string, number>>(); // groupId → criterionKey → rawScore
+        // coordinator_deliverable_scores: per group × deliverable key
+        const deliverableByGroup = new Map<string, Map<string, number>>(); // groupId → deliverableKey → score
+
         if (allGroupIds.length > 0) {
-          const { data: evalRows } = await supabase
-            .from('coordinator_evaluations')
-            .select('group_id, criterion_key, raw_score')
-            .in('group_id', allGroupIds);
-          for (const row of evalRows ?? []) {
-            if (!coordEvalByGroup.has(row.group_id)) coordEvalByGroup.set(row.group_id, new Map());
-            coordEvalByGroup.get(row.group_id)!.set(row.criterion_key, Number(row.raw_score));
+          const [
+            { data: supRows },
+            { data: commRows },
+            { data: evalRows },
+            { data: delivRows },
+          ] = await Promise.all([
+            supabase.from('supervisor_rubric_scores').select('group_id, student_id, criterion_key, raw_score').in('group_id', allGroupIds),
+            supabase.from('committee_rubric_scores').select('group_id, criterion_key, score').in('group_id', allGroupIds),
+            supabase.from('coordinator_evaluations').select('group_id, criterion_key, raw_score').in('group_id', allGroupIds),
+            supabase.from('coordinator_deliverable_scores').select('group_id, deliverable_key, score').in('group_id', allGroupIds),
+          ]);
+
+          for (const r of supRows ?? []) {
+            const k = `${r.student_id}:${r.group_id}`;
+            if (!supRubricByStudentGroup.has(k)) supRubricByStudentGroup.set(k, new Map());
+            supRubricByStudentGroup.get(k)!.set(r.criterion_key, Number(r.raw_score));
+          }
+
+          // Average committee scores across evaluators per group per criterion
+          const commSums = new Map<string, Map<string, { sum: number; count: number }>>();
+          for (const r of commRows ?? []) {
+            if (!commSums.has(r.group_id)) commSums.set(r.group_id, new Map());
+            const gMap = commSums.get(r.group_id)!;
+            const prev = gMap.get(r.criterion_key) ?? { sum: 0, count: 0 };
+            gMap.set(r.criterion_key, { sum: prev.sum + Number(r.score), count: prev.count + 1 });
+          }
+          for (const [gid, cMap] of commSums) {
+            commRubricByGroup.set(gid, new Map(Array.from(cMap.entries()).map(([k, v]) => [k, v.sum / v.count])));
+          }
+
+          for (const r of evalRows ?? []) {
+            if (!coordEvalByGroup.has(r.group_id)) coordEvalByGroup.set(r.group_id, new Map());
+            coordEvalByGroup.get(r.group_id)!.set(r.criterion_key, Number(r.raw_score));
+          }
+
+          for (const r of delivRows ?? []) {
+            if (!deliverableByGroup.has(r.group_id)) deliverableByGroup.set(r.group_id, new Map());
+            deliverableByGroup.get(r.group_id)!.set(r.deliverable_key, Number(r.score));
           }
         }
 
@@ -249,60 +289,43 @@ export function AdminExportsAudit() {
           }
         }
 
-        // ── Sheet 2: Grade Details — merged SO headers, criteria sub-headers, per student ──
-        // Row 0: Course | Group Code | ... | Student ID | SO1 (merged) | SO2 (merged) | ... | Total Score
-        // Row 1: (blank fixed cols)           | Crit1 | Crit2 | ...    | Crit A | ... | (blank)
-        // Data:  per student
+        // ── Sheet 2: Grade Details — component-grouped criteria, per student ──
+        // Mirrors grade scheme editor: one merged header per component, sub-headers per criterion.
+        // Row 0: fixed cols | [Component A merged] | [Component B merged] | ... | Total Score
+        // Row 1: (blank)    | Crit1 | Crit2 | ...  | Crit A | Crit B | ...| (blank)
+        // Data:  per student — score pulled from the correct table per component
 
-        // Build SO groups for this sheet using all criteria across all course types
         const allCriteria = courseTypesToFetch.flatMap(ct => criteriaAndSOsByCT.get(ct)?.criteria ?? []);
-        const allOutcomes = courseTypesToFetch.flatMap(ct => {
-          const d = criteriaAndSOsByCT.get(ct)!;
-          return ct === '498' ? d.outcomes498 : d.outcomes499;
-        });
-        // Deduplicate outcomes by id
-        const seenSOIds = new Set<string>();
-        const uniqueOutcomes = allOutcomes.filter(so => { if (seenSOIds.has(so.id)) return false; seenSOIds.add(so.id); return true; });
 
-        const soGroups = uniqueOutcomes
-          .map(so => ({ so, criteria: allCriteria.filter(c => c.studentOutcomes.some(s => s.id === so.id)) }))
-          .filter(g => g.criteria.length > 0);
-        const unlinkedCriteria = allCriteria.filter(c => c.studentOutcomes.length === 0);
+        // Group criteria by component, preserving component display order
+        const componentGroups = componentMeta
+          .map(comp => ({
+            comp,
+            criteria: allCriteria.filter(c => c.componentKey === comp.key),
+          }))
+          .filter(cg => cg.criteria.length > 0);
 
         const fixedCols = ['Course', 'Group Code', 'Project Name', 'Supervisor', 'Student Name', 'Student ID'];
         const numFixed = fixedCols.length;
 
-        // Build row0 (SO merged header row) and row1 (criterion name row)
         const detailRow0: (string | number)[] = [...fixedCols];
         const detailRow1: (string | number)[] = Array(numFixed).fill('');
         const detailMerges: { s: { r: number; c: number }; e: { r: number; c: number } }[] = [];
 
-        // Merge fixed column headers vertically across rows 0 and 1
+        // Fixed columns merge vertically across header rows 0 and 1
         for (let i = 0; i < numFixed; i++) {
           detailMerges.push({ s: { r: 0, c: i }, e: { r: 1, c: i } });
         }
 
         let colCursor = numFixed;
-
-        for (const group of soGroups) {
-          detailRow0.push(`${group.so.code} — ${group.so.title}`);
-          for (let i = 1; i < group.criteria.length; i++) detailRow0.push('');
-          // Merge SO header horizontally across its criteria columns
-          detailMerges.push({ s: { r: 0, c: colCursor }, e: { r: 0, c: colCursor + group.criteria.length - 1 } });
-          for (const c of group.criteria) {
-            detailRow1.push(`${c.criterionName} (max ${c.maxRawScore})`);
+        for (const { comp, criteria } of componentGroups) {
+          detailRow0.push(`${comp.name} (/${comp.maxScore})`);
+          for (let i = 1; i < criteria.length; i++) detailRow0.push('');
+          detailMerges.push({ s: { r: 0, c: colCursor }, e: { r: 0, c: colCursor + criteria.length - 1 } });
+          for (const c of criteria) {
+            detailRow1.push(`${c.criterionName} (/${c.maxRawScore})`);
           }
-          colCursor += group.criteria.length;
-        }
-
-        if (unlinkedCriteria.length > 0) {
-          detailRow0.push('Other Criteria');
-          for (let i = 1; i < unlinkedCriteria.length; i++) detailRow0.push('');
-          detailMerges.push({ s: { r: 0, c: colCursor }, e: { r: 0, c: colCursor + unlinkedCriteria.length - 1 } });
-          for (const c of unlinkedCriteria) {
-            detailRow1.push(`${c.criterionName} (max ${c.maxRawScore})`);
-          }
-          colCursor += unlinkedCriteria.length;
+          colCursor += criteria.length;
         }
 
         // Total Score column — merge vertically
@@ -310,122 +333,136 @@ export function AdminExportsAudit() {
         detailRow1.push('');
         detailMerges.push({ s: { r: 0, c: colCursor }, e: { r: 1, c: colCursor } });
 
-        // Data rows — one per student
+        // Data rows — one per student, scores from the correct table per component
         const detailDataRows: (string | number)[][] = [];
         for (const g of allGroups) {
-          const evalMap = coordEvalByGroup.get(g.id) ?? new Map<string, number>();
+          const supMap    = (sid: string) => supRubricByStudentGroup.get(`${sid}:${g.id}`) ?? new Map<string, number>();
+          const commMap   = commRubricByGroup.get(g.id)  ?? new Map<string, number>();
+          const coordMap  = coordEvalByGroup.get(g.id)   ?? new Map<string, number>();
+          const delivMap  = deliverableByGroup.get(g.id) ?? new Map<string, number>();
+
           for (const student of g.students) {
             const row: (string | number)[] = [
               g.courseCode, g.groupCode ?? '', g.name, g.supervisorName ?? '',
               student.name, student.studentId ?? '',
             ];
-            for (const group of soGroups) {
-              for (const c of group.criteria) {
-                row.push(evalMap.has(c.criterionKey) ? evalMap.get(c.criterionKey)! : '');
+
+            const criterionScores: (number | '')[] = [];
+            for (const { comp, criteria } of componentGroups) {
+              for (const c of criteria) {
+                let val: number | '' = '';
+                if (comp.key === 'supervisor_eval') {
+                  const m = supMap(student.id);
+                  val = m.has(c.criterionKey) ? m.get(c.criterionKey)! : '';
+                } else if (comp.key === 'committee_eval') {
+                  val = commMap.has(c.criterionKey) ? Number(commMap.get(c.criterionKey)!.toFixed(2)) : '';
+                } else if (comp.key === 'coordinator_deliverables') {
+                  val = delivMap.has(c.criterionKey) ? delivMap.get(c.criterionKey)! : '';
+                } else {
+                  val = coordMap.has(c.criterionKey) ? coordMap.get(c.criterionKey)! : '';
+                }
+                criterionScores.push(val);
               }
             }
-            for (const c of unlinkedCriteria) {
-              row.push(evalMap.has(c.criterionKey) ? evalMap.get(c.criterionKey)! : '');
-            }
-            row.push(g.coordinatorEvaluation?.normalizedScore != null
-              ? Number(g.coordinatorEvaluation.normalizedScore.toFixed(1))
+            row.push(...criterionScores);
+
+            // Show Total Score as sum of graded values; blank only if nothing is graded yet
+            const gradedValues = criterionScores.filter((v): v is number => v !== '');
+            row.push(gradedValues.length > 0
+              ? gradedValues.reduce((s, v) => s + v, 0)
               : '');
             detailDataRows.push(row);
           }
         }
 
-        // ── Sheet 3: Student Outcomes & SO Scores ────────────────────────
-        // Section A: SO definitions
-        // Section B: Criteria × SO mapping matrix
-        // Section C: Per-group score per SO (sum of raw scores for criteria tagged with that SO)
-        const soSheetRows: (string | number)[][] = [];
+        // ── Sheet 3: Student Outcomes — SO-grouped criteria, per student ──
+        // Row 0: fixed cols | [SO1 merged] | [SO2 merged] | ... | [Other merged] | Total Score
+        // Row 1: (blank)    | Crit1 (/max) | Crit2 (/max) | ...                 | (blank)
+        // Data: per student — same score routing as Grade Details
 
-        for (const ct of courseTypesToFetch) {
-          const { criteria, outcomes498, outcomes499 } = criteriaAndSOsByCT.get(ct)!;
-          const outcomes = ct === '498' ? outcomes498 : outcomes499;
-          const ctGroups = allGroups.filter(g => g.courseType === ct);
-          if (outcomes.length === 0 && criteria.length === 0) continue;
+        const soUniqueOutcomes = (() => {
+          const allSOsRaw = courseTypesToFetch.flatMap(ct => {
+            const d = criteriaAndSOsByCT.get(ct)!;
+            return ct === '498' ? d.outcomes498 : d.outcomes499;
+          });
+          const seen = new Set<string>();
+          return allSOsRaw.filter(so => { if (seen.has(so.id)) return false; seen.add(so.id); return true; });
+        })();
 
-          // ── A: SO Definitions ──
-          soSheetRows.push([`CPIS-${ct} — Student Outcome Definitions`]);
-          soSheetRows.push(['Code', 'Title', 'Description']);
-          for (const so of outcomes) {
-            soSheetRows.push([so.code, so.title, so.description ?? '']);
+        const soGroups = soUniqueOutcomes
+          .map(so => ({ so, criteria: allCriteria.filter(c => c.studentOutcomes.some(s => s.id === so.id)) }))
+          .filter(g => g.criteria.length > 0);
+        const soUnlinked = allCriteria.filter(c => c.studentOutcomes.length === 0);
+
+        const soFixedCols = ['Course', 'Group Code', 'Project Name', 'Supervisor', 'Student Name', 'Student ID'];
+        const soNumFixed = soFixedCols.length;
+
+        const soRow0: (string | number)[] = [...soFixedCols];
+        const soRow1: (string | number)[] = Array(soNumFixed).fill('');
+        const soMerges: { s: { r: number; c: number }; e: { r: number; c: number } }[] = [];
+
+        for (let i = 0; i < soNumFixed; i++) {
+          soMerges.push({ s: { r: 0, c: i }, e: { r: 1, c: i } });
+        }
+
+        let soCursor = soNumFixed;
+        for (const { so, criteria } of soGroups) {
+          soRow0.push(`${so.code} — ${so.title}`);
+          for (let i = 1; i < criteria.length; i++) soRow0.push('');
+          soMerges.push({ s: { r: 0, c: soCursor }, e: { r: 0, c: soCursor + criteria.length - 1 } });
+          for (const c of criteria) {
+            soRow1.push(`${c.criterionName} (/${c.maxRawScore})`);
           }
-          soSheetRows.push([]);
+          soCursor += criteria.length;
+        }
 
-          // ── B: Criteria × SO Mapping ──
-          if (outcomes.length > 0 && criteria.length > 0) {
-            soSheetRows.push([`CPIS-${ct} — Criteria × SO Mapping`]);
-            soSheetRows.push([
-              'Criterion', 'Component', 'Max Score',
-              ...outcomes.map(s => s.code),
-            ]);
-            for (const c of criteria) {
-              soSheetRows.push([
-                c.criterionName,
-                c.componentKey.replace(/_/g, ' '),
-                c.maxRawScore,
-                ...outcomes.map(so => c.studentOutcomes.some(s => s.id === so.id) ? '✓' : ''),
-              ]);
-            }
-            soSheetRows.push([]);
+        if (soUnlinked.length > 0) {
+          soRow0.push('Other Criteria');
+          for (let i = 1; i < soUnlinked.length; i++) soRow0.push('');
+          soMerges.push({ s: { r: 0, c: soCursor }, e: { r: 0, c: soCursor + soUnlinked.length - 1 } });
+          for (const c of soUnlinked) {
+            soRow1.push(`${c.criterionName} (/${c.maxRawScore})`);
           }
+          soCursor += soUnlinked.length;
+        }
 
-          // ── C: SO score pivot — SOs as row groups, groups as columns ──
-          if (outcomes.length > 0 && ctGroups.length > 0) {
-            soSheetRows.push([`CPIS-${ct} — Group Scores by Student Outcome`]);
+        soRow0.push('Total Score');
+        soRow1.push('');
+        soMerges.push({ s: { r: 0, c: soCursor }, e: { r: 1, c: soCursor } });
 
-            // Column header row: blank label col + one col per group
-            soSheetRows.push([
-              '',
-              ...ctGroups.map(g => g.groupCode ?? g.name),
-            ]);
+        const soOrderedCriteria = [...soGroups.flatMap(sg => sg.criteria), ...soUnlinked];
 
-            for (const so of outcomes) {
-              const linkedCriteria = criteria.filter(c =>
-                c.studentOutcomes.some(s => s.id === so.id)
-              );
+        const soDataRows: (string | number)[][] = [];
+        for (const g of allGroups) {
+          const supMap    = (sid: string) => supRubricByStudentGroup.get(`${sid}:${g.id}`) ?? new Map<string, number>();
+          const commMap   = commRubricByGroup.get(g.id)  ?? new Map<string, number>();
+          const coordMap  = coordEvalByGroup.get(g.id)   ?? new Map<string, number>();
+          const delivMap  = deliverableByGroup.get(g.id) ?? new Map<string, number>();
 
-              // SO header row
-              soSheetRows.push([`${so.code} — ${so.title}`]);
-
-              // One sub-row per criterion linked to this SO
-              for (const c of linkedCriteria) {
-                soSheetRows.push([
-                  `  ${c.criterionName} (max ${c.maxRawScore})`,
-                  ...ctGroups.map(g => {
-                    const evalMap = coordEvalByGroup.get(g.id) ?? new Map<string, number>();
-                    return evalMap.has(c.criterionKey) ? evalMap.get(c.criterionKey)! : '';
-                  }),
-                ]);
+          for (const student of g.students) {
+            const row: (string | number)[] = [
+              g.courseCode, g.groupCode ?? '', g.name, g.supervisorName ?? '',
+              student.name, student.studentId ?? '',
+            ];
+            const soScores: (number | '')[] = [];
+            for (const c of soOrderedCriteria) {
+              let val: number | '' = '';
+              if (c.componentKey === 'supervisor_eval') {
+                const m = supMap(student.id);
+                val = m.has(c.criterionKey) ? m.get(c.criterionKey)! : '';
+              } else if (c.componentKey === 'committee_eval') {
+                val = commMap.has(c.criterionKey) ? Number(commMap.get(c.criterionKey)!.toFixed(2)) : '';
+              } else if (c.componentKey === 'coordinator_deliverables') {
+                val = delivMap.has(c.criterionKey) ? delivMap.get(c.criterionKey)! : '';
+              } else {
+                val = coordMap.has(c.criterionKey) ? coordMap.get(c.criterionKey)! : '';
               }
-
-              // SO total row
-              const soMax = linkedCriteria.reduce((s, c) => s + c.maxRawScore, 0);
-              soSheetRows.push([
-                `  ${so.code} Total (max ${soMax})`,
-                ...ctGroups.map(g => {
-                  const evalMap = coordEvalByGroup.get(g.id) ?? new Map<string, number>();
-                  return linkedCriteria.reduce((sum, c) => sum + (evalMap.get(c.criterionKey) ?? 0), 0);
-                }),
-              ]);
-
-              soSheetRows.push([]); // blank row between SOs
+              soScores.push(val);
             }
-
-            // Grand total normalized score row
-            const normMax = ctGroups[0]?.coordinatorEvaluation?.maxScore ?? '';
-            soSheetRows.push([
-              `Total Normalized Score (max ${normMax})`,
-              ...ctGroups.map(g =>
-                g.coordinatorEvaluation?.normalizedScore != null
-                  ? Number(g.coordinatorEvaluation.normalizedScore.toFixed(1))
-                  : ''
-              ),
-            ]);
-
-            soSheetRows.push([]);
+            row.push(...soScores);
+            const gradedSO = soScores.filter((v): v is number => v !== '');
+            row.push(gradedSO.length > 0 ? gradedSO.reduce((s, v) => s + v, 0) : '');
+            soDataRows.push(row);
           }
         }
 
@@ -444,15 +481,28 @@ export function AdminExportsAudit() {
               : [detailRow0, detailRow1, ['No evaluation data yet']]
           );
           wsDetail['!merges'] = detailMerges;
+          // Center all row-0 merged header cells (component names + fixed col headers)
+          for (const merge of detailMerges) {
+            const addr = XLSX.utils.encode_cell(merge.s);
+            if (!wsDetail[addr]) wsDetail[addr] = { v: '', t: 's' };
+            wsDetail[addr].s = { alignment: { horizontal: 'center', vertical: 'center', wrapText: true } };
+          }
           autoFitSheet(wsDetail, [detailRow0, detailRow1]);
           XLSX.utils.book_append_sheet(wb, wsDetail, 'Grade Details');
 
-          // Sheet 3: Student Outcomes (always included)
-          const soData = soSheetRows.length > 0
-            ? soSheetRows
-            : [['No student outcomes defined yet — add them in the Grade Scheme Editor.']];
-          const wsSO = XLSX.utils.aoa_to_sheet(soData);
-          autoFitSheet(wsSO, soData);
+          // Sheet 3: Student Outcomes — SO-grouped criteria per student
+          const wsSO = XLSX.utils.aoa_to_sheet(
+            soDataRows.length > 0
+              ? [soRow0, soRow1, ...soDataRows]
+              : [soRow0, soRow1, ['No evaluation data yet']]
+          );
+          wsSO['!merges'] = soMerges;
+          for (const merge of soMerges) {
+            const addr = XLSX.utils.encode_cell(merge.s);
+            if (!wsSO[addr]) wsSO[addr] = { v: '', t: 's' };
+            wsSO[addr].s = { alignment: { horizontal: 'center', vertical: 'center', wrapText: true } };
+          }
+          autoFitSheet(wsSO, [soRow0, soRow1]);
           XLSX.utils.book_append_sheet(wb, wsSO, 'Student Outcomes');
 
           downloadXlsx(wb, `grades-report-${courseSlug}-${dateStr}.xlsx`);
@@ -713,7 +763,24 @@ export function AdminExportsAudit() {
           </DashboardCard>
 
           {/* Recent Exports */}
-          <DashboardCard title="Recent Exports" icon={ClipboardList}>
+          <DashboardCard
+            title="Recent Exports"
+            icon={ClipboardList}
+            actions={
+              recentExports.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    localStorage.removeItem(RECENT_EXPORTS_KEY);
+                    setRecentExports([]);
+                  }}
+                >
+                  Clear All
+                </Button>
+              )
+            }
+          >
             {recentExports.length === 0 ? (
               <div className="py-10 text-center text-[var(--color-text-600)]">
                 <FileText className="w-10 h-10 mx-auto mb-3 opacity-40" />
