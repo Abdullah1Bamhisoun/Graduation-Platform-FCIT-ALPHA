@@ -153,12 +153,13 @@ const addCommentSchema = Joi.object({
 // ── Meetings ──────────────────────────────────────────────────────────────────
 
 const createMeetingSchema = Joi.object({
-  title:       Joi.string().min(1).max(200).trim().required(),
-  meeting_url: Joi.string().uri().max(2000).allow(null, '').optional(),
-  location:    Joi.string().max(500).trim().allow(null, '').optional(),
-  date_time:   Joi.string().isoDate().required(),
-  group_id:    Joi.string().uuid().required(),
-  notes:       Joi.string().max(2000).trim().allow('', null).optional(),
+  title:            Joi.string().min(1).max(200).trim().required(),
+  meeting_url:      Joi.string().uri().max(2000).allow(null, '').optional(),
+  location:         Joi.string().max(500).trim().allow(null, '').optional(),
+  date_time:        Joi.string().isoDate().required(),
+  group_id:         Joi.string().uuid().required(),
+  notes:            Joi.string().max(2000).trim().allow('', null).optional(),
+  invite_supervisor_ids: Joi.array().items(Joi.string().uuid()).optional().default([]),
 });
 
 const updateMeetingSchema = Joi.object({

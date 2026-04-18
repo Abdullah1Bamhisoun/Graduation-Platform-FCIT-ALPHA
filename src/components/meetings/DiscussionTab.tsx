@@ -210,11 +210,11 @@ export function DiscussionTab({ groups, currentUserId, currentUserName, currentU
               posts.map((post) => {
                 const isMe = post.user_id === currentUserId;
                 return (
-                  <div key={post.id} className="flex justify-start">
-                    <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 shadow-sm rounded-tl-sm
+                  <div key={post.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 shadow-sm
                       ${isMe
-                        ? 'bg-(--color-primary-600) text-white'
-                        : 'bg-white border border-gray-200 text-gray-800'}`}>
+                        ? 'bg-(--color-primary-600) text-white rounded-tr-sm'
+                        : 'bg-white border border-gray-200 text-gray-800 rounded-tl-sm'}`}>
                       <p className={`text-xs font-semibold mb-1 ${
                         isMe                              ? 'text-white/80'
                         : post.author_role === 'coordinator' ? 'text-purple-600'

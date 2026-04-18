@@ -127,8 +127,9 @@ async function insertParticipants(meetingId, groupId) {
   const profileMap = Object.fromEntries((profileRows || []).map((p) => [p.id, p.email]));
 
   return {
-    studentEmails:  studentIds.map((sid) => profileMap[sid]).filter(Boolean),
+    studentEmails:   studentIds.map((sid) => profileMap[sid]).filter(Boolean),
     supervisorEmail: supervisorId ? (profileMap[supervisorId] ?? null) : null,
+    supervisorId:    supervisorId ?? null,
   };
 }
 
@@ -285,7 +286,7 @@ async function getMeeting(req, res) {
 async function createMeeting(req, res) {
   try {
     const { activeRole, id: userId, name: creatorName } = req.user;
-    const { title, meeting_url, location, date_time, group_id, notes } = req.body;
+    const { title, meeting_url, location, date_time, group_id, notes, invite_supervisor_ids = [] } = req.body;
 
     // Supervisor can only create for their own groups
     if (activeRole === 'supervisor') {
@@ -323,12 +324,18 @@ async function createMeeting(req, res) {
 
     if (error) throw error;
 
-    const { studentEmails, supervisorEmail } = await insertParticipants(meeting.id, group_id);
+    const { studentEmails, supervisorEmail, supervisorId } = await insertParticipants(meeting.id, group_id);
 
-    const inviteEmails =
-      activeRole === 'supervisor'
-        ? studentEmails
-        : [...studentEmails, ...(supervisorEmail ? [supervisorEmail] : [])];
+    const includeSupervisor =
+      activeRole !== 'supervisor' &&
+      Array.isArray(invite_supervisor_ids) &&
+      invite_supervisor_ids.length > 0 &&
+      supervisorId != null &&
+      invite_supervisor_ids.includes(supervisorId);
+
+    const inviteEmails = includeSupervisor
+      ? [...studentEmails, ...(supervisorEmail ? [supervisorEmail] : [])]
+      : studentEmails;
 
     if (inviteEmails.length > 0) {
       await queueMeetingInvitationEmail(inviteEmails, {

@@ -34,12 +34,13 @@ export interface Meeting {
 }
 
 export interface CreateMeetingPayload {
-  title:        string;
-  meeting_url?: string | null;
-  location?:    string | null;
-  date_time:    string;
-  group_id:     string;
-  notes?:       string;
+  title:             string;
+  meeting_url?:      string | null;
+  location?:         string | null;
+  date_time:         string;
+  group_id:          string;
+  notes?:            string;
+  invite_supervisor_ids?: string[];
 }
 
 export interface UpdateMeetingPayload {

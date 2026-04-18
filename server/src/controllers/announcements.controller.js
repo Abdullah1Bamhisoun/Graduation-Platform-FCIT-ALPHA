@@ -8,8 +8,8 @@ const { queueAnnouncementEmail } = require('../services/queue.service');
  * Incorporates courseId, role filter, and pagination range so different
  * users / pages never share the wrong data.
  */
-function announcementCacheKey(courseId, role, from, to) {
-  return `announcements:${courseId ?? 'null'}:${role ?? 'all'}:${from}-${to}`;
+function announcementCacheKey(userId, role, from, to) {
+  return `announcements:${userId ?? 'anon'}:${role ?? 'all'}:${from}-${to}`;
 }
 
 /**
@@ -119,7 +119,7 @@ async function listAnnouncements(req, res) {
     const isManager = req.user?.activeRole === 'coordinator' || req.user?.activeRole === 'admin';
 
     if (!isManager) {
-      const ck = announcementCacheKey(req.user?.coordinatorCourseId ?? null, role, from, to);
+      const ck = announcementCacheKey(req.user?.id, role, from, to);
       const cached = await cacheGet(ck);
       if (cached) {
         res.set('Cache-Control', 'private, max-age=60');
@@ -133,7 +133,13 @@ async function listAnnouncements(req, res) {
       .order('published_at', { ascending: false });
 
     if (role) {
-      query = query.contains('target_roles', [role]);
+      if (req.user?.activeRole === 'supervisor') {
+        // Supervisors see announcements targeting their role AND announcements they
+        // authored (which target 'student' but are scoped to their own group).
+        query = query.or(`target_roles.cs.{${role}},author_id.eq.${req.user.id}`);
+      } else {
+        query = query.contains('target_roles', [role]);
+      }
     }
 
     // ── Resolve the viewer's course + group context ──────────────────────────
@@ -266,8 +272,7 @@ async function listAnnouncements(req, res) {
 
     // Cache for non-manager roles
     if (!isManager) {
-      const viewerCourseIdForKey = req.user?.coordinatorCourseId ?? null;
-      await cacheSet(announcementCacheKey(viewerCourseIdForKey, role, from, to), payload, TTL.SHORT);
+      await cacheSet(announcementCacheKey(req.user?.id, role, from, to), payload, TTL.SHORT);
     }
 
     res.json(payload);
