@@ -79,13 +79,14 @@ function MeetingBar({ label, url, location, status }: {
 // ─── Create / Edit Dialog ─────────────────────────────────────────────────────
 
 interface DialogProps {
-  groups:   Group[];
-  initial?: Meeting | null;
-  onSave:   (data: CreateMeetingPayload | UpdateMeetingPayload, id?: string) => Promise<void>;
-  onClose:  () => void;
+  groups:      Group[];
+  initial?:    Meeting | null;
+  onSave:      (data: CreateMeetingPayload | UpdateMeetingPayload, id?: string) => Promise<void>;
+  onSaveAll?:  (base: Omit<CreateMeetingPayload, 'group_id'>) => Promise<void>;
+  onClose:     () => void;
 }
 
-function MeetingDialog({ groups, initial, onSave, onClose }: DialogProps) {
+function MeetingDialog({ groups, initial, onSave, onSaveAll, onClose }: DialogProps) {
   const isEdit = !!initial;
   const [saving, setSaving] = useState(false);
 
@@ -99,7 +100,7 @@ function MeetingDialog({ groups, initial, onSave, onClose }: DialogProps) {
     location:    initial?.location    ?? '',
     date:        initDt.split('T')[0] ?? '',
     time:        initDt.split('T')[1] ?? '09:00',
-    group_id:    initial?.groups?.id  ?? (groups[0]?.id ?? ''),
+    group_id:    initial?.groups?.id  ?? 'all',
     notes:       initial?.notes       ?? '',
   });
 
@@ -115,15 +116,19 @@ function MeetingDialog({ groups, initial, onSave, onClose }: DialogProps) {
     }
     setSaving(true);
     try {
-      const payload: CreateMeetingPayload = {
+      const base = {
         title:       form.title.trim(),
         meeting_url: meetingType === 'online' ? (form.meeting_url.trim() || null) : null,
         location:    meetingType === 'on_campus' ? (form.location.trim() || null) : null,
         date_time:   new Date(`${form.date}T${form.time}`).toISOString(),
-        group_id:    form.group_id,
         notes:       form.notes.trim() || undefined,
       };
-      await onSave(isEdit ? { ...payload } : payload, initial?.id);
+
+      if (!isEdit && form.group_id === 'all' && onSaveAll) {
+        await onSaveAll(base);
+      } else {
+        await onSave(isEdit ? { ...base } : { ...base, group_id: form.group_id }, initial?.id);
+      }
       onClose();
     } catch (err: any) {
       toast.error(err.message || 'Failed to save meeting');
@@ -173,6 +178,7 @@ function MeetingDialog({ groups, initial, onSave, onClose }: DialogProps) {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-600)] bg-white"
                   required
                 >
+                  <option value="all">— All Groups in Course ({groups.length}) —</option>
                   {groups.map((g) => (
                     <option key={g.id} value={g.id}>{g.name}</option>
                   ))}
@@ -349,23 +355,13 @@ function MeetingCard({ meeting, onEdit, onDelete, onResend }: CardProps) {
         </p>
       )}
 
-      {/* Meeting Bars */}
-      <div className="space-y-2">
-        <MeetingBar
-          label="Student Meeting"
-          url={meeting.meeting_url}
-          location={meeting.location}
-          status={meeting.status}
-        />
-        {meeting.creator_role !== 'supervisor' && (
-          <MeetingBar
-            label="Supervisor Meeting"
-            url={meeting.meeting_url}
-            location={meeting.location}
-            status={meeting.status}
-          />
-        )}
-      </div>
+      {/* Meeting Bar */}
+      <MeetingBar
+        label="Join Meeting"
+        url={meeting.meeting_url}
+        location={meeting.location}
+        status={meeting.status}
+      />
 
       {/* Actions */}
       <div className="flex items-center gap-2 pt-1 border-t border-gray-100">
@@ -462,6 +458,14 @@ export function CoordinatorMeetings() {
     await load();
   }
 
+  async function handleSaveAll(base: Omit<CreateMeetingPayload, 'group_id'>) {
+    await Promise.all(
+      groups.map((g) => createMeeting({ ...base, group_id: g.id }, activeRole))
+    );
+    toast.success(`Meeting scheduled for all ${groups.length} groups`);
+    await load();
+  }
+
   async function handleDelete(meeting: Meeting) {
     if (!confirm(`Cancel "${meeting.title}"? All participants will be notified.`)) return;
     try {
@@ -534,6 +538,7 @@ export function CoordinatorMeetings() {
           groups={groups}
           initial={editTarget}
           onSave={handleSave}
+          onSaveAll={handleSaveAll}
           onClose={() => setShowDialog(false)}
         />
       )}
