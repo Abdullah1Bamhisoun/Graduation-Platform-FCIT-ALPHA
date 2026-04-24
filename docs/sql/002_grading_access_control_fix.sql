@@ -11,16 +11,18 @@
 -- ============================================================
 -- STEP 1: DELETE ALL EXISTING GRADES (NEW & LEGACY TABLES)
 -- ============================================================
+-- Each delete is wrapped in a DO block so missing tables are skipped safely.
 
--- Clear all mock/test grading data from NEW rubric tables
-DELETE FROM supervisor_rubric_scores;
-DELETE FROM committee_rubric_scores;
-DELETE FROM coordinator_deliverable_scores;
-
--- Clear all mock/test grading data from LEGACY tables (still used by app)
-DELETE FROM supervisor_assessments;
-DELETE FROM committee_evaluations;
-DELETE FROM admin_committee_scores;
+DO $$ BEGIN
+  -- New rubric tables
+  IF EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'supervisor_rubric_scores')    THEN DELETE FROM supervisor_rubric_scores;    END IF;
+  IF EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'committee_rubric_scores')     THEN DELETE FROM committee_rubric_scores;     END IF;
+  IF EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'coordinator_deliverable_scores') THEN DELETE FROM coordinator_deliverable_scores; END IF;
+  -- Legacy tables
+  IF EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'supervisor_assessments')      THEN DELETE FROM supervisor_assessments;      END IF;
+  IF EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'committee_evaluations')       THEN DELETE FROM committee_evaluations;       END IF;
+  IF EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'admin_committee_scores')      THEN DELETE FROM admin_committee_scores;      END IF;
+END $$;
 
 -- ============================================================
 -- STEP 2: DROP EXISTING PERMISSIVE POLICIES

@@ -12,7 +12,7 @@ import { useState, useEffect } from 'react';
 import { getCalendarEvents, createCalendarEvent, deleteCalendarEvent } from '../../services/calendarEvents';
 import type { CalendarEvent } from '../../services/calendarEvents';
 import { supabase } from '../../lib/supabase';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch } from '@/lib/api';
 
 interface SupervisorGroup {
   id: string;
@@ -40,7 +40,7 @@ export function Calendar() {
     if (!isSupervisor) return;
     supabase.auth.getSession().then(({ data }) => {
       const token = data.session?.access_token ?? '';
-      return fetch(apiUrl('/api/groups/mine'), {
+      return apiFetch(apiUrl('/api/groups/mine'), {
         headers: { Authorization: `Bearer ${token}` },
       });
     })

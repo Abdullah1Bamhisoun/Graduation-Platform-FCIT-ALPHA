@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch } from '@/lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -145,7 +145,7 @@ export async function createMeeting(
   activeRole: string
 ): Promise<Meeting> {
   const token = await getToken();
-  const res = await fetch(apiUrl('/api/meetings'), {
+  const res = await apiFetch(apiUrl('/api/meetings'), {
     method:  'POST',
     headers: {
       'Content-Type':  'application/json',
@@ -164,7 +164,7 @@ export async function updateMeeting(
   payload: UpdateMeetingPayload
 ): Promise<Meeting> {
   const token = await getToken();
-  const res = await fetch(apiUrl(`/api/meetings/${id}`), {
+  const res = await apiFetch(apiUrl(`/api/meetings/${id}`), {
     method:  'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -179,7 +179,7 @@ export async function updateMeeting(
 
 export async function deleteMeeting(id: string): Promise<void> {
   const token = await getToken();
-  const res = await fetch(apiUrl(`/api/meetings/${id}`), {
+  const res = await apiFetch(apiUrl(`/api/meetings/${id}`), {
     method:  'DELETE',
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -193,7 +193,7 @@ export async function resendInvitation(
   _activeRole: string
 ): Promise<{ message: string }> {
   const token = await getToken();
-  const res = await fetch(apiUrl(`/api/meetings/${id}/resend-invitation`), {
+  const res = await apiFetch(apiUrl(`/api/meetings/${id}/resend-invitation`), {
     method:  'POST',
     headers: { Authorization: `Bearer ${token}` },
   });

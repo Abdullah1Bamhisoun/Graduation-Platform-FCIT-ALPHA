@@ -12,7 +12,7 @@ import { Textarea } from '../../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { toast } from 'sonner';
 import { supabase } from '../../lib/supabase';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch } from '@/lib/api';
 import { useLockStatus } from '../../hooks/useLockStatus';
 import { LockedBanner } from '../../components/ui/LockedBanner';
 import { uploadImportantFile, getSignedUrl, deleteStorageFile } from '../../services/storage';
@@ -83,7 +83,7 @@ export function ImportantFilesManager() {
         headers['Authorization'] = `Bearer ${token}`;
         if (user?.activeRole) headers['X-Active-Role'] = user.activeRole;
       }
-      fetch(apiUrl('/api/important-files'), { headers })
+      apiFetch(apiUrl('/api/important-files'), { headers })
         .then((r) => r.json())
         .then((data) => setFiles(Array.isArray(data) ? data : []))
         .catch(() => setFiles([]))
@@ -195,7 +195,7 @@ export function ImportantFilesManager() {
       };
 
       if (editingId) {
-        const res = await fetch(apiUrl(`/api/important-files/${editingId}`), {
+        const res = await apiFetch(apiUrl(`/api/important-files/${editingId}`), {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'X-Active-Role': user.activeRole },
           body: JSON.stringify(payload),
@@ -207,7 +207,7 @@ export function ImportantFilesManager() {
         setFiles(files.map(f => f.id === editingId ? { ...f, ...payload, fileUrl: payload.fileUrl } : f));
         toast.success('File updated successfully');
       } else {
-        const res = await fetch(apiUrl('/api/important-files'), {
+        const res = await apiFetch(apiUrl('/api/important-files'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'X-Active-Role': user.activeRole },
           body: JSON.stringify(payload),
@@ -236,7 +236,7 @@ export function ImportantFilesManager() {
     if (!confirm('Are you sure you want to delete this file?')) return;
     try {
       const token = await getToken();
-      const res = await fetch(apiUrl(`/api/important-files/${id}`), {
+      const res = await apiFetch(apiUrl(`/api/important-files/${id}`), {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}`, 'X-Active-Role': user.activeRole },
       });

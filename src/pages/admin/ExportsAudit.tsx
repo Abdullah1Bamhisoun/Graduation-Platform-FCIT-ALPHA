@@ -871,8 +871,8 @@ export function AdminExportsAudit() {
                   <option>Published</option>
                   <option>Updated</option>
                 </select>
-                <div className="hidden sm:block"><DatePicker value="" onChange={() => {}} placeholder="From date" /></div>
-                <div className="hidden sm:block"><DatePicker value="" onChange={() => {}} placeholder="To date" /></div>
+                <div className="hidden sm:block"><DatePicker value="" onChange={() => {}} maxDate={new Date().toISOString().split('T')[0]} placeholder="From date" /></div>
+                <div className="hidden sm:block"><DatePicker value="" onChange={() => {}} maxDate={new Date().toISOString().split('T')[0]} placeholder="To date" /></div>
               </div>
             }
           >
@@ -952,7 +952,11 @@ export function AdminExportsAudit() {
                     <div className="mt-2">
                       <DatePicker
                         value={dateRange.from}
-                        onChange={(date) => setDateRange({ ...dateRange, from: date })}
+                        onChange={(date) => setDateRange(prev => ({
+                          from: date,
+                          to: prev.to && prev.to < date ? '' : prev.to,
+                        }))}
+                        maxDate={new Date().toISOString().split('T')[0]}
                         placeholder="Select start date"
                       />
                     </div>
@@ -962,7 +966,9 @@ export function AdminExportsAudit() {
                     <div className="mt-2">
                       <DatePicker
                         value={dateRange.to}
-                        onChange={(date) => setDateRange({ ...dateRange, to: date })}
+                        onChange={(date) => setDateRange(prev => ({ ...prev, to: date }))}
+                        minDate={dateRange.from || undefined}
+                        maxDate={new Date().toISOString().split('T')[0]}
                         placeholder="Select end date"
                       />
                     </div>

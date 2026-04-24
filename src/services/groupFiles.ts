@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch } from '@/lib/api';
 
 export interface GroupFile {
   id: string;
@@ -70,7 +70,7 @@ export async function getGroupFiles(
     if (options.courseNumber) params.set('courseNumber', options.courseNumber);
 
     const query = params.toString() ? `?${params.toString()}` : '';
-    const response = await fetch(apiUrl(`/api/groups/${groupId}/files${query}`), { headers });
+    const response = await apiFetch(apiUrl(`/api/groups/${groupId}/files${query}`), { headers });
 
     if (!response.ok) {
       console.error('getGroupFiles error:', response.status);
@@ -102,7 +102,7 @@ export async function createGroupFile(
   activeRole?: string
 ): Promise<{ id: string; uploadedAt: string; versionNumber: number }> {
   const headers = await getAuthHeaders(activeRole);
-  const response = await fetch(apiUrl(`/api/groups/${groupId}/files`), {
+  const response = await apiFetch(apiUrl(`/api/groups/${groupId}/files`), {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
@@ -124,7 +124,7 @@ export async function getPreviousCommitteeFeedback(
 ): Promise<PreviousCommitteeFeedback> {
   try {
     const headers = await getAuthHeaders(activeRole);
-    const response = await fetch(apiUrl(`/api/groups/${groupId}/previous-committee-feedback`), { headers });
+    const response = await apiFetch(apiUrl(`/api/groups/${groupId}/previous-committee-feedback`), { headers });
 
     if (!response.ok) {
       console.error('getPreviousCommitteeFeedback error:', response.status);
@@ -165,7 +165,7 @@ export async function getCommitteeEvalSubmissions(
 ): Promise<CommitteeEvalSubmission[]> {
   try {
     const headers = await getAuthHeaders(activeRole);
-    const response = await fetch(apiUrl(`/api/submissions/committee-eval?groupId=${groupId}`), { headers });
+    const response = await apiFetch(apiUrl(`/api/submissions/committee-eval?groupId=${groupId}`), { headers });
     if (!response.ok) {
       console.error('getCommitteeEvalSubmissions error:', response.status);
       return [];

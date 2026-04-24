@@ -25,7 +25,7 @@ import {
   type CommitteeEvalSubmission,
 } from '../../services/groupFiles';
 import { getSignedUrl, uploadCommitteeFeedbackFile } from '../../services/storage';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch } from '@/lib/api';
 import {
   Search,
   FileText,
@@ -507,7 +507,7 @@ export function SupervisorGradesCommittee() {
       submissionStatus,
     };
 
-    const res = await fetch(apiUrl('/api/evaluations/committee-evaluation'), {
+    const res = await apiFetch(apiUrl('/api/evaluations/committee-evaluation'), {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body:    JSON.stringify(body),

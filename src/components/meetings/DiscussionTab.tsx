@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { MessageSquare, Send, Loader2, AlertTriangle, ChevronDown } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
 
 interface Group { id: string; name: string; }
@@ -124,7 +124,7 @@ export function DiscussionTab({ groups, currentUserId, currentUserName, currentU
     const { data: session } = await supabase.auth.getSession();
     const token = session?.session?.access_token;
     if (token) {
-      fetch(apiUrl('/api/meetings/discussions/notify'), {
+      apiFetch(apiUrl('/api/meetings/discussions/notify'), {
         method:  'POST',
         headers: {
           'Content-Type': 'application/json',

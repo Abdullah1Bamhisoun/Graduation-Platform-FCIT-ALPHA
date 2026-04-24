@@ -14,7 +14,7 @@ import {
   type Meeting, type CreateMeetingPayload, type UpdateMeetingPayload,
 } from '../../services/meetings';
 import { supabase } from '../../lib/supabase';
-import { apiUrl } from '../../lib/api';
+import { apiUrl, apiFetch } from '../../lib/api';
 import { DiscussionTab } from '../../components/meetings/DiscussionTab';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -467,7 +467,7 @@ export function SupervisorMeetings() {
 
         if (activeRole === 'coordinator' || activeRole === 'admin') {
           // Use the dedicated coordinator-groups endpoint which scopes to their course
-          const res = await fetch(apiUrl('/api/meetings/coordinator-groups'), {
+          const res = await apiFetch(apiUrl('/api/meetings/coordinator-groups'), {
             headers: {
               Authorization:   `Bearer ${session.access_token}`,
               'X-Active-Role': activeRole,

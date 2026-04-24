@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch } from '@/lib/api';
 import type { User, UserRole } from '../types';
 
 function mapDbProfile(data: any): User {
@@ -26,7 +26,7 @@ async function getAdminToken(): Promise<string> {
 export async function getProfilesByRole(role: UserRole): Promise<User[]> {
   try {
     const token = await getAdminToken();
-    const res = await fetch(apiUrl(`/api/users?role=${encodeURIComponent(role)}`), {
+    const res = await apiFetch(apiUrl(`/api/users?role=${encodeURIComponent(role)}`), {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);

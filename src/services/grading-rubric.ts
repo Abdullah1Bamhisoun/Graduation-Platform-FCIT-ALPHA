@@ -11,6 +11,54 @@
 
 import { supabase } from '../lib/supabase';
 
+// ─── Module-level cache ───────────────────────────────────────────────────────
+
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+interface CacheEntry<T> { data: T; fetchedAt: number }
+
+const _componentCache  = new Map<string, CacheEntry<GradingComponent[]>>();
+const _criteriaCache   = new Map<string, CacheEntry<RubricCriterion[]>>();
+const _outcomesCache   = new Map<string, CacheEntry<StudentOutcome[]>>();
+
+function _isFresh<T>(entry: CacheEntry<T> | undefined): entry is CacheEntry<T> {
+  return !!entry && Date.now() - entry.fetchedAt < CACHE_TTL;
+}
+
+export function clearGradingCache() {
+  _componentCache.clear();
+  _criteriaCache.clear();
+  _outcomesCache.clear();
+}
+
+// ─── Internal log helper ──────────────────────────────────────────────────────
+
+async function _logChange(entry: {
+  changeType: string;
+  courseType?: string;
+  entityType: string;
+  entityId?: string;
+  entityKey?: string;
+  entityName?: string;
+  changedBy?: string;
+  changes?: Record<string, unknown>;
+}) {
+  try {
+    await supabase.from('grade_scheme_change_log').insert({
+      change_type:  entry.changeType,
+      course_type:  entry.courseType ?? null,
+      entity_type:  entry.entityType,
+      entity_id:    entry.entityId ?? null,
+      entity_key:   entry.entityKey ?? null,
+      entity_name:  entry.entityName ?? null,
+      changed_by:   entry.changedBy ?? null,
+      changes:      entry.changes ?? null,
+    });
+  } catch {
+    // Log failures must never block the main operation
+  }
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface GradingComponent {
@@ -153,6 +201,9 @@ function mapStudentOutcome(row: any): StudentOutcome {
 export async function getGradingComponents(
   courseType: '498' | '499'
 ): Promise<GradingComponent[]> {
+  const cached = _componentCache.get(courseType);
+  if (_isFresh(cached)) return cached.data;
+
   const { data, error } = await supabase
     .from('grading_components')
     .select('*')
@@ -164,7 +215,9 @@ export async function getGradingComponents(
     console.error('getGradingComponents error:', error);
     return [];
   }
-  return (data || []).map(mapComponent);
+  const result = (data || []).map(mapComponent);
+  _componentCache.set(courseType, { data: result, fetchedAt: Date.now() });
+  return result;
 }
 
 /**
@@ -173,11 +226,18 @@ export async function getGradingComponents(
  */
 export async function updateGradingComponent(
   id: string,
-  patch: { componentName?: string; totalMarks?: number }
+  patch: { componentName?: string; totalMarks?: number },
+  changedBy?: string
 ): Promise<void> {
   const update: any = { updated_at: new Date().toISOString() };
   if (patch.componentName !== undefined) update.component_name = patch.componentName;
   if (patch.totalMarks    !== undefined) update.total_marks    = patch.totalMarks;
+
+  const { data: existing } = await supabase
+    .from('grading_components')
+    .select('component_key, component_name, total_marks, course_type')
+    .eq('id', id)
+    .single();
 
   const { error } = await supabase
     .from('grading_components')
@@ -185,6 +245,23 @@ export async function updateGradingComponent(
     .eq('id', id);
 
   if (error) throw error;
+
+  _componentCache.delete(existing?.course_type ?? '498');
+  _componentCache.delete(existing?.course_type === '498' ? '499' : '498');
+
+  await _logChange({
+    changeType:  'component_updated',
+    courseType:  existing?.course_type,
+    entityType:  'component',
+    entityId:    id,
+    entityKey:   existing?.component_key,
+    entityName:  patch.componentName ?? existing?.component_name,
+    changedBy,
+    changes: {
+      ...(patch.componentName !== undefined ? { componentName: { from: existing?.component_name, to: patch.componentName } } : {}),
+      ...(patch.totalMarks    !== undefined ? { totalMarks:    { from: existing?.total_marks,    to: patch.totalMarks } } : {}),
+    },
+  });
 }
 
 // ─── Rubric Criteria ──────────────────────────────────────────────────────────
@@ -217,6 +294,9 @@ export async function getRubricCriteria(
 export async function getAllRubricCriteria(
   courseType: '498' | '499'
 ): Promise<RubricCriterion[]> {
+  const cached = _criteriaCache.get(courseType);
+  if (_isFresh(cached)) return cached.data;
+
   const { data, error } = await supabase
     .from('grading_rubric_criteria')
     .select('*, criterion_student_outcomes(student_outcomes(id, code, title))')
@@ -229,7 +309,9 @@ export async function getAllRubricCriteria(
     console.error('getAllRubricCriteria error:', error);
     return [];
   }
-  return (data || []).map(mapCriterion);
+  const result = (data || []).map(mapCriterion);
+  _criteriaCache.set(courseType, { data: result, fetchedAt: Date.now() });
+  return result;
 }
 
 /**
@@ -245,7 +327,8 @@ export async function updateRubricCriterion(
     description3?: string;
     description4?: string;
     description5?: string;
-  }
+  },
+  changedBy?: string
 ): Promise<void> {
   const update: any = { updated_at: new Date().toISOString() };
   if (patch.criterionName !== undefined) update.criterion_name = patch.criterionName;
@@ -256,12 +339,36 @@ export async function updateRubricCriterion(
   if (patch.description4  !== undefined) update.description_4  = patch.description4;
   if (patch.description5  !== undefined) update.description_5  = patch.description5;
 
+  const { data: existing } = await supabase
+    .from('grading_rubric_criteria')
+    .select('criterion_key, criterion_name, max_raw_score, course_type, component_key')
+    .eq('id', id)
+    .single();
+
   const { error } = await supabase
     .from('grading_rubric_criteria')
     .update(update)
     .eq('id', id);
 
   if (error) throw error;
+
+  _criteriaCache.delete(existing?.course_type ?? '498');
+  _criteriaCache.delete(existing?.course_type === '498' ? '499' : '498');
+
+  const changes: Record<string, unknown> = {};
+  if (patch.criterionName !== undefined) changes.criterionName = { from: existing?.criterion_name, to: patch.criterionName };
+  if (patch.maxRawScore   !== undefined) changes.maxRawScore   = { from: existing?.max_raw_score,  to: patch.maxRawScore };
+
+  await _logChange({
+    changeType: 'criterion_updated',
+    courseType:  existing?.course_type,
+    entityType:  'criterion',
+    entityId:    id,
+    entityKey:   existing?.criterion_key,
+    entityName:  patch.criterionName ?? existing?.criterion_name,
+    changedBy,
+    changes,
+  });
 }
 
 /**
@@ -279,6 +386,7 @@ export async function createRubricCriterion(params: {
   description4?: string;
   description5?: string;
   displayOrder?: number;
+  changedBy?: string;
 }): Promise<RubricCriterion> {
   const {
     courseType,
@@ -292,6 +400,7 @@ export async function createRubricCriterion(params: {
     description4,
     description5,
     displayOrder = 0,
+    changedBy,
   } = params;
 
   const { data, error } = await supabase
@@ -317,24 +426,59 @@ export async function createRubricCriterion(params: {
   if (error) throw error;
   if (!data) throw new Error('Failed to create criterion');
 
+  _criteriaCache.delete(courseType);
+
+  await _logChange({
+    changeType: 'criterion_created',
+    courseType,
+    entityType: 'criterion',
+    entityId:   data.id,
+    entityKey:  criterionKey,
+    entityName: criterionName,
+    changedBy,
+    changes: { componentKey, maxRawScore },
+  });
+
   return mapCriterion(data);
 }
 
 /**
  * Soft-delete a rubric criterion by marking it inactive.
  */
-export async function deleteRubricCriterion(id: string): Promise<void> {
+export async function deleteRubricCriterion(id: string, changedBy?: string): Promise<void> {
+  const { data: existing } = await supabase
+    .from('grading_rubric_criteria')
+    .select('criterion_key, criterion_name, course_type, component_key')
+    .eq('id', id)
+    .single();
+
   const { error } = await supabase
     .from('grading_rubric_criteria')
     .update({ is_active: false, updated_at: new Date().toISOString() })
     .eq('id', id);
 
   if (error) throw error;
+
+  _criteriaCache.delete(existing?.course_type ?? '498');
+
+  await _logChange({
+    changeType: 'criterion_deleted',
+    courseType:  existing?.course_type,
+    entityType:  'criterion',
+    entityId:    id,
+    entityKey:   existing?.criterion_key,
+    entityName:  existing?.criterion_name,
+    changedBy,
+    changes: { componentKey: existing?.component_key },
+  });
 }
 
 // ─── Student Outcomes ─────────────────────────────────────────────────────────
 
 export async function getStudentOutcomes(courseType: '498' | '499'): Promise<StudentOutcome[]> {
+  const cached = _outcomesCache.get(courseType);
+  if (_isFresh(cached)) return cached.data;
+
   const { data, error } = await supabase
     .from('student_outcomes')
     .select('*')
@@ -343,7 +487,9 @@ export async function getStudentOutcomes(courseType: '498' | '499'): Promise<Stu
     .order('display_order')
     .order('code');
   if (error) { console.error('getStudentOutcomes error:', error); return []; }
-  return (data || []).map(mapStudentOutcome);
+  const result = (data || []).map(mapStudentOutcome);
+  _outcomesCache.set(courseType, { data: result, fetchedAt: Date.now() });
+  return result;
 }
 
 export async function createStudentOutcome(params: {
@@ -352,6 +498,7 @@ export async function createStudentOutcome(params: {
   title: string;
   description?: string;
   displayOrder?: number;
+  changedBy?: string;
 }): Promise<StudentOutcome> {
   const { data, error } = await supabase
     .from('student_outcomes')
@@ -366,13 +513,32 @@ export async function createStudentOutcome(params: {
     .select('*')
     .single();
   if (error) throw error;
+
+  _outcomesCache.delete(params.courseType);
+  await _logChange({
+    changeType: 'outcome_created',
+    courseType:  params.courseType,
+    entityType:  'student_outcome',
+    entityId:    data.id,
+    entityKey:   data.code,
+    entityName:  data.title,
+    changedBy:   params.changedBy,
+  });
+
   return mapStudentOutcome(data);
 }
 
 export async function updateStudentOutcome(
   id: string,
-  patch: { code?: string; title?: string; description?: string; displayOrder?: number }
+  patch: { code?: string; title?: string; description?: string; displayOrder?: number },
+  changedBy?: string
 ): Promise<void> {
+  const { data: existing } = await supabase
+    .from('student_outcomes')
+    .select('code, title, course_type')
+    .eq('id', id)
+    .single();
+
   const update: any = {};
   if (patch.code         !== undefined) update.code          = patch.code.trim().toUpperCase();
   if (patch.title        !== undefined) update.title         = patch.title.trim();
@@ -380,14 +546,46 @@ export async function updateStudentOutcome(
   if (patch.displayOrder !== undefined) update.display_order = patch.displayOrder;
   const { error } = await supabase.from('student_outcomes').update(update).eq('id', id);
   if (error) throw error;
+
+  _outcomesCache.delete(existing?.course_type ?? '498');
+  await _logChange({
+    changeType: 'outcome_updated',
+    courseType:  existing?.course_type,
+    entityType:  'student_outcome',
+    entityId:    id,
+    entityKey:   patch.code ?? existing?.code,
+    entityName:  patch.title ?? existing?.title,
+    changedBy,
+    changes: {
+      ...(patch.code  !== undefined ? { code:  { from: existing?.code,  to: patch.code } } : {}),
+      ...(patch.title !== undefined ? { title: { from: existing?.title, to: patch.title } } : {}),
+    },
+  });
 }
 
-export async function deleteStudentOutcome(id: string): Promise<void> {
+export async function deleteStudentOutcome(id: string, changedBy?: string): Promise<void> {
+  const { data: existing } = await supabase
+    .from('student_outcomes')
+    .select('code, title, course_type')
+    .eq('id', id)
+    .single();
+
   const { error } = await supabase
     .from('student_outcomes')
     .update({ is_active: false })
     .eq('id', id);
   if (error) throw error;
+
+  _outcomesCache.delete(existing?.course_type ?? '498');
+  await _logChange({
+    changeType: 'outcome_deleted',
+    courseType:  existing?.course_type,
+    entityType:  'student_outcome',
+    entityId:    id,
+    entityKey:   existing?.code,
+    entityName:  existing?.title,
+    changedBy,
+  });
 }
 
 /** Replace all SO links for a criterion (upsert). */
@@ -400,6 +598,8 @@ export async function setCriterionOutcomes(
   const rows = outcomeIds.map(oid => ({ criterion_id: criterionId, outcome_id: oid }));
   const { error } = await supabase.from('criterion_student_outcomes').insert(rows);
   if (error) throw error;
+  // Invalidate criteria cache since SO links changed
+  _criteriaCache.clear();
 }
 
 // ─── Supervisor Rubric Scores ─────────────────────────────────────────────────

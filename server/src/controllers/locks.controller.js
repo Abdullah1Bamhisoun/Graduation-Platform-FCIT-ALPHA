@@ -36,7 +36,12 @@ async function getLocks(req, res) {
 /**
  * POST /api/locks
  * Body: { entityType, entityId?, isLocked, reason? }
- * Upserts (creates or updates) a lock record. Admin only.
+ * Creates or updates a lock record. Admin only.
+ *
+ * NOTE: We avoid upsert here because `entity_id` is NULL for all module locks,
+ * and NULL != NULL in SQL means Supabase can't resolve the conflict on
+ * (entity_type, entity_id) without a partial unique index. Instead we do a
+ * manual select → update-or-insert.
  */
 async function setLock(req, res) {
   try {
@@ -52,7 +57,6 @@ async function setLock(req, res) {
 
     const now = new Date().toISOString();
 
-    // Build the record to upsert
     const record = {
       entity_type: entityType,
       entity_id: entityId || null,
@@ -71,20 +75,38 @@ async function setLock(req, res) {
       record.unlocked_at = now;
     }
 
-    // Upsert using entity_type + entity_id as the unique key
-    const { data, error } = await supabaseAdmin
+    // Find existing record (NULL-safe lookup)
+    let lookupQuery = supabaseAdmin
       .from('platform_locks')
-      .upsert(record, {
-        onConflict: 'entity_type,entity_id',
-        ignoreDuplicates: false,
-      })
-      .select()
-      .single();
+      .select('id')
+      .eq('entity_type', entityType);
 
-    if (error) throw error;
+    lookupQuery = entityId
+      ? lookupQuery.eq('entity_id', entityId)
+      : lookupQuery.is('entity_id', null);
+
+    const { data: existing } = await lookupQuery.maybeSingle();
+
+    let result;
+    if (existing) {
+      result = await supabaseAdmin
+        .from('platform_locks')
+        .update(record)
+        .eq('id', existing.id)
+        .select()
+        .single();
+    } else {
+      result = await supabaseAdmin
+        .from('platform_locks')
+        .insert(record)
+        .select()
+        .single();
+    }
+
+    if (result.error) throw result.error;
 
     const action = isLocked ? 'locked' : 'unlocked';
-    res.json({ success: true, message: `Module "${entityType}" has been ${action}.`, lock: data });
+    res.json({ success: true, message: `Module "${entityType}" has been ${action}.`, lock: result.data });
   } catch (err) {
     console.error('setLock error:', err);
     res.status(500).json({ error: 'Failed to update lock state' });

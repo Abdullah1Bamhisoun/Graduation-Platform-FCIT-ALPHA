@@ -20,7 +20,7 @@ import type { Milestone, Submission } from '../../types';
 import { useLockStatus } from '../../hooks/useLockStatus';
 import { LockedBanner } from '../../components/ui/LockedBanner';
 import { DocumentViewerWithAnnotations } from '../../components/DocumentViewerWithAnnotations';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch } from '@/lib/api';
 
 interface SubmissionComment {
   id: string;
@@ -71,7 +71,7 @@ export function StudentSubmissionDetail() {
       .then((m) => m.supabase.auth.getSession())
       .then(async (session) => {
         const token = session.data.session?.access_token ?? '';
-        const res = await fetch(apiUrl(`/api/submissions/${submission.id}/comments`), {
+        const res = await apiFetch(apiUrl(`/api/submissions/${submission.id}/comments`), {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) return;
@@ -651,7 +651,7 @@ export function StudentSubmissionDetail() {
                     try {
                       const session = await import('../../lib/supabase').then((m) => m.supabase.auth.getSession());
                       const token = session.data.session?.access_token ?? '';
-                      const res = await fetch(apiUrl(`/api/submissions/${submission.id}/comments`), {
+                      const res = await apiFetch(apiUrl(`/api/submissions/${submission.id}/comments`), {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                         body: JSON.stringify({ content: newComment.trim() }),
@@ -683,7 +683,7 @@ export function StudentSubmissionDetail() {
                     try {
                       const session = await import('../../lib/supabase').then((m) => m.supabase.auth.getSession());
                       const token = session.data.session?.access_token ?? '';
-                      const res = await fetch(apiUrl(`/api/submissions/${submission.id}/comments`), {
+                      const res = await apiFetch(apiUrl(`/api/submissions/${submission.id}/comments`), {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                         body: JSON.stringify({ content: newComment.trim() }),

@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch } from '@/lib/api';
 import { mapCourseCode } from './mappers';
 
 export interface GroupData {
@@ -66,7 +66,7 @@ async function fetchAllGroupsFromApi(activeRole?: string): Promise<GroupData[]> 
   const token = session.data.session?.access_token;
   const headers: Record<string, string> = { Authorization: `Bearer ${token ?? ''}` };
   if (activeRole) headers['X-Active-Role'] = activeRole;
-  const response = await fetch(apiUrl('/api/groups'), { headers });
+  const response = await apiFetch(apiUrl('/api/groups'), { headers });
   if (!response.ok) {
     const text = await response.text();
     console.error('getAllGroups API error', response.status, text);
@@ -185,7 +185,7 @@ export async function getGroupById(id: string): Promise<{ groupNumber: number; g
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData.session?.access_token;
     if (!token) return null;
-    const res = await fetch(apiUrl(`/api/groups/${id}`), {
+    const res = await apiFetch(apiUrl(`/api/groups/${id}`), {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) return null;
@@ -212,7 +212,7 @@ export async function getPublicGroups(
     if (courseNumber) params.set('course_number', courseNumber);
     if (gender)       params.set('gender',        gender);
     const query = params.toString() ? `?${params.toString()}` : '';
-    const response = await fetch(apiUrl(`/api/groups/available${query}`));
+    const response = await apiFetch(apiUrl(`/api/groups/available${query}`));
     if (!response.ok) throw new Error('Failed to fetch groups');
     const data = await response.json();
     return data as PublicGroup[];
@@ -233,7 +233,7 @@ export async function assignSupervisor(
   );
   const token = session.data.session?.access_token;
 
-  const response = await fetch(apiUrl(`/api/groups/${groupId}/assign-supervisor`), {
+  const response = await apiFetch(apiUrl(`/api/groups/${groupId}/assign-supervisor`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -258,7 +258,7 @@ export async function updateGroupStatus(
   );
   const token = session.data.session?.access_token;
 
-  const response = await fetch(apiUrl(`/api/groups/${groupId}/status`), {
+  const response = await apiFetch(apiUrl(`/api/groups/${groupId}/status`), {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -281,7 +281,7 @@ async function getAdminToken() {
 /** Admin deletes a group and all its members */
 export async function deleteGroup(groupId: string): Promise<void> {
   const token = await getAdminToken();
-  const response = await fetch(apiUrl(`/api/groups/${groupId}`), {
+  const response = await apiFetch(apiUrl(`/api/groups/${groupId}`), {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -332,7 +332,7 @@ export async function getGroupsForEvaluation(): Promise<EvaluationGroupsResult> 
     const session = await supabase.auth.getSession();
     const token = session.data.session?.access_token;
 
-    const response = await fetch(apiUrl('/api/evaluations/groups'), {
+    const response = await apiFetch(apiUrl('/api/evaluations/groups'), {
       headers: {
         Authorization: `Bearer ${token ?? ''}`,
       },
@@ -356,7 +356,7 @@ export async function updateGroup(
   changes: { projectName?: string; removeMemberIds?: string[]; addMemberIds?: string[]; removeSupervisor?: boolean; gender?: string }
 ): Promise<void> {
   const token = await getAdminToken();
-  const response = await fetch(apiUrl(`/api/groups/${groupId}`), {
+  const response = await apiFetch(apiUrl(`/api/groups/${groupId}`), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify(changes),
@@ -428,7 +428,7 @@ export async function getCoordinatorGroupsWithGrades(
     const session = await supabase.auth.getSession();
     const token = session.data.session?.access_token;
 
-    const response = await fetch(apiUrl(`/api/groups/coordinator-grades?courseType=${courseType}`), {
+    const response = await apiFetch(apiUrl(`/api/groups/coordinator-grades?courseType=${courseType}`), {
       headers: {
         Authorization: `Bearer ${token ?? ''}`,
         'X-Active-Role': activeRole,
@@ -480,7 +480,7 @@ export async function getCoordinatorEvaluation(
     const session = await supabase.auth.getSession();
     const token = session.data.session?.access_token;
 
-    const response = await fetch(
+    const response = await apiFetch(
       apiUrl(`/api/groups/${groupId}/coordinator-evaluation?courseType=${courseType}`),
       {
         headers: {
@@ -549,7 +549,7 @@ export async function submitCoordinatorEvaluation(
     const session = await supabase.auth.getSession();
     const token = session.data.session?.access_token;
 
-    const response = await fetch(apiUrl(`/api/groups/${groupId}/coordinator-evaluation`), {
+    const response = await apiFetch(apiUrl(`/api/groups/${groupId}/coordinator-evaluation`), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

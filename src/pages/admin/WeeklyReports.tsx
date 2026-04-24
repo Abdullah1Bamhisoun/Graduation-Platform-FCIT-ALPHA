@@ -8,7 +8,7 @@ import type { GroupData } from '../../services/groups';
 import { Button } from '../../components/ui/button';
 import { DatePicker } from '../../components/ui/DatePicker';
 import { TimePicker } from '../../components/ui/TimePicker';
-import { Eye, ChevronDown, ChevronRight, Unlock, EyeOff, Lock, ChevronUp, CheckCircle, Clock, Calendar, X } from 'lucide-react';
+import { Eye, ChevronDown, ChevronRight, Unlock, EyeOff, Lock, ChevronUp, CheckCircle, Clock, Calendar, X, Search } from 'lucide-react';
 import { WeeklyReport } from '../../types';
 import type { User, WeekStatus, WeekDisplayStatus } from '../../types';
 import {
@@ -39,6 +39,7 @@ export function AdminWeeklyReports() {
   const [expandedSupervisors, setExpandedSupervisors] = useState<Set<string>>(new Set());
   const [selectedGroup, setSelectedGroup] = useState<string>('');
   const [selectedReport, setSelectedReport] = useState<WeeklyReport | null>(null);
+  const [sidebarSearch, setSidebarSearch] = useState('');
 
   // ── Week control state ───────────────────────────────────────────────────
   const [activeCourse, setActiveCourse]           = useState<CourseTab>('498');
@@ -208,6 +209,15 @@ export function AdminWeeklyReports() {
   }));
 
   const currentGroup = allGroups.find(g => g.id === selectedGroup) ?? null;
+
+  // Search: match against project name or any member's student ID
+  const trimmedSearch = sidebarSearch.trim().toLowerCase();
+  const searchResults = trimmedSearch
+    ? allGroups.filter(g => {
+        if (g.projectName?.toLowerCase().includes(trimmedSearch)) return true;
+        return g.members.some(m => m.studentId?.toLowerCase().includes(trimmedSearch));
+      })
+    : [];
   const openedCount  = weekStatuses.filter(ws => ws.wasOpened).length;
 
   return (
@@ -413,48 +423,94 @@ $$;`}</pre>
         {/* Sidebar */}
         <div className="col-span-1 lg:col-span-3">
           <div className="bg-[var(--color-surface-white)] rounded-xl border border-[var(--color-border)] shadow-sm">
-            <div className="p-4 border-b border-[var(--color-border)]">
+            <div className="p-4 border-b border-[var(--color-border)] space-y-3">
               <h3 className="text-[var(--color-text-900)]">Supervisors & Groups</h3>
-            </div>
-            <div className="divide-y divide-[var(--color-border)]">
-              {supervisorTree.length === 0 && (
-                <p className="p-4 text-[var(--color-text-600)] text-sm">No supervisors found</p>
-              )}
-              {supervisorTree.map((supervisor) => (
-                <div key={supervisor.id}>
-                  <div
-                    className="p-4 flex items-center justify-between cursor-pointer hover:bg-[var(--color-surface-alt)] transition-colors"
-                    onClick={() => toggleSupervisor(supervisor.id)}
+              {/* Search by student ID or project name */}
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--color-text-400)] pointer-events-none" />
+                <input
+                  type="text"
+                  value={sidebarSearch}
+                  onChange={e => setSidebarSearch(e.target.value)}
+                  placeholder="Search by ID or project name…"
+                  className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-alt)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-500)] text-[var(--color-text-900)] placeholder:text-[var(--color-text-400)]"
+                />
+                {sidebarSearch && (
+                  <button
+                    onClick={() => setSidebarSearch('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--color-text-400)] hover:text-[var(--color-text-700)]"
                   >
-                    <span className="text-[var(--color-text-900)]">{supervisor.name}</span>
-                    {expandedSupervisors.has(supervisor.id)
-                      ? <ChevronDown className="w-4 h-4 text-[var(--color-text-600)]" />
-                      : <ChevronRight className="w-4 h-4 text-[var(--color-text-600)]" />}
-                  </div>
-                  {expandedSupervisors.has(supervisor.id) && (
-                    <div className="bg-[var(--color-surface-alt)] divide-y divide-[var(--color-border)]">
-                      {supervisor.groups.length === 0 && (
-                        <p className="p-3 pl-8 text-[var(--color-text-600)] text-xs">No groups assigned</p>
-                      )}
-                      {supervisor.groups.map((group) => (
-                        <div
-                          key={group.id}
-                          className={`p-3 pl-8 cursor-pointer hover:bg-[var(--color-border)] transition-colors ${
-                            selectedGroup === group.id
-                              ? 'bg-[var(--color-primary-100)] border-l-4 border-[var(--color-primary-600)]'
-                              : ''
-                          }`}
-                          onClick={() => setSelectedGroup(group.id)}
-                        >
-                          <div className="text-[var(--color-text-900)]">{group.groupCode}</div>
-                          <div className="text-[var(--color-text-600)] text-xs mt-1">{group.courseCode}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
+
+            {/* Search results */}
+            {trimmedSearch ? (
+              <div className="divide-y divide-[var(--color-border)]">
+                {searchResults.length === 0 ? (
+                  <p className="p-4 text-[var(--color-text-600)] text-sm">No groups match your search</p>
+                ) : (
+                  searchResults.map(group => (
+                    <div
+                      key={group.id}
+                      className={`p-3 cursor-pointer hover:bg-[var(--color-surface-alt)] transition-colors ${
+                        selectedGroup === group.id
+                          ? 'bg-[var(--color-primary-100)] border-l-4 border-[var(--color-primary-600)]'
+                          : ''
+                      }`}
+                      onClick={() => setSelectedGroup(group.id)}
+                    >
+                      <div className="font-medium text-sm text-[var(--color-text-900)]">{group.groupCode}</div>
+                      <div className="text-xs text-[var(--color-text-600)] mt-0.5 truncate">{group.projectName || '—'}</div>
+                      <div className="text-xs text-[var(--color-text-500)] mt-0.5">{group.supervisorName} · {group.courseCode}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : (
+              /* Default tree view */
+              <div className="divide-y divide-[var(--color-border)]">
+                {supervisorTree.length === 0 && (
+                  <p className="p-4 text-[var(--color-text-600)] text-sm">No supervisors found</p>
+                )}
+                {supervisorTree.map((supervisor) => (
+                  <div key={supervisor.id}>
+                    <div
+                      className="p-4 flex items-center justify-between cursor-pointer hover:bg-[var(--color-surface-alt)] transition-colors"
+                      onClick={() => toggleSupervisor(supervisor.id)}
+                    >
+                      <span className="text-[var(--color-text-900)]">{supervisor.name}</span>
+                      {expandedSupervisors.has(supervisor.id)
+                        ? <ChevronDown className="w-4 h-4 text-[var(--color-text-600)]" />
+                        : <ChevronRight className="w-4 h-4 text-[var(--color-text-600)]" />}
+                    </div>
+                    {expandedSupervisors.has(supervisor.id) && (
+                      <div className="bg-[var(--color-surface-alt)] divide-y divide-[var(--color-border)]">
+                        {supervisor.groups.length === 0 && (
+                          <p className="p-3 pl-8 text-[var(--color-text-600)] text-xs">No groups assigned</p>
+                        )}
+                        {supervisor.groups.map((group) => (
+                          <div
+                            key={group.id}
+                            className={`p-3 pl-8 cursor-pointer hover:bg-[var(--color-border)] transition-colors ${
+                              selectedGroup === group.id
+                                ? 'bg-[var(--color-primary-100)] border-l-4 border-[var(--color-primary-600)]'
+                                : ''
+                            }`}
+                            onClick={() => setSelectedGroup(group.id)}
+                          >
+                            <div className="text-[var(--color-text-900)]">{group.groupCode}</div>
+                            <div className="text-[var(--color-text-600)] text-xs mt-1">{group.courseCode}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -668,7 +724,12 @@ $$;`}</pre>
                       <div className="flex-1">
                         <DatePicker
                           value={deadlineOpenAt.split('T')[0] ?? ''}
-                          onChange={date => setDeadlineOpenAt(date + 'T' + (deadlineOpenAt.split('T')[1] ?? '08:00'))}
+                          onChange={date => {
+                            setDeadlineOpenAt(date + 'T' + (deadlineOpenAt.split('T')[1] ?? '08:00'));
+                            if (deadlineCloseAt.split('T')[0] && date > deadlineCloseAt.split('T')[0]) {
+                              setDeadlineCloseAt('');
+                            }
+                          }}
                           placeholder="Select date"
                         />
                       </div>
@@ -688,6 +749,7 @@ $$;`}</pre>
                         <DatePicker
                           value={deadlineCloseAt.split('T')[0] ?? ''}
                           onChange={date => setDeadlineCloseAt(date + 'T' + (deadlineCloseAt.split('T')[1] ?? '23:59'))}
+                          minDate={deadlineOpenAt.split('T')[0] || undefined}
                           placeholder="Select date"
                         />
                       </div>

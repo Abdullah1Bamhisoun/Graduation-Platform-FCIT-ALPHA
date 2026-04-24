@@ -1,12 +1,24 @@
 import { useLocation, Link } from 'react-router-dom';
 import {
   Home, FileText, Calendar, Bell, Settings,
-  Users, BarChart3, CheckSquare, FolderOpen, Lock, Sliders, X, HeadphonesIcon, Video,
+  Users, BarChart3, CheckSquare, FolderOpen, Lock, Sliders, X, HeadphonesIcon, Video, RefreshCw,
 } from 'lucide-react';
 import { User, UserRole } from '../../types';
 import { useUnreadAnnouncements } from '../../hooks/useUnreadAnnouncements';
 import { usePendingRegistrationsCount } from '../../hooks/usePendingRegistrationsCount';
+import { useAuth } from '../../lib/AuthContext';
+import { toast } from 'sonner';
 import gppLogo from '/gpp-logo.png';
+
+const SWITCHABLE_ROLES: UserRole[] = ['supervisor', 'coordinator'];
+
+
+const roleLabel: Record<string, string> = {
+  supervisor:  'Supervisor Mode',
+  coordinator: 'Coordinator Mode',
+  admin:       'Admin',
+  student:     'Student',
+};
 
 interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
@@ -87,6 +99,10 @@ export function Sidebar({ user, isOpen = false, onClose }: SidebarProps) {
   const items = navItems[role] ?? navItems['student'];
   const { unreadCount } = useUnreadAnnouncements(user);
   const { pendingCount } = usePendingRegistrationsCount(user);
+  const { switchRole } = useAuth();
+
+  const switchableRoles = user.roles.filter((r) => SWITCHABLE_ROLES.includes(r));
+  const isMultiRole = switchableRoles.length > 1;
 
   const handleNavClick = () => {
     if (onClose) onClose();
@@ -110,6 +126,43 @@ export function Sidebar({ user, isOpen = false, onClose }: SidebarProps) {
           <X className="w-5 h-5" />
         </button>
       </div>
+
+      {/* Role badge + switch button (faculty with multiple roles only) */}
+      {isMultiRole && (
+        <div className="px-4 py-3 border-b border-[var(--color-border)] flex flex-col gap-2">
+          <div className={`w-full px-3 py-2 rounded-lg text-xs font-medium ${
+            user.activeRole === 'coordinator'
+              ? 'bg-purple-50 border border-purple-200 text-purple-700'
+              : 'bg-blue-50 border border-blue-200 text-blue-700'
+          }`}>
+            You are in <span className="font-bold">{roleLabel[user.activeRole] ?? user.activeRole}</span>
+          </div>
+          {user.activeRole === 'supervisor' && user.roles.includes('coordinator') && (
+            <button
+              onClick={() => {
+                switchRole('coordinator');
+                toast.success('You are now in Coordinator Mode', { duration: 3000 });
+              }}
+              className="flex items-center gap-2 w-full px-3 py-2 text-sm font-medium text-purple-700 bg-purple-50 border border-purple-300 hover:bg-purple-100 transition-colors rounded-lg"
+            >
+              <RefreshCw className="w-4 h-4 flex-shrink-0" />
+              Switch to Coordinator Mode
+            </button>
+          )}
+          {user.activeRole === 'coordinator' && user.roles.includes('supervisor') && (
+            <button
+              onClick={() => {
+                switchRole('supervisor');
+                toast.success('You are now in Supervisor Mode', { duration: 3000 });
+              }}
+              className="flex items-center gap-2 w-full px-3 py-2 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-300 hover:bg-blue-100 transition-colors rounded-lg"
+            >
+              <RefreshCw className="w-4 h-4 flex-shrink-0" />
+              Switch to Supervisor Mode
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Navigation */}
       <nav className="flex-1 p-4 overflow-y-auto">

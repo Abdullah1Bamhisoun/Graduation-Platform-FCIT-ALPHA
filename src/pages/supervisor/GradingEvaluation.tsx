@@ -36,7 +36,7 @@ import {
 } from '../../services/grading-rubric';
 import { getSignedUrl } from '../../services/storage';
 import { supabase } from '../../lib/supabase';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch } from '@/lib/api';
 import { DocumentViewerWithAnnotations } from '../../components/DocumentViewerWithAnnotations';
 import {
   Save, Send, CheckCircle, AlertCircle, Info, FileText,
@@ -202,7 +202,7 @@ function MilestoneSubmissionCard({
     try {
       const session = await supabase.auth.getSession();
       const token   = session.data.session?.access_token ?? '';
-      const res = await fetch(apiUrl('/api/evaluations/milestone-feedback'), {
+      const res = await apiFetch(apiUrl('/api/evaluations/milestone-feedback'), {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body:    JSON.stringify({
@@ -535,7 +535,7 @@ export function SupervisorGradingEvaluation() {
   const callCommitteeApi = async (submissionStatus: 'draft' | 'submitted') => {
     const session = await supabase.auth.getSession();
     const token   = session.data.session?.access_token ?? '';
-    const res = await fetch(apiUrl('/api/evaluations/committee-evaluation'), {
+    const res = await apiFetch(apiUrl('/api/evaluations/committee-evaluation'), {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body:    JSON.stringify({

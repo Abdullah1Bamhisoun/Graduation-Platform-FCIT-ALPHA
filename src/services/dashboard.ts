@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { apiFetch } from '../lib/api';
 
 export interface AdminStats {
   totalStudents: number;
@@ -448,7 +449,7 @@ export async function getUpcomingEvents(limit?: number, courseId?: string): Prom
     // Fetch calendar events via API
     const { data: session } = await supabase.auth.getSession();
     const token = session.session?.access_token ?? '';
-    const calendarPromise = fetch('/api/calendar-events', {
+    const calendarPromise = apiFetch('/api/calendar-events', {
       headers: { Authorization: `Bearer ${token}` },
     }).then(r => r.ok ? r.json() : []).catch(() => []);
 

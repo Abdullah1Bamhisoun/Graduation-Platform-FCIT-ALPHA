@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch } from '@/lib/api';
 
 export interface PendingRegistration {
   id: string;
@@ -96,7 +96,7 @@ export async function getPendingRegistrationsViaAPI(activeRole?: string): Promis
     };
     if (activeRole) headers['X-Active-Role'] = activeRole;
 
-    const response = await fetch(apiUrl('/api/auth/pending-registrations?status=pending'), { headers });
+    const response = await apiFetch(apiUrl('/api/auth/pending-registrations?status=pending'), { headers });
     if (!response.ok) return [];
 
     const rows = await response.json();
@@ -112,7 +112,7 @@ export async function addRegistration(
   reg: Omit<PendingRegistration, 'id' | 'status' | 'submittedAt'>
 ): Promise<void> {
   try {
-    const response = await fetch(apiUrl('/api/auth/submit-registration'), {
+    const response = await apiFetch(apiUrl('/api/auth/submit-registration'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -153,7 +153,7 @@ export async function approveRegistration(id: string, activeRole?: string): Prom
     };
     if (activeRole) headers['X-Active-Role'] = activeRole;
 
-    const response = await fetch(apiUrl('/api/auth/approve-registration'), {
+    const response = await apiFetch(apiUrl('/api/auth/approve-registration'), {
       method: 'POST',
       headers,
       body: JSON.stringify({ registrationId: id }),
@@ -173,7 +173,7 @@ export async function approveRegistration(id: string, activeRole?: string): Prom
 export async function rejectRegistration(id: string): Promise<void> {
   try {
     const token = (await supabase.auth.getSession()).data.session?.access_token;
-    const response = await fetch(apiUrl('/api/auth/reject-registration'), {
+    const response = await apiFetch(apiUrl('/api/auth/reject-registration'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

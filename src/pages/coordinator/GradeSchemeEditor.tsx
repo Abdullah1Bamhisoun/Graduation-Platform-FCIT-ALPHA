@@ -34,6 +34,7 @@ import {
   updateStudentOutcome,
   deleteStudentOutcome,
   setCriterionOutcomes,
+  clearGradingCache,
   type GradingComponent,
   type RubricCriterion,
   type StudentOutcome,
@@ -296,9 +297,10 @@ export function CoordinatorGradeSchemeEditor() {
           updateGradingComponent(c.id, {
             componentName: draft[c.componentKey]?.name ?? c.componentName,
             totalMarks:    parseInt(draft[c.componentKey]?.marks ?? String(c.totalMarks)),
-          })
+          }, user?.id)
         )
       );
+      clearGradingCache();
       await loadAll();
       toast.success(`CPIS-${courseType} grade components saved successfully.`);
     } catch (err: any) {
@@ -330,8 +332,9 @@ export function CoordinatorGradeSchemeEditor() {
     if (!editCriterion) return;
     setSavingCriterion(true);
     try {
-      await updateRubricCriterion(editCriterion.id, criterionDraft);
+      await updateRubricCriterion(editCriterion.id, criterionDraft, user?.id);
       await setCriterionOutcomes(editCriterion.id, criterionSODraft);
+      clearGradingCache();
       await loadAll();
       setEditCriterion(null);
       toast.success('Criterion updated successfully.');
@@ -365,13 +368,15 @@ export function CoordinatorGradeSchemeEditor() {
         await updateStudentOutcome(editingSO.id, {
           code: soDraft.code, title: soDraft.title,
           description: soDraft.description, displayOrder: parseInt(soDraft.displayOrder) || 0,
-        });
+        }, user?.id);
       } else {
         await createStudentOutcome({
           courseType, code: soDraft.code, title: soDraft.title,
           description: soDraft.description, displayOrder: parseInt(soDraft.displayOrder) || 0,
+          changedBy: user?.id,
         });
       }
+      clearGradingCache();
       await loadAll();
       setSoDialogOpen(false);
       toast.success(editingSO ? 'Student outcome updated.' : 'Student outcome created.');
@@ -386,7 +391,8 @@ export function CoordinatorGradeSchemeEditor() {
     if (!deletingSO) return;
     setDeletingSOId(true);
     try {
-      await deleteStudentOutcome(deletingSO.id);
+      await deleteStudentOutcome(deletingSO.id, user?.id);
+      clearGradingCache();
       await loadAll();
       setDeletingSO(null);
       toast.success('Student outcome removed.');
@@ -428,6 +434,7 @@ export function CoordinatorGradeSchemeEditor() {
         description4: createDraft.descriptions[4] || undefined,
         description5: createDraft.descriptions[5] || undefined,
         displayOrder: createDraft.displayOrder,
+        changedBy: user?.id,
       });
 
       if (criterionSODraft.length > 0) {
@@ -455,7 +462,7 @@ export function CoordinatorGradeSchemeEditor() {
     if (!deleteCriterionTarget) return;
     setDeletingCriterion(true);
     try {
-      await deleteRubricCriterion(deleteCriterionTarget.id);
+      await deleteRubricCriterion(deleteCriterionTarget.id, user?.id);
 
       // Optimistic update: remove from local state
       if (activeComponentCourseType === '498') {
@@ -1005,13 +1012,13 @@ export function CoordinatorGradeSchemeEditor() {
 
       {/* ── Criterion Edit Dialog ───────────────────────────────────────────── */}
       <Dialog open={!!editCriterion} onOpenChange={open => { if (!open) setEditCriterion(null); }}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="max-w-2xl flex flex-col max-h-[90vh]">
+          <DialogHeader className="shrink-0">
             <DialogTitle>Edit Criterion — {editCriterion?.criterionName}</DialogTitle>
           </DialogHeader>
 
           {editCriterion && (
-            <div className="space-y-4 py-2">
+            <div className="flex-1 overflow-y-auto space-y-4 py-2 pr-1">
               <div>
                 <Label className="mb-1 block">Criterion Name</Label>
                 <Input
@@ -1097,7 +1104,7 @@ export function CoordinatorGradeSchemeEditor() {
             </div>
           )}
 
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-[var(--color-border)] pt-4 mt-2">
             <Button variant="outline" onClick={() => setEditCriterion(null)}>Cancel</Button>
             <Button
               onClick={saveCriterion}
@@ -1113,15 +1120,15 @@ export function CoordinatorGradeSchemeEditor() {
 
       {/* ── Create Rubric Criterion Dialog ───────────────────────────────────── */}
       <Dialog open={createCriterionOpen} onOpenChange={setCreateCriterionOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="max-w-2xl flex flex-col max-h-[90vh]">
+          <DialogHeader className="shrink-0">
             <DialogTitle>Create New Rubric Criterion</DialogTitle>
             <DialogDescription>
               Add a new criterion to the {activeComponentName} evaluation component.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-2">
+          <div className="flex-1 overflow-y-auto space-y-4 py-2 pr-1">
             {/* Criterion Name */}
             <div>
               <Label className="mb-1 block">Criterion Name *</Label>
@@ -1232,7 +1239,7 @@ export function CoordinatorGradeSchemeEditor() {
             })()}
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-[var(--color-border)] pt-4 mt-2">
             <Button
               variant="outline"
               onClick={() => {

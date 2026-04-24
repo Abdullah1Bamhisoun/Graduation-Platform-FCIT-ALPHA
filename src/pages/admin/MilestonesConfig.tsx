@@ -285,7 +285,12 @@ export function AdminMilestonesConfig() {
                         <div className="flex-1">
                           <DatePicker
                             value={getDatePart(config.openDate)}
-                            onChange={(date) => updateConfigField(config.id, 'openDate', combineDatetime(date, getTimePart(config.openDate)))}
+                            onChange={(date) => {
+                              updateConfigField(config.id, 'openDate', combineDatetime(date, getTimePart(config.openDate)));
+                              if (getDatePart(config.closeDate) && date > getDatePart(config.closeDate)) {
+                                updateConfigField(config.id, 'closeDate', '');
+                              }
+                            }}
                             placeholder="Select open date"
                           />
                         </div>
@@ -303,6 +308,7 @@ export function AdminMilestonesConfig() {
                           <DatePicker
                             value={getDatePart(config.closeDate)}
                             onChange={(date) => updateConfigField(config.id, 'closeDate', combineDatetime(date, getTimePart(config.closeDate)))}
+                            minDate={getDatePart(config.openDate) || undefined}
                             placeholder="Select close date"
                           />
                         </div>

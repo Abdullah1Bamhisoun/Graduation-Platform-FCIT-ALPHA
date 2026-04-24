@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch } from '@/lib/api';
 import type { UserRole, UserRoleEntry } from '../types';
 
 /**
@@ -41,7 +41,7 @@ export async function logRoleSwitch(
     const token = session.data.session?.access_token;
     if (!token) return;
 
-    await fetch(apiUrl('/api/roles/switch'), {
+    await apiFetch(apiUrl('/api/roles/switch'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

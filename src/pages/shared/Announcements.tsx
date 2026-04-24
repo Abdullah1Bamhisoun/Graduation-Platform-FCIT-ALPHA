@@ -14,7 +14,7 @@ import { toast } from 'sonner';
 import { useState, useEffect } from 'react';
 import type { Announcement, UserRole } from '../../types';
 import { supabase } from '../../lib/supabase';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch } from '@/lib/api';
 
 interface SupervisorGroup {
   id: string;
@@ -50,7 +50,7 @@ export function Announcements() {
     if (!isSupervisor) return;
     supabase.auth.getSession().then(({ data }) => {
       const token = data.session?.access_token ?? '';
-      return fetch(apiUrl('/api/groups/mine'), {
+      return apiFetch(apiUrl('/api/groups/mine'), {
         headers: { Authorization: `Bearer ${token}` },
       });
     })

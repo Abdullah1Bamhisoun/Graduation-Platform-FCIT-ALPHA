@@ -45,7 +45,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch } from '@/lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -103,7 +103,7 @@ interface GroupGradeData {
 // ─── API Helpers ──────────────────────────────────────────────────────────────
 
 async function fetchSupervisorGrades(token: string): Promise<GroupGradeData[]> {
-  const res = await fetch(apiUrl('/api/groups/supervisor-grades'), {
+  const res = await apiFetch(apiUrl('/api/groups/supervisor-grades'), {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error('Failed to fetch group grades');
@@ -116,7 +116,7 @@ async function submitEvaluations(
   submissionStatus: 'draft' | 'submitted',
   token: string
 ): Promise<{ results: { studentId: string; normalizedScore: number; maxScore: number; submissionStatus: string }[] }> {
-  const res = await fetch(apiUrl(`/api/groups/${groupId}/supervisor-evaluation`), {
+  const res = await apiFetch(apiUrl(`/api/groups/${groupId}/supervisor-evaluation`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ evaluations, submissionStatus }),

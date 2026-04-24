@@ -4,7 +4,7 @@ import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
 import { Button } from '../../components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../../components/ui/dialog';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch } from '@/lib/api';
 import { supabase } from '../../lib/supabase';
 import { toast } from 'sonner';
 import {
@@ -93,10 +93,10 @@ export function AdminTermMigration() {
       try {
         const token = await getToken();
         const [previewRes, termRes] = await Promise.all([
-          fetch(apiUrl('/api/settings/migration-preview'), {
+          apiFetch(apiUrl('/api/settings/migration-preview'), {
             headers: { Authorization: `Bearer ${token}` },
           }),
-          fetch(apiUrl('/api/settings/current-term')),
+          apiFetch(apiUrl('/api/settings/current-term')),
         ]);
         if (previewRes.ok) {
           const body = await previewRes.json();
@@ -116,7 +116,7 @@ export function AdminTermMigration() {
     setApplying(true);
     try {
       const token = await getToken();
-      const res = await fetch(apiUrl('/api/settings/current-term'), {
+      const res = await apiFetch(apiUrl('/api/settings/current-term'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(pendingTerm),

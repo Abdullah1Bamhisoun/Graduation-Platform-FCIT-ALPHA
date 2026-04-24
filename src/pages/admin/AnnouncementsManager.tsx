@@ -16,7 +16,7 @@ import { UserRole, Announcement } from '../../types';
 import { useLockStatus } from '../../hooks/useLockStatus';
 import { LockedBanner } from '../../components/ui/LockedBanner';
 import { supabase } from '../../lib/supabase';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch } from '@/lib/api';
 
 interface AnnouncementForm {
   title: string;
@@ -55,7 +55,7 @@ export function AnnouncementsManager() {
     if (!isSupervisor) return;
     supabase.auth.getSession().then(({ data }) => {
       const token = data.session?.access_token ?? '';
-      return fetch(apiUrl('/api/groups/mine'), {
+      return apiFetch(apiUrl('/api/groups/mine'), {
         headers: { Authorization: `Bearer ${token}` },
       });
     })

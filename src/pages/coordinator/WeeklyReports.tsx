@@ -709,7 +709,12 @@ $$;`}</pre>
                     <div className="flex-1">
                       <DatePicker
                         value={dlOpenAt.split('T')[0] ?? ''}
-                        onChange={date => setDlOpenAt(date + 'T' + (dlOpenAt.split('T')[1] ?? '08:00'))}
+                        onChange={date => {
+                          setDlOpenAt(date + 'T' + (dlOpenAt.split('T')[1] ?? '08:00'));
+                          if (dlCloseAt.split('T')[0] && date > dlCloseAt.split('T')[0]) {
+                            setDlCloseAt('');
+                          }
+                        }}
                         placeholder="Select date"
                       />
                     </div>
@@ -731,6 +736,7 @@ $$;`}</pre>
                       <DatePicker
                         value={dlCloseAt.split('T')[0] ?? ''}
                         onChange={date => setDlCloseAt(date + 'T' + (dlCloseAt.split('T')[1] ?? '23:59'))}
+                        minDate={dlOpenAt.split('T')[0] || undefined}
                         placeholder="Select date"
                       />
                     </div>

@@ -65,7 +65,7 @@ import {
 } from 'lucide-react';
 import { getSignedUrl } from '../../services/storage';
 import { toast } from 'sonner';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch } from '@/lib/api';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { DocumentViewerWithAnnotations } from '../../components/DocumentViewerWithAnnotations';
 
@@ -172,7 +172,7 @@ interface GroupGradeData {
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
 async function fetchChapterSubmissions(token: string): Promise<ChapterSubmission[]> {
-  const res = await fetch(apiUrl('/api/submissions/chapter-submissions'), {
+  const res = await apiFetch(apiUrl('/api/submissions/chapter-submissions'), {
     headers: { Authorization: `Bearer ${token}`, 'X-Active-Role': 'supervisor' },
   });
   if (!res.ok) throw new Error('Failed to fetch chapter submissions');
@@ -185,7 +185,7 @@ async function submitApproval(
   feedback: string,
   token: string
 ): Promise<{ newStatus: string }> {
-  const res = await fetch(apiUrl(`/api/submissions/${submissionId}/approval`), {
+  const res = await apiFetch(apiUrl(`/api/submissions/${submissionId}/approval`), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ action, feedback }),
@@ -205,7 +205,7 @@ async function submitApproval(
  * from grading_components; this function never hardcodes any weight.
  */
 async function fetchSupervisorGrades(token: string): Promise<GroupGradeData[]> {
-  const res = await fetch(apiUrl('/api/groups/supervisor-grades'), {
+  const res = await apiFetch(apiUrl('/api/groups/supervisor-grades'), {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error('Failed to fetch group grades');
@@ -222,7 +222,7 @@ async function requestMarkAsIP(
   reason: string,
   token: string
 ): Promise<{ projectStatus: string }> {
-  const res = await fetch(apiUrl(`/api/groups/${groupId}/project-status`), {
+  const res = await apiFetch(apiUrl(`/api/groups/${groupId}/project-status`), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ status, reason }),
@@ -246,7 +246,7 @@ interface SubmissionComment {
 
 
 async function postComment(submissionId: string, content: string, token: string): Promise<SubmissionComment> {
-  const res = await fetch(apiUrl(`/api/submissions/${submissionId}/comments`), {
+  const res = await apiFetch(apiUrl(`/api/submissions/${submissionId}/comments`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

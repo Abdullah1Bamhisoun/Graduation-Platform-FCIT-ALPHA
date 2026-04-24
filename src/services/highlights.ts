@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch } from '@/lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -57,7 +57,7 @@ async function getToken(): Promise<string> {
 
 export async function fetchHighlights(documentId: string): Promise<Highlight[]> {
   const token = await getToken();
-  const res = await fetch(apiUrl(`/api/highlights?documentId=${encodeURIComponent(documentId)}`), {
+  const res = await apiFetch(apiUrl(`/api/highlights?documentId=${encodeURIComponent(documentId)}`), {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) {
@@ -69,7 +69,7 @@ export async function fetchHighlights(documentId: string): Promise<Highlight[]> 
 
 export async function createHighlight(payload: CreateHighlightPayload): Promise<Highlight> {
   const token = await getToken();
-  const res = await fetch(apiUrl('/api/highlights'), {
+  const res = await apiFetch(apiUrl('/api/highlights'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -86,7 +86,7 @@ export async function createHighlight(payload: CreateHighlightPayload): Promise<
 
 export async function deleteHighlight(highlightId: string): Promise<void> {
   const token = await getToken();
-  const res = await fetch(apiUrl(`/api/highlights/${highlightId}`), {
+  const res = await apiFetch(apiUrl(`/api/highlights/${highlightId}`), {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -101,7 +101,7 @@ export async function addHighlightComment(
   content: string,
 ): Promise<HighlightComment> {
   const token = await getToken();
-  const res = await fetch(apiUrl(`/api/highlights/${highlightId}/comments`), {
+  const res = await apiFetch(apiUrl(`/api/highlights/${highlightId}/comments`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -121,7 +121,7 @@ export async function deleteHighlightComment(
   commentId: string,
 ): Promise<void> {
   const token = await getToken();
-  const res = await fetch(apiUrl(`/api/highlights/${highlightId}/comments/${commentId}`), {
+  const res = await apiFetch(apiUrl(`/api/highlights/${highlightId}/comments/${commentId}`), {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${token}` },
   });

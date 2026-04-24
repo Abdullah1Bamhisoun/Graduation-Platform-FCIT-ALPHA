@@ -1,5 +1,5 @@
-import { ChevronDown, Menu, Moon, RefreshCw, Sun } from 'lucide-react';
-import { User, UserRole } from '../../types';
+import { ChevronDown, Menu, Moon, Sun } from 'lucide-react';
+import { User } from '../../types';
 import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import { useAuth } from '../../lib/AuthContext';
@@ -8,7 +8,6 @@ import { useTheme } from '../../lib/ThemeContext';
 interface TopbarProps {
   user: User;
   pageTitle: string;
-  subtitle?: string;
   unreadCount?: number;
   onMenuClick?: () => void;
 }
@@ -28,25 +27,14 @@ const roleLabel: Record<string, string> = {
   student:     'Student',
 };
 
-// Faculty roles that can be switched between
-const SWITCHABLE_ROLES: UserRole[] = ['supervisor', 'coordinator'];
-
-export function Topbar({ user, pageTitle, subtitle, onMenuClick }: TopbarProps) {
+export function Topbar({ user, pageTitle, onMenuClick }: TopbarProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const { logout, switchRole } = useAuth();
+  const { logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
-
-  // Only show role switcher when user has multiple switchable roles
-  const switchableRoles = user.roles.filter((r) => SWITCHABLE_ROLES.includes(r));
-  const isMultiRole = switchableRoles.length > 1;
 
   const handleLogout = () => {
     setShowUserMenu(false);
     logout();
-  };
-
-  const handleSwitchRole = async (role: UserRole) => {
-    await switchRole(role);
   };
 
   // Settings path depends on active role
@@ -70,42 +58,6 @@ export function Topbar({ user, pageTitle, subtitle, onMenuClick }: TopbarProps) 
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-        {/* ── Role Switcher (faculty with multiple roles only) ── */}
-        {isMultiRole && (
-          <>
-            {/* Prominent one-click switch button — text hidden on small screens */}
-            {user.activeRole === 'supervisor' && user.roles.includes('coordinator') && (
-              <button
-                onClick={() => handleSwitchRole('coordinator')}
-                className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 text-sm font-medium text-purple-700 bg-purple-50 border border-purple-300 hover:bg-purple-100 transition-colors whitespace-nowrap rounded-lg"
-                title="Switch to Coordinator Mode"
-              >
-                <RefreshCw className="w-3.5 h-3.5 flex-shrink-0" />
-                <span className="hidden sm:inline">Switch to Coordinator Mode</span>
-              </button>
-            )}
-            {user.activeRole === 'coordinator' && user.roles.includes('supervisor') && (
-              <button
-                onClick={() => handleSwitchRole('supervisor')}
-                className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-300 hover:bg-blue-100 transition-colors whitespace-nowrap rounded-lg"
-                title="Switch to Supervisor Mode"
-              >
-                <RefreshCw className="w-3.5 h-3.5 flex-shrink-0" />
-                <span className="hidden sm:inline">Switch to Supervisor Mode</span>
-              </button>
-            )}
-            {/* Active role badge — hidden on xs */}
-            <div className="hidden sm:flex items-center gap-2">
-              <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${roleBadgeStyle[user.activeRole] ?? ''}`}>
-                {roleLabel[user.activeRole] ?? user.activeRole}
-              </span>
-              {subtitle && (
-                <span className="text-xs text-[var(--color-text-600)] font-medium hidden md:inline">{subtitle}</span>
-              )}
-            </div>
-          </>
-        )}
-
         {/* ── Dark Mode Toggle ── */}
         <button
           onClick={toggleTheme}
@@ -141,16 +93,13 @@ export function Topbar({ user, pageTitle, subtitle, onMenuClick }: TopbarProps) 
             <>
               <div className="fixed inset-0 z-10" onClick={() => setShowUserMenu(false)} />
               <div className="absolute right-0 top-full mt-2 w-56 bg-[var(--color-surface-white)] rounded-lg shadow-lg border border-[var(--color-border)] py-2 z-20">
-                {/* Show single-role badge when NOT multi-role */}
-                {!isMultiRole && (
-                  <div className="px-4 py-2">
-                    <span
-                      className={`text-xs font-semibold px-2 py-0.5 rounded-full ${roleBadgeStyle[user.activeRole] ?? ''}`}
-                    >
-                      {roleLabel[user.activeRole] ?? user.activeRole}
-                    </span>
-                  </div>
-                )}
+                <div className="px-4 py-2">
+                  <span
+                    className={`text-xs font-semibold px-2 py-0.5 rounded-full ${roleBadgeStyle[user.activeRole] ?? ''}`}
+                  >
+                    {roleLabel[user.activeRole] ?? user.activeRole}
+                  </span>
+                </div>
                 {/* Show user name in dropdown on mobile (since it's hidden in header) */}
                 <div className="px-4 py-2 sm:hidden border-b border-[var(--color-border)] mb-1">
                   <p className="text-sm font-medium text-[var(--color-text-900)]">{user.name}</p>

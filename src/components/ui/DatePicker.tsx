@@ -52,9 +52,11 @@ interface DatePickerProps {
   value: string; // 'YYYY-MM-DD'
   onChange: (date: string) => void;
   placeholder?: string;
+  minDate?: string; // 'YYYY-MM-DD' — dates before this are disabled
+  maxDate?: string; // 'YYYY-MM-DD' — dates after this are disabled
 }
 
-export function DatePicker({ value, onChange, placeholder = 'Select date' }: DatePickerProps) {
+export function DatePicker({ value, onChange, placeholder = 'Select date', minDate, maxDate }: DatePickerProps) {
   const today = new Date();
   const [open, setOpen] = useState(false);
   const [viewYear, setViewYear] = useState(() => {
@@ -94,8 +96,14 @@ export function DatePicker({ value, onChange, placeholder = 'Select date' }: Dat
 
   const selectedDate = fromYMD(value);
   const todayYMD = toYMD(today);
+  const minYMD = minDate ?? null;
+  const maxYMD = maxDate ?? null;
+
+  const isDisabled = (ymd: string) =>
+    (minYMD !== null && ymd < minYMD) || (maxYMD !== null && ymd > maxYMD);
 
   const handleSelect = (day: Date) => {
+    if (isDisabled(toYMD(day))) return;
     onChange(toYMD(day));
     setOpen(false);
   };
@@ -157,13 +165,17 @@ export function DatePicker({ value, onChange, placeholder = 'Select date' }: Dat
                   const isSelected = !!selectedDate && ymd === toYMD(selectedDate);
                   const isToday = ymd === todayYMD;
                   const inMonth = day.getMonth() === viewMonth;
+                  const disabled = isDisabled(ymd);
                   return (
                     <button
                       key={j}
                       type="button"
                       onClick={() => handleSelect(day)}
+                      disabled={disabled}
                       className={`text-center text-sm py-1.5 rounded-lg transition-colors ${
-                        isSelected
+                        disabled
+                          ? 'text-gray-300 cursor-not-allowed'
+                          : isSelected
                           ? 'bg-[var(--color-primary-600)] text-white font-medium'
                           : isToday
                           ? 'bg-blue-50 text-[var(--color-primary-600)] font-bold hover:bg-blue-100'
@@ -181,21 +193,23 @@ export function DatePicker({ value, onChange, placeholder = 'Select date' }: Dat
           </div>
 
           {/* Today shortcut */}
-          <div className="mt-3 pt-3 border-t border-[var(--color-border)]">
-            <button
-              type="button"
-              onClick={() => {
-                const now = new Date();
-                setViewYear(now.getFullYear());
-                setViewMonth(now.getMonth());
-                onChange(toYMD(now));
-                setOpen(false);
-              }}
-              className="w-full text-xs text-center text-[var(--color-primary-600)] hover:underline"
-            >
-              Go to today
-            </button>
-          </div>
+          {!isDisabled(todayYMD) && (
+            <div className="mt-3 pt-3 border-t border-[var(--color-border)]">
+              <button
+                type="button"
+                onClick={() => {
+                  const now = new Date();
+                  setViewYear(now.getFullYear());
+                  setViewMonth(now.getMonth());
+                  onChange(toYMD(now));
+                  setOpen(false);
+                }}
+                className="w-full text-xs text-center text-[var(--color-primary-600)] hover:underline"
+              >
+                Go to today
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

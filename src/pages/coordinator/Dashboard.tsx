@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
 import { supabase } from '../../lib/supabase';
+import { apiFetch } from '../../lib/api';
 import { getCourseById } from '../../services/courses';
 import { getKpiData } from '../../services/dashboard';
 import type { KpiData, CourseKpi } from '../../services/dashboard';
@@ -356,7 +357,7 @@ export function CoordinatorDashboard() {
           const { data: { session } } = await supabase.auth.getSession();
           const token = session?.access_token;
           if (token) {
-            const res = await fetch('/api/roles/coordinator-info', {
+            const res = await apiFetch('/api/roles/coordinator-info', {
               headers: {
                 Authorization: `Bearer ${token}`,
                 'X-Active-Role': 'coordinator',

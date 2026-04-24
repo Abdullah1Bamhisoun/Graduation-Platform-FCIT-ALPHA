@@ -11,7 +11,7 @@ interface LayoutProps {
   unreadCount?: number;
 }
 
-export function Layout({ user, pageTitle, subtitle, children, unreadCount }: LayoutProps) {
+export function Layout({ user, pageTitle, children, unreadCount }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
@@ -25,7 +25,7 @@ export function Layout({ user, pageTitle, subtitle, children, unreadCount }: Lay
       )}
 
       <Sidebar user={user} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <Topbar user={user} pageTitle={pageTitle} subtitle={subtitle} unreadCount={unreadCount} onMenuClick={() => setSidebarOpen(true)} />
+      <Topbar user={user} pageTitle={pageTitle} unreadCount={unreadCount} onMenuClick={() => setSidebarOpen(true)} />
 
       <div className="mt-16">
         <main className="lg:ml-[280px] py-6 px-4 sm:px-5 w-full lg:w-[calc(100%-280px)]">

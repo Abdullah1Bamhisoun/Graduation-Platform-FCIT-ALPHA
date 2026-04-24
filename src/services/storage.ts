@@ -55,9 +55,9 @@ export async function uploadCommitteeFeedbackFile(
   form.append('file', file);
   form.append('groupId', groupId);
 
-  // Import apiUrl lazily to avoid circular deps
-  const { apiUrl } = await import('@/lib/api');
-  const res = await fetch(apiUrl('/api/evaluations/upload-feedback-file'), {
+  // Import lazily to avoid circular deps
+  const { apiUrl, apiFetch } = await import('@/lib/api');
+  const res = await apiFetch(apiUrl('/api/evaluations/upload-feedback-file'), {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: form,

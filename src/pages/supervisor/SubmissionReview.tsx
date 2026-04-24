@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getSignedUrl } from '../../services/storage';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch } from '@/lib/api';
 import { DocumentViewerWithAnnotations } from '../../components/DocumentViewerWithAnnotations';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -58,7 +58,7 @@ interface SubmissionComment {
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
 async function fetchChapterSubmissions(token: string): Promise<ChapterSubmission[]> {
-  const res = await fetch(apiUrl('/api/submissions/chapter-submissions'), {
+  const res = await apiFetch(apiUrl('/api/submissions/chapter-submissions'), {
     headers: { Authorization: `Bearer ${token}`, 'X-Active-Role': 'supervisor' },
   });
   if (!res.ok) throw new Error('Failed to fetch chapter submissions');
@@ -71,7 +71,7 @@ async function submitApproval(
   feedback: string,
   token: string
 ): Promise<{ newStatus: string }> {
-  const res = await fetch(apiUrl(`/api/submissions/${submissionId}/approval`), {
+  const res = await apiFetch(apiUrl(`/api/submissions/${submissionId}/approval`), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ action, feedback }),
@@ -85,7 +85,7 @@ async function submitApproval(
 }
 
 async function fetchComments(submissionId: string, token: string): Promise<SubmissionComment[]> {
-  const res = await fetch(apiUrl(`/api/submissions/${submissionId}/comments`), {
+  const res = await apiFetch(apiUrl(`/api/submissions/${submissionId}/comments`), {
     headers: { Authorization: `Bearer ${token}`, 'X-Active-Role': 'supervisor' },
   });
   if (!res.ok) {
@@ -100,7 +100,7 @@ async function postComment(
   content: string,
   token: string
 ): Promise<SubmissionComment> {
-  const res = await fetch(apiUrl(`/api/submissions/${submissionId}/comments`), {
+  const res = await apiFetch(apiUrl(`/api/submissions/${submissionId}/comments`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

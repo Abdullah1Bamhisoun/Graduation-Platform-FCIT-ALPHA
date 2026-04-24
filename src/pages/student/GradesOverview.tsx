@@ -1,7 +1,7 @@
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
 import { supabase } from '../../lib/supabase';
-import { apiUrl } from '../../lib/api';
+import { apiUrl, apiFetch } from '../../lib/api';
 import { getWeekStatuses, getDisplayStatus } from '../../services/week-statuses';
 import { getAllRubricCriteria } from '../../services/grading-rubric';
 import { getStudentGrade } from '../../services/grades';
@@ -25,6 +25,27 @@ import {
 import { getSignedUrl } from '../../services/storage';
 import { toast } from 'sonner';
 import { useState, useEffect, useCallback } from 'react';
+
+// ─── Module-level cache ───────────────────────────────────────────────────────
+
+const GRADES_CACHE_TTL = 60 * 1000; // 1 minute
+
+interface GradesCache {
+  data: StudentMyGradesData;
+  fetchedAt: number;
+}
+
+const _gradesCache = new Map<string, GradesCache>();
+
+function _getCachedGrades(studentId: string): StudentMyGradesData | null {
+  const entry = _gradesCache.get(studentId);
+  if (entry && Date.now() - entry.fetchedAt < GRADES_CACHE_TTL) return entry.data;
+  return null;
+}
+
+function _setCachedGrades(studentId: string, data: StudentMyGradesData) {
+  _gradesCache.set(studentId, { data, fetchedAt: Date.now() });
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -96,15 +117,22 @@ interface StudentMyGradesData {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-async function fetchMyGrades(_studentId: string): Promise<StudentMyGradesData | null> {
+async function fetchMyGrades(studentId: string, bustCache = false): Promise<StudentMyGradesData | null> {
+  if (!bustCache) {
+    const cached = _getCachedGrades(studentId);
+    if (cached) return cached;
+  }
+
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData.session?.access_token ?? '';
 
-  const res = await fetch(apiUrl('/api/students/my-grades'), {
+  const res = await apiFetch(apiUrl('/api/students/my-grades'), {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) return null;
-  return res.json();
+  const data: StudentMyGradesData = await res.json();
+  _setCachedGrades(studentId, data);
+  return data;
 }
 
 function getScoreColor(score: number, max: number) {
@@ -170,10 +198,10 @@ export function StudentGradesOverview() {
   const [memberDialogData, setMemberDialogData]   = useState<StudentGrade | null>(null);
   const [memberDialogName, setMemberDialogName]   = useState('');
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (bustCache = false) => {
     if (!user) return;
     try {
-      const grades = await fetchMyGrades(user.id);
+      const grades = await fetchMyGrades(user.id, bustCache);
       setGradesData(grades);
 
       if (grades) {
@@ -238,7 +266,7 @@ export function StudentGradesOverview() {
 
   async function handleRefresh() {
     setRefreshing(true);
-    await loadData();
+    await loadData(true);
     setRefreshing(false);
   }
 
@@ -262,7 +290,7 @@ export function StudentGradesOverview() {
         ratings[peer.id] = Number(peerRatings[peer.id]);
       }
 
-      const res = await fetch(apiUrl('/api/students/peer-evaluations'), {
+      const res = await apiFetch(apiUrl('/api/students/peer-evaluations'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

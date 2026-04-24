@@ -29,7 +29,7 @@ import {
   type GradingComponent,
 } from '../../services/grading-rubric';
 import { supabase } from '../../lib/supabase';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch } from '@/lib/api';
 import { Save, Send, CheckCircle, Info, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import type { GroupGrade } from '../../types';
@@ -210,7 +210,7 @@ export function SupervisorGradingAssessment() {
     try {
       const session = await supabase.auth.getSession();
       const token   = session.data.session?.access_token ?? '';
-      const res = await fetch(apiUrl(`/api/groups/${selectedGroup}/supervisor-evaluation`), {
+      const res = await apiFetch(apiUrl(`/api/groups/${selectedGroup}/supervisor-evaluation`), {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body:    JSON.stringify({
@@ -248,7 +248,7 @@ export function SupervisorGradingAssessment() {
     try {
       const session = await supabase.auth.getSession();
       const token   = session.data.session?.access_token ?? '';
-      const res = await fetch(apiUrl(`/api/groups/${selectedGroup}/supervisor-evaluation`), {
+      const res = await apiFetch(apiUrl(`/api/groups/${selectedGroup}/supervisor-evaluation`), {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body:    JSON.stringify({
