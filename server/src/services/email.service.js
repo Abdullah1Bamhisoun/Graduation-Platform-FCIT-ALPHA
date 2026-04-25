@@ -543,7 +543,97 @@ function sendWeeklyReportSubmitted(supervisorEmail, data) {
 }
 
 /**
- * 10. Submission deadline reminder (1 day before close_at) → students
+ * 10. Supervisor commented on a weekly report → group students
+ *
+ * @param {string[]} studentEmails
+ * @param {{ supervisorName: string, weekNumber: number, courseType: string, commentPreview: string, groupName?: string, appUrl?: string }} data
+ */
+function sendWeeklyReportFeedback(studentEmails, data) {
+  const { supervisorName, weekNumber, courseType, commentPreview, groupName = '', appUrl = '' } = data;
+  const courseName = `CPIS-${courseType}`;
+  const reportsUrl = appUrl || (APP_URL ? `${APP_URL}/student/weekly-reports` : '');
+
+  const rows = [
+    ['Supervisor', supervisorName],
+    ['Course',     courseName],
+    ['Week',       `Week ${weekNumber}`],
+  ];
+  if (groupName) rows.push(['Group', groupName]);
+
+  const commentBlock = commentPreview
+    ? `<div style="background:#f9fafb;border-left:4px solid #1a6b4a;padding:14px 16px;margin:0 0 20px;border-radius:0 4px 4px 0;">
+        <p style="margin:0 0 6px;font-size:13px;font-weight:600;color:#374151;">Supervisor Comment</p>
+        <p style="margin:0;font-size:14px;color:#374151;line-height:1.6;">${commentPreview.replace(/\n/g, '<br/>')}</p>
+      </div>`
+    : '';
+
+  const body = `
+    ${heading(`Supervisor Feedback on Weekly Report #${weekNumber}`)}
+    ${paragraph('Your supervisor has added feedback to your weekly report. Please log in to review it.')}
+    ${infoTable(rows)}
+    ${commentBlock}
+    ${reportsUrl ? ctaButton('View Weekly Report', reportsUrl) : ''}
+  `;
+
+  return Promise.allSettled(
+    studentEmails.filter(Boolean).map((email) =>
+      sendEmail(
+        email,
+        `[${courseName}] Supervisor Feedback — Weekly Report #${weekNumber}`,
+        layout(body, 'Weekly Report Feedback')
+      )
+    )
+  );
+}
+
+/**
+ * 11. Supervisor updated report status → group students
+ *
+ * @param {string[]} studentEmails
+ * @param {{ supervisorName: string, weekNumber: number, courseType: string, status: 'reviewed'|'changes_requested', groupName?: string, appUrl?: string }} data
+ */
+function sendWeeklyReportStatusUpdate(studentEmails, data) {
+  const { supervisorName, weekNumber, courseType, status, groupName = '', appUrl = '' } = data;
+  const courseName   = `CPIS-${courseType}`;
+  const reportsUrl   = appUrl || (APP_URL ? `${APP_URL}/student/weekly-reports` : '');
+  const isReviewed   = status === 'reviewed';
+  const statusLabel  = isReviewed ? 'Reviewed' : 'Changes Requested';
+  const badgeBg      = isReviewed ? '#dcfce7' : '#fef3c7';
+  const badgeColor   = isReviewed ? '#166534' : '#92400e';
+  const statusBadgeHtml = `<span style="display:inline-block;padding:3px 10px;border-radius:12px;background:${badgeBg};color:${badgeColor};font-size:13px;font-weight:600;">${statusLabel}</span>`;
+
+  const rows = [
+    ['Supervisor', supervisorName],
+    ['Course',     courseName],
+    ['Week',       `Week ${weekNumber}`],
+    ['Status',     statusBadgeHtml],
+  ];
+  if (groupName) rows.push(['Group', groupName]);
+
+  const message = isReviewed
+    ? 'Your supervisor has reviewed and accepted your weekly report.'
+    : 'Your supervisor has reviewed your weekly report and is requesting changes. Please log in to see their feedback and resubmit.';
+
+  const body = `
+    ${heading(`Weekly Report #${weekNumber} — ${statusLabel}`)}
+    ${paragraph(message)}
+    ${infoTable(rows)}
+    ${reportsUrl ? ctaButton('View Weekly Report', reportsUrl) : ''}
+  `;
+
+  return Promise.allSettled(
+    studentEmails.filter(Boolean).map((email) =>
+      sendEmail(
+        email,
+        `[${courseName}] Weekly Report #${weekNumber} — ${statusLabel}`,
+        layout(body, 'Weekly Report Update')
+      )
+    )
+  );
+}
+
+/**
+ * 12. Submission deadline reminder (1 day before close_at) → students
  *
  * @param {string[]} studentEmails
  * @param {{ weekNumber: number, courseType: string, closeAt: string, appUrl?: string }} data
@@ -763,6 +853,8 @@ module.exports = {
   sendMilestoneCreated,
   sendWeekOpened,
   sendWeeklyReportSubmitted,
+  sendWeeklyReportFeedback,
+  sendWeeklyReportStatusUpdate,
   sendDeadlineReminder,
   sendMeetingInvitation,
   sendMeetingReminder,

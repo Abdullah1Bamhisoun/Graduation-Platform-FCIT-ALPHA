@@ -142,12 +142,6 @@ async function submitWeeklyReport(req, res) {
             message: `${studentName} submitted Weekly Report #${weekNumber}.`,
             link:    '/supervisor/submissions',
           }),
-          notificationService.createPersonalCalendarEvent({
-            title:  `Review Weekly Report #${weekNumber}`,
-            date:   today,
-            type:   'deadline',
-            userId: supervisor.id,
-          }),
         ]);
       } catch (e) {
         console.error('[reports] Trigger-2 notification error:', e.message);
@@ -230,7 +224,7 @@ async function updateReportStatus(req, res) {
 
     const { data: report, error: rErr } = await supabaseAdmin
       .from('weekly_reports')
-      .select('id, group_id, week_number')
+      .select('id, group_id, week_number, course_type')
       .eq('id', id)
       .single();
 
@@ -250,6 +244,35 @@ async function updateReportStatus(req, res) {
     if (uErr) throw uErr;
 
     res.json({ success: true });
+
+    // ── Notify group students of status change ────────────────────────────────
+    ;(async () => {
+      try {
+        const members = await notificationService.getGroupMembers(report.group_id);
+        if (members.length === 0) return;
+
+        const supervisorName = req.user.name || 'Your supervisor';
+        const studentIds     = members.map((m) => m.id);
+        const studentEmails  = members.map((m) => m.email).filter(Boolean);
+        const statusLabel    = status === 'reviewed' ? 'Reviewed' : 'Changes Requested';
+
+        emailService.sendWeeklyReportStatusUpdate(studentEmails, {
+          supervisorName,
+          weekNumber:  report.week_number,
+          courseType:  report.course_type,
+          status,
+        }).catch((e) => console.error('[reports] Failed to send weekly-report-status-update email:', e.message));
+
+        await notificationService.createUserNotifications(studentIds, {
+          type:    'feedback',
+          title:   `Weekly Report #${report.week_number} — ${statusLabel}`,
+          message: `${supervisorName} marked your Weekly Report #${report.week_number} as "${statusLabel}".`,
+          link:    '/student/weekly-reports',
+        });
+      } catch (e) {
+        console.error('[reports] updateReportStatus notification error:', e.message);
+      }
+    })();
   } catch (error) {
     console.error('Error updating report status:', error);
     res.status(500).json({ error: 'Failed to update report status' });
@@ -332,23 +355,33 @@ async function addReportComment(req, res) {
             notificationService.getCourseIdFromGroup(report.group_id),
           ]);
 
-          const studentIds = members.map((m) => m.id);
+          const studentIds    = members.map((m) => m.id);
+          const studentEmails = members.map((m) => m.email).filter(Boolean);
           if (studentIds.length === 0) return;
 
           const supervisorName = req.user.name || 'Your supervisor';
+
+          // Email every student in the group (fire-and-forget)
+          emailService.sendWeeklyReportFeedback(studentEmails, {
+            supervisorName,
+            weekNumber:     report.week_number,
+            courseType:     report.course_type,
+            commentPreview: content.trim(),
+          }).catch((e) => console.error('[reports] Failed to send weekly-report-feedback email:', e.message));
 
           await Promise.all([
             notificationService.createUserNotifications(studentIds, {
               type:    'feedback',
               title:   `Feedback on Weekly Report #${report.week_number}`,
               message: `${supervisorName} added feedback to your Weekly Report #${report.week_number}.`,
-              link:    '/student/milestones',
+              link:    '/student/weekly-reports',
             }),
             notificationService.createAnnouncement({
               title:       `Supervisor Feedback on Weekly Report #${report.week_number}`,
               content:     `Your supervisor added feedback to Weekly Report #${report.week_number}. Please review it.`,
               targetRoles: ['student'],
               courseId,
+              groupId:     report.group_id,
               authorId:    userId,
             }),
           ]);

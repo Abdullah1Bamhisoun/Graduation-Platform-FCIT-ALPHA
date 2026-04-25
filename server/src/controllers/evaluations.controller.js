@@ -247,12 +247,6 @@ async function saveScores(req, res) {
             message: `Your ${evaluatorLabel.toLowerCase()} has submitted evaluation scores for your group.`,
             link:    '/student/milestones',
           }),
-          notificationService.createCalendarEvent({
-            title:   `${evaluatorLabel} Evaluation Submitted — Group ${group.group_number ?? ''}`,
-            date:    today,
-            type:    'meeting',
-            courseId,
-          }),
         ]);
       } catch (e) {
         console.error('[evaluations] Trigger-4 notification error:', e.message);

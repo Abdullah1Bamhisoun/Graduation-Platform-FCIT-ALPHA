@@ -257,12 +257,6 @@ async function updateSubmissionApproval(req, res) {
               message: `Your "${mileName}" submission has been ${decisionLabel.toLowerCase()}.`,
               link:    '/student/milestones',
             }),
-            notificationService.createCalendarEvent({
-              title:   `Review Result: ${mileName}`,
-              date:    today,
-              type:    'meeting',
-              courseId,
-            }),
           ]);
         }
       } catch (emailErr) {
@@ -664,12 +658,6 @@ async function createSubmission(req, res) {
               message: `${req.user.name || 'A student'} submitted "${mileName}"${groupNum ? ` for Group ${groupNum}` : ''}.`,
               link:    '/supervisor/submissions',
             }),
-            notificationService.createPersonalCalendarEvent({
-              title:  `Review: ${mileName}${groupNum ? ` — Group ${groupNum}` : ''}`,
-              date:   dueDate,
-              type:   'deadline',
-              userId: group.supervisor_id,
-            }),
           ]);
         }
       } catch (emailErr) {
@@ -784,12 +772,6 @@ async function createSubmissionVersion(req, res) {
               title:   `Submission Updated: ${mileName}`,
               message: `${req.user.name || 'A student'} uploaded revision v${version}${groupNum ? ` for Group ${groupNum}` : ''}.`,
               link:    '/supervisor/submissions',
-            }),
-            notificationService.createPersonalCalendarEvent({
-              title:  `Re-review: ${mileName}${groupNum ? ` — Group ${groupNum}` : ''}`,
-              date:   dueDate,
-              type:   'deadline',
-              userId: group.supervisor_id,
             }),
           ]);
         }

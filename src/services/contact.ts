@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { mapCourseCode } from './mappers';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -76,7 +77,7 @@ export async function getCoordinatorContacts(): Promise<CoordinatorContact[]> {
         const extra   = extraMap[course.id]    ?? null;
         return {
           courseId:         course.id,
-          courseCode:       course.code,
+          courseCode:       mapCourseCode(course.code),
           courseName:       course.name,
           coordinatorId:    cr.user_id,
           coordinatorEmail: profile?.email      ?? null,

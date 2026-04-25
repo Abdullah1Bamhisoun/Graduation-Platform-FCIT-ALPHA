@@ -33,7 +33,15 @@ export function Calendar() {
   const canCreate = isCoordinatorOrAdmin || isSupervisor;
 
   useEffect(() => {
-    getCalendarEvents().then(setCalendarEvents);
+    getCalendarEvents().then((events) => {
+      const seen = new Set<string>();
+      setCalendarEvents(events.filter((e) => {
+        const key = `${e.title}|${e.date}|${e.time ?? ''}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }));
+    });
   }, []);
 
   useEffect(() => {
@@ -60,10 +68,10 @@ export function Calendar() {
   });
 
   const eventTypeColors = {
-    deadline: '!bg-white text-red-700 border-red-500 border-[1.5px]',
-    demo: '!bg-white text-blue-700 border-blue-500 border-[1.5px]',
+    deadline:     '!bg-white text-red-700 border-red-500 border-[1.5px]',
+    demo:         '!bg-white text-blue-700 border-blue-500 border-[1.5px]',
     presentation: '!bg-white text-purple-700 border-purple-500 border-[1.5px]',
-    meeting: '!bg-white text-green-700 border-green-500 border-[1.5px]',
+    meeting:      '!bg-white text-green-700 border-green-500 border-[1.5px]',
   };
 
   const handleDeleteEvent = async (id: string) => {
@@ -287,25 +295,28 @@ export function Calendar() {
                 return (
                   <div
                     key={day}
-                    className={`min-h-[4rem] sm:min-h-[5rem] border border-[var(--color-border)] rounded-lg p-1.5 sm:p-2 overflow-hidden ${
+                    className={`min-h-20 sm:min-h-26 border border-(--color-border) rounded-lg p-1.5 sm:p-2 overflow-hidden ${
                       isToday ? 'bg-[var(--color-primary-100)] border-[var(--color-primary-600)]' : 'bg-[var(--color-surface-white)]'
                     }`}
                   >
                     <div className={`text-sm sm:text-base mb-1 font-semibold text-center ${isToday ? 'text-[var(--color-primary-700)]' : 'text-[var(--color-text-900)]'}`}>
                       {day}
                     </div>
-                    {dayEvents.slice(0, 2).map((event, idx) => (
-                      <div
-                        key={idx}
-                        className={`text-[10px] sm:text-xs px-1 py-0.5 rounded mb-0.5 border truncate ${eventTypeColors[event.type]}`}
-                        title={event.title}
-                      >
-                        {event.title}
-                      </div>
-                    ))}
+                    {dayEvents.slice(0, 2).map((event, idx) => {
+                      const isPast = event.date < new Date().toISOString().slice(0, 10);
+                      return (
+                        <div
+                          key={idx}
+                          className={`block w-full text-[11px] leading-snug px-1 py-0.5 rounded mb-0.5 wrap-break-word line-clamp-2 font-medium ${isPast ? 'bg-gray-100! text-gray-400! border-gray-300! border' : eventTypeColors[event.type]}`}
+                          title={event.title}
+                        >
+                          {event.title}
+                        </div>
+                      );
+                    })}
                     {dayEvents.length > 2 && (
-                      <div className="text-[10px] text-[var(--color-text-500)] px-1">
-                        +{dayEvents.length - 2}
+                      <div className="text-[10px] font-medium text-(--color-text-500) px-1">
+                        +{dayEvents.length - 2} more
                       </div>
                     )}
                   </div>
@@ -325,7 +336,13 @@ export function Calendar() {
               </h2>
             </div>
             <div className="p-6 space-y-4">
-              {calendarEvents.map((event) => (
+              {calendarEvents.filter((event) => {
+                const monthStart = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-01`;
+                const monthEnd   = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate()).padStart(2, '0')}`;
+                const today      = new Date().toISOString().slice(0, 10);
+                const isCurrentMonth = currentMonth.getFullYear() === new Date().getFullYear() && currentMonth.getMonth() === new Date().getMonth();
+                return event.date >= (isCurrentMonth ? today : monthStart) && event.date <= monthEnd;
+              }).map((event) => (
                 <div key={event.id} className={`p-4 border rounded-lg ${eventTypeColors[event.type]}`}>
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="mb-1">{event.title}</h3>
