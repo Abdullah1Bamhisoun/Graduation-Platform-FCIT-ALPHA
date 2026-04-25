@@ -238,13 +238,13 @@ async function approveRegistration(req, res) {
             if (nextNum > 50) {
               console.warn(`Group limit reached for course ${resolvedCourseId}`);
             } else {
-              // New group code format: DEPT_SECTION_COURSENUM_YEAR_GROUPNUM_GENDER
+              // Group code format: DEPT_GROUPNUM_COURSENUM_YEAR_TERM_GENDER
               const dept      = (registration.department || 'IS').toUpperCase();
-              const section   = termCode; // e.g. '01', '02', '03'
+              const termSection = termCode; // e.g. '01', '02', '03'
               const courseNum = (registration.course || '000').replace(/[^0-9]/g, '').slice(-3);
               const groupNum  = String(nextNum).padStart(2, '0');
               const genderCode = registration.gender === 'female' ? 'F' : 'M';
-              const groupCode  = `${dept}_${section}_${courseNum}_${year}_${groupNum}_${genderCode}`;
+              const groupCode  = `${dept}_${groupNum}_${courseNum}_${year}_${termSection}_${genderCode}`;
 
               const { data: newGroup, error: groupError } = await supabaseAdmin
                 .from('groups')
