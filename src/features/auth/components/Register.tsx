@@ -15,6 +15,7 @@ import { getPublicGroups, type PublicGroup } from '../../../services/groups';
 import { getActiveCourses } from '../../../services/courses';
 import type { Course } from '../../../types';
 import { supabase } from '../../../lib/supabase';
+import { validatePassword, PasswordRules } from '../../../lib/password-rules';
 
 type AccountType = 'student' | 'supervisor';
 type Term = 'First' | 'Second' | '';
@@ -159,8 +160,8 @@ export function Register() {
       const emailErr = validateEmail(studentEmail, 'student');
       if (emailErr) newErrors.email = emailErr;
 
-      if (!studentPassword)             newErrors.password        = 'Password is required';
-      else if (studentPassword.length < 8) newErrors.password = 'Password must be at least 8 characters';
+      const pwErr = validatePassword(studentPassword);
+      if (pwErr) newErrors.password = pwErr;
       if (studentPassword !== studentConfirmPassword)
         newErrors.confirmPassword = 'Passwords do not match';
 
@@ -185,8 +186,8 @@ export function Register() {
       const emailErr = validateEmail(supervisorEmail, 'supervisor');
       if (emailErr) newErrors.email = emailErr;
 
-      if (!supervisorPassword)              newErrors.password        = 'Password is required';
-      else if (supervisorPassword.length < 8) newErrors.password = 'Password must be at least 8 characters';
+      const pwErr = validatePassword(supervisorPassword);
+      if (pwErr) newErrors.password = pwErr;
       if (supervisorPassword !== supervisorConfirmPassword)
         newErrors.confirmPassword = 'Passwords do not match';
     }
@@ -369,9 +370,10 @@ export function Register() {
 
                 <div>
                   <Label htmlFor="s-password">Password *</Label>
-                  <PasswordInput id="s-password" placeholder="At least 8 characters"
+                  <PasswordInput id="s-password" placeholder="Min 8 chars, uppercase, number, special"
                     value={studentPassword} onChange={setStudentPassword} hasError={!!errors.password} />
                   {errors.password && <p className="text-xs text-red-500 mt-1">{errors.password}</p>}
+                  <PasswordRules password={studentPassword} />
                 </div>
 
                 <div>
@@ -563,9 +565,10 @@ export function Register() {
 
                 <div>
                   <Label htmlFor="sv-password">Password *</Label>
-                  <PasswordInput id="sv-password" placeholder="At least 8 characters"
+                  <PasswordInput id="sv-password" placeholder="Min 8 chars, uppercase, number, special"
                     value={supervisorPassword} onChange={setSupervisorPassword} hasError={!!errors.password} />
                   {errors.password && <p className="text-xs text-red-500 mt-1">{errors.password}</p>}
+                  <PasswordRules password={supervisorPassword} />
                 </div>
 
                 <div>

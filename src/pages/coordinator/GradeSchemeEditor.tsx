@@ -310,6 +310,18 @@ export function CoordinatorGradeSchemeEditor() {
     }
   };
 
+  // Auto-resize textareas when edit dialog opens
+  useEffect(() => {
+    if (!editCriterion) return;
+    const timer = setTimeout(() => {
+      document.querySelectorAll<HTMLTextAreaElement>('[data-criterion-textarea]').forEach(el => {
+        el.style.height = 'auto';
+        el.style.height = `${el.scrollHeight}px`;
+      });
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [editCriterion]);
+
   // ── Open criterion editor ──────────────────────────────────────────────────
 
   const openCriterionEditor = (criterion: RubricCriterion) => {
@@ -636,22 +648,20 @@ export function CoordinatorGradeSchemeEditor() {
                     })()}
                   </div>
 
-                  {!isAutoCalc && (
-                    <button
-                      onClick={() => toggleExpand(`${courseType}-${comp.componentKey}`)}
-                      className="p-1.5 rounded-lg hover:bg-white/60 transition-colors mt-4"
-                      title={isExpanded ? 'Collapse criteria' : 'Expand criteria'}
-                    >
-                      {isExpanded
-                        ? <ChevronUp className="w-4 h-4 text-[var(--color-text-600)]" />
-                        : <ChevronDown className="w-4 h-4 text-[var(--color-text-600)]" />}
-                    </button>
-                  )}
+                  <button
+                    onClick={() => toggleExpand(`${courseType}-${comp.componentKey}`)}
+                    className="p-1.5 rounded-lg hover:bg-white/60 transition-colors mt-4"
+                    title={isExpanded ? 'Collapse criteria' : 'Expand criteria'}
+                  >
+                    {isExpanded
+                      ? <ChevronUp className="w-4 h-4 text-[var(--color-text-600)]" />
+                      : <ChevronDown className="w-4 h-4 text-[var(--color-text-600)]" />}
+                  </button>
                 </div>
               </div>
 
               {/* Criteria table (expanded) */}
-              {isExpanded && !isAutoCalc && (() => {
+              {isExpanded && (() => {
                 const criteriaSum = compCriteria.reduce((s, c) => s + c.maxRawScore, 0);
                 const compTotalMarks = parseInt(draft[comp.componentKey]?.marks ?? String(comp.totalMarks)) || 0;
                 const criteriaOver = isDeliverable && criteriaSum > compTotalMarks;
@@ -1012,7 +1022,7 @@ export function CoordinatorGradeSchemeEditor() {
 
       {/* ── Criterion Edit Dialog ───────────────────────────────────────────── */}
       <Dialog open={!!editCriterion} onOpenChange={open => { if (!open) setEditCriterion(null); }}>
-        <DialogContent className="max-w-2xl flex flex-col max-h-[90vh]">
+        <DialogContent className="max-w-3xl w-full flex flex-col max-h-[90vh]">
           <DialogHeader className="shrink-0">
             <DialogTitle>Edit Criterion — {editCriterion?.criterionName}</DialogTitle>
           </DialogHeader>
@@ -1052,9 +1062,20 @@ export function CoordinatorGradeSchemeEditor() {
                       {n}
                     </span>
                     <Textarea
+                      data-criterion-textarea
                       value={(criterionDraft as any)[`description${n}`] ?? (editCriterion as any)[`description${n}`] ?? ''}
-                      onChange={e => setCriterionDraft(p => ({ ...p, [`description${n}`]: e.target.value }))}
-                      className="flex-1 min-h-[60px] text-sm"
+                      onChange={e => {
+                        const el = e.target;
+                        el.style.height = 'auto';
+                        el.style.height = `${el.scrollHeight}px`;
+                        setCriterionDraft(p => ({ ...p, [`description${n}`]: e.target.value }));
+                      }}
+                      onFocus={e => {
+                        const el = e.target;
+                        el.style.height = 'auto';
+                        el.style.height = `${el.scrollHeight}px`;
+                      }}
+                      className="flex-1 min-h-[80px] text-sm resize-none overflow-hidden"
                       placeholder={`Description for score ${n}…`}
                     />
                   </div>
@@ -1073,27 +1094,29 @@ export function CoordinatorGradeSchemeEditor() {
                   <div>
                     <Label className="mb-2 block flex items-center gap-1.5">
                       <GraduationCap className="w-4 h-4 text-indigo-600" />
-                      Student Outcomes (SO) <span className="text-xs font-normal text-[var(--color-text-500)]">— select all that apply</span>
+                      Student Outcomes (SO) <span className="text-xs font-normal text-[var(--color-text-500)]">— select one</span>
                     </Label>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="border border-[var(--color-border)] rounded-lg divide-y divide-[var(--color-border)] overflow-hidden">
                       {soList.map(so => {
                         const checked = criterionSODraft.includes(so.id);
                         return (
                           <button
                             key={so.id}
                             type="button"
-                            onClick={() => setCriterionSODraft(prev =>
-                              checked ? prev.filter(id => id !== so.id) : [...prev, so.id]
-                            )}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 text-sm font-medium transition-all ${
+                            onClick={() => setCriterionSODraft(checked ? [] : [so.id])}
+                            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left transition-colors ${
                               checked
-                                ? 'border-indigo-500 bg-indigo-50 text-indigo-800'
-                                : 'border-gray-200 bg-white text-gray-600 hover:border-indigo-300'
+                                ? 'bg-indigo-50 text-indigo-800'
+                                : 'bg-white text-[var(--color-text-700)] hover:bg-gray-50'
                             }`}
                           >
-                            {checked && <CheckCircle className="w-3.5 h-3.5 text-indigo-600" />}
-                            <span className="font-bold">{so.code}</span>
-                            <span className="text-xs opacity-75">— {so.title}</span>
+                            <span className={`w-4 h-4 shrink-0 rounded-full border-2 flex items-center justify-center ${
+                              checked ? 'border-indigo-500' : 'border-gray-300'
+                            }`}>
+                              {checked && <span className="w-2 h-2 rounded-full bg-indigo-500" />}
+                            </span>
+                            <span className="font-bold w-12 shrink-0 text-indigo-700">{so.code}</span>
+                            <span className="truncate">{so.title}</span>
                           </button>
                         );
                       })}
@@ -1209,27 +1232,29 @@ export function CoordinatorGradeSchemeEditor() {
                 <div>
                   <Label className="mb-2 block flex items-center gap-1.5">
                     <GraduationCap className="w-4 h-4 text-indigo-600" />
-                    Student Outcomes (SO)
+                    Student Outcomes (SO) <span className="text-xs font-normal text-[var(--color-text-500)]">— select one</span>
                   </Label>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="border border-[var(--color-border)] rounded-lg divide-y divide-[var(--color-border)] overflow-hidden">
                     {soList.map(so => {
                       const checked = criterionSODraft.includes(so.id);
                       return (
                         <button
                           key={so.id}
                           type="button"
-                          onClick={() => setCriterionSODraft(prev =>
-                            checked ? prev.filter(id => id !== so.id) : [...prev, so.id]
-                          )}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 text-sm font-medium transition-all ${
+                          onClick={() => setCriterionSODraft(checked ? [] : [so.id])}
+                          className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left transition-colors ${
                             checked
-                              ? 'border-indigo-500 bg-indigo-50 text-indigo-800'
-                              : 'border-gray-200 bg-white text-gray-600 hover:border-indigo-300'
+                              ? 'bg-indigo-50 text-indigo-800'
+                              : 'bg-white text-[var(--color-text-700)] hover:bg-gray-50'
                           }`}
                         >
-                          {checked && <CheckCircle className="w-3.5 h-3.5 text-indigo-600" />}
-                          <span className="font-bold">{so.code}</span>
-                          <span className="text-xs opacity-75">— {so.title}</span>
+                          <span className={`w-4 h-4 shrink-0 rounded-full border-2 flex items-center justify-center ${
+                            checked ? 'border-indigo-500' : 'border-gray-300'
+                          }`}>
+                            {checked && <span className="w-2 h-2 rounded-full bg-indigo-500" />}
+                          </span>
+                          <span className="font-bold w-12 shrink-0 text-indigo-700">{so.code}</span>
+                          <span className="truncate">{so.title}</span>
                         </button>
                       );
                     })}

@@ -14,6 +14,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { supabase } from '../../lib/supabase';
 import { apiUrl, apiFetch } from '@/lib/api';
+import { validatePassword, PasswordRules } from '../../lib/password-rules';
 import { getGroupForStudent, type GroupData } from '../../services/groups';
 
 // ── Term constants ────────────────────────────────────────────────────────────
@@ -37,8 +38,10 @@ export function Settings() {
 
   // ── Change Password dialog ─────────────────────────────────────────────────
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [oldPassword, setOldPassword]               = useState('');
   const [newPassword, setNewPassword]               = useState('');
   const [confirmPassword, setConfirmPassword]       = useState('');
+  const [showOld, setShowOld]                       = useState(false);
   const [showNew, setShowNew]                       = useState(false);
   const [showConfirm, setShowConfirm]               = useState(false);
   const [passwordLoading, setPasswordLoading]       = useState(false);
@@ -150,15 +153,26 @@ export function Settings() {
   };
 
   const handleChangePassword = async () => {
-    if (newPassword.length < 8)       { toast.error('Password must be at least 8 characters'); return; }
+    if (!oldPassword) { toast.error('Please enter your current password'); return; }
+    const pwErr = validatePassword(newPassword);
+    if (pwErr) { toast.error(pwErr); return; }
     if (newPassword !== confirmPassword) { toast.error('Passwords do not match'); return; }
+    if (oldPassword === newPassword) { toast.error('New password must be different from current password'); return; }
+
     setPasswordLoading(true);
     try {
+      // Verify current password
+      const { error: signInErr } = await supabase.auth.signInWithPassword({
+        email: user!.email,
+        password: oldPassword,
+      });
+      if (signInErr) { toast.error('Current password is incorrect'); return; }
+
       const { error } = await supabase.auth.updateUser({ password: newPassword });
       if (error) throw error;
       toast.success('Password changed successfully');
       setShowPasswordDialog(false);
-      setNewPassword(''); setConfirmPassword('');
+      setOldPassword(''); setNewPassword(''); setConfirmPassword('');
     } catch (err: any) {
       toast.error(err.message || 'Failed to change password');
     } finally {
@@ -401,24 +415,36 @@ export function Settings() {
 
       {/* ── Change Password Dialog ───────────────────────────────────────── */}
       <Dialog open={showPasswordDialog} onOpenChange={(open) => {
-        if (!open) { setShowPasswordDialog(false); setNewPassword(''); setConfirmPassword(''); }
+        if (!open) { setShowPasswordDialog(false); setOldPassword(''); setNewPassword(''); setConfirmPassword(''); }
       }}>
         <DialogContent className="sm:max-w-[420px]">
           <DialogHeader>
             <DialogTitle>Change Password</DialogTitle>
-            <DialogDescription>Enter and confirm your new password below.</DialogDescription>
+            <DialogDescription>Enter your current password, then choose a new one.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div>
+              <Label htmlFor="old-password">Current Password</Label>
+              <div className="relative mt-1.5">
+                <Input id="old-password" type={showOld ? 'text' : 'password'} placeholder="Your current password"
+                  value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} className="pr-10" />
+                <button type="button" onClick={() => setShowOld((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-text-600)]" tabIndex={-1}>
+                  {showOld ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+            <div>
               <Label htmlFor="new-password">New Password</Label>
               <div className="relative mt-1.5">
-                <Input id="new-password" type={showNew ? 'text' : 'password'} placeholder="At least 8 characters"
+                <Input id="new-password" type={showNew ? 'text' : 'password'} placeholder="Min 8 chars, uppercase, number, special"
                   value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="pr-10" />
                 <button type="button" onClick={() => setShowNew((v) => !v)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-text-600)]" tabIndex={-1}>
                   {showNew ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
+              <PasswordRules password={newPassword} />
             </div>
             <div>
               <Label htmlFor="confirm-password">Confirm New Password</Label>
