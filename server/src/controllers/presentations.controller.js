@@ -438,6 +438,7 @@ async function assignSchedule(req, res) {
               location: location ?? null,
               timeSlot,
               day,
+              scheduledAt: presentationDate.toISOString(),
             }).catch(console.error);
           }
         })
@@ -570,6 +571,7 @@ async function assignSchedule(req, res) {
                 day: s.day,
                 timeSlot: s.time_slot,
                 location: s.location ?? null,
+                scheduledAt: s.scheduled_at ?? null,
               };
             });
 

@@ -170,28 +170,14 @@ async function listMeetings(req, res) {
       const groupIds = (supervisedGroups || []).map((g) => g.id);
       if (groupIds.length === 0) return res.json([]);
 
-      // Two queries merged — avoids unreliable nested .or(and(...)) syntax
-      const [coordResult, ownResult] = await Promise.all([
-        supabaseAdmin
-          .from('meetings').select(BASE_SELECT)
-          .eq('creator_role', 'coordinator')
-          .in('group_id', groupIds)
-          .order('date_time', { ascending: true }),
-        supabaseAdmin
-          .from('meetings').select(BASE_SELECT)
-          .eq('created_by', userId)
-          .order('date_time', { ascending: true }),
-      ]);
+      // Only meetings belonging to groups this supervisor actually supervises
+      const { data, error: groupErr } = await supabaseAdmin
+        .from('meetings').select(BASE_SELECT)
+        .in('group_id', groupIds)
+        .order('date_time', { ascending: true });
 
-      if (coordResult.error) throw coordResult.error;
-      if (ownResult.error)   throw ownResult.error;
-
-      const seen = new Set();
-      meetings = [];
-      for (const m of [...(coordResult.data || []), ...(ownResult.data || [])]) {
-        if (!seen.has(m.id)) { seen.add(m.id); meetings.push(m); }
-      }
-      meetings.sort((a, b) => new Date(a.date_time) - new Date(b.date_time));
+      if (groupErr) throw groupErr;
+      meetings = data || [];
 
     } else if (activeRole === 'student') {
       const { data: memberRow } = await supabaseAdmin
@@ -286,10 +272,21 @@ async function getMeeting(req, res) {
 async function createMeeting(req, res) {
   try {
     const { activeRole, id: userId, name: creatorName } = req.user;
-    const { title, meeting_url, location, date_time, group_id, notes, invite_supervisor_ids = [] } = req.body;
+    const { title, meeting_url, location, date_time, notes } = req.body;
+    let { group_id } = req.body;
 
-    // Supervisor can only create for their own groups
-    if (activeRole === 'supervisor') {
+    if (activeRole === 'student') {
+      // Students can only create meetings for their own group
+      const { data: memberRow } = await supabaseAdmin
+        .from('group_members').select('group_id').eq('student_id', userId).maybeSingle();
+      if (!memberRow?.group_id) {
+        return res.status(400).json({ error: 'You are not assigned to a group yet' });
+      }
+      group_id = memberRow.group_id;
+    } else if (!group_id) {
+      return res.status(400).json({ error: 'group_id is required' });
+    } else if (activeRole === 'supervisor') {
+      // Supervisor can only create for their own groups
       const { data: group } = await supabaseAdmin
         .from('groups').select('supervisor_id').eq('id', group_id).single();
       if (!group || group.supervisor_id !== userId) {
@@ -315,7 +312,7 @@ async function createMeeting(req, res) {
         date_time,
         group_id,
         created_by:   userId,
-        creator_role: toCreatorRole(activeRole),
+        creator_role: activeRole === 'student' ? 'student' : toCreatorRole(activeRole),
         notes:        notes ?? null,
         status:       resolveStatus(date_time),
       })
@@ -324,18 +321,13 @@ async function createMeeting(req, res) {
 
     if (error) throw error;
 
-    const { studentEmails, supervisorEmail, supervisorId } = await insertParticipants(meeting.id, group_id);
+    const { studentEmails, supervisorEmail } = await insertParticipants(meeting.id, group_id);
 
-    const includeSupervisor =
-      activeRole !== 'supervisor' &&
-      Array.isArray(invite_supervisor_ids) &&
-      invite_supervisor_ids.length > 0 &&
-      supervisorId != null &&
-      invite_supervisor_ids.includes(supervisorId);
-
-    const inviteEmails = includeSupervisor
-      ? [...studentEmails, ...(supervisorEmail ? [supervisorEmail] : [])]
-      : studentEmails;
+    // Student-created meetings: notify only the group's supervisor.
+    // Supervisor/coordinator-created meetings: notify all participants.
+    const inviteEmails = activeRole === 'student'
+      ? (supervisorEmail ? [supervisorEmail] : [])
+      : (supervisorEmail ? [...studentEmails, supervisorEmail] : studentEmails);
 
     if (inviteEmails.length > 0) {
       await queueMeetingInvitationEmail(inviteEmails, {

@@ -12,7 +12,8 @@ const { APP_URL } = require('../config/env');
 const lastDiscussionEmailAt = new Map(); // group_id → Date
 const DISCUSSION_EMAIL_COOLDOWN_MS = 2 * 60 * 60 * 1000; // 2 hours
 
-const canManageMeetings = requireRole(['coordinator', 'supervisor', 'admin']);
+const canManageMeetings       = requireRole(['coordinator', 'supervisor', 'admin']);
+const canCreateMeetings       = requireRole(['coordinator', 'supervisor', 'admin', 'student']);
 const canViewMeetings   = requireRole(['coordinator', 'supervisor', 'student', 'admin']);
 
 /**
@@ -52,11 +53,11 @@ router.get('/',    authenticate, canViewMeetings,   controller.listMeetings);
 // GET  /api/meetings/:id — single meeting
 router.get('/:id', authenticate, canViewMeetings,   controller.getMeeting);
 
-// POST /api/meetings — create (coordinator or supervisor)
+// POST /api/meetings — create (coordinator, supervisor, or student)
 router.post(
   '/',
   authenticate,
-  canManageMeetings,
+  canCreateMeetings,
   validate(createMeetingSchema),
   controller.createMeeting
 );

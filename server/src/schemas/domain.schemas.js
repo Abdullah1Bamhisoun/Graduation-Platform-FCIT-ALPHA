@@ -157,7 +157,7 @@ const createMeetingSchema = Joi.object({
   meeting_url:      Joi.string().uri().max(2000).allow(null, '').optional(),
   location:         Joi.string().max(500).trim().allow(null, '').optional(),
   date_time:        Joi.string().isoDate().required(),
-  group_id:         Joi.string().uuid().required(),
+  group_id:         Joi.string().uuid().allow(null, '').optional(),
   notes:            Joi.string().max(2000).trim().allow('', null).optional(),
   invite_supervisor_ids: Joi.array().items(Joi.string().uuid()).optional().default([]),
 });

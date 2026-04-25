@@ -4,7 +4,7 @@ import { apiUrl, apiFetch } from '@/lib/api';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type MeetingStatus = 'scheduled' | 'live' | 'finished';
-export type CreatorRole   = 'coordinator' | 'supervisor';
+export type CreatorRole   = 'coordinator' | 'supervisor' | 'student';
 
 export interface MeetingParticipant {
   id:           string;

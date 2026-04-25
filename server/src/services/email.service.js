@@ -140,6 +140,39 @@ function statusBadge(status) {
   return `<span style="display:inline-block;padding:3px 10px;border-radius:12px;background:${bg};color:${text};font-size:13px;font-weight:600;">${status}</span>`;
 }
 
+/**
+ * Build a Google Calendar "Add event" URL.
+ * Pass allDay:true for deadline-style events (date only, no time).
+ */
+function makeGoogleCalUrl({ title, startISO, durationMs = 3600000, allDay = false, description = '', location = '' }) {
+  const start = new Date(startISO);
+  const ymd    = (d) => d.toISOString().slice(0, 10).replace(/-/g, '');
+  const ymdhms = (d) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '') ;
+
+  let dates;
+  if (allDay) {
+    const end = new Date(start);
+    end.setUTCDate(end.getUTCDate() + 1);
+    dates = `${ymd(start)}/${ymd(end)}`;
+  } else {
+    const end = new Date(start.getTime() + durationMs);
+    dates = `${ymdhms(start)}/${ymdhms(end)}`;
+  }
+
+  const params = new URLSearchParams({ action: 'TEMPLATE', text: title, dates });
+  if (description) params.set('details', description);
+  if (location)    params.set('location', location);
+  return `https://calendar.google.com/calendar/render?${params}`;
+}
+
+function googleCalendarButton(url) {
+  return `<div style="text-align:center;margin:0 0 24px;">
+    <a href="${url}" style="display:inline-block;padding:11px 32px;background:#4285f4;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;border-radius:8px;letter-spacing:0.3px;box-shadow:0 3px 8px rgba(66,133,244,0.35);">
+      &#128197; Add to Google Calendar
+    </a>
+  </div>`;
+}
+
 // ─── Template Functions ────────────────────────────────────────────────────────
 
 /**
@@ -382,7 +415,7 @@ function sendAnnouncement(recipientEmails, data) {
  * @param {{ projectName: string, formattedDateTime: string, location: string|null, timeSlot: string, day: string, courseName?: string }} data
  */
 function sendPresentationScheduled(studentEmails, data) {
-  const { projectName, formattedDateTime, location, timeSlot, day, courseName = '' } = data;
+  const { projectName, formattedDateTime, location, timeSlot, day, courseName = '', scheduledAt } = data;
 
   const rows = [
     ['Project', projectName],
@@ -391,10 +424,18 @@ function sendPresentationScheduled(studentEmails, data) {
   ];
   if (location) rows.push(['Location', location]);
 
+  const calBlock = scheduledAt ? googleCalendarButton(makeGoogleCalUrl({
+    title:      `Presentation: ${projectName}`,
+    startISO:   scheduledAt,
+    durationMs: 60 * 60 * 1000,
+    location:   location || '',
+  })) : '';
+
   const body = `
     ${heading('Your Presentation Has Been Scheduled')}
     ${paragraph('A presentation date has been assigned for your graduation project. Please note the details below.')}
     ${infoTable(rows)}
+    ${calBlock}
     ${paragraph('Please ensure all group members are available at the scheduled time. Log in to the platform for more details.')}
   `;
 
@@ -421,9 +462,18 @@ function sendCommitteeSchedule(memberEmail, data) {
 
   const rows = assignments.map((a, i) => {
     const loc = a.location ? ` — ${a.location}` : '';
+    const calLink = a.scheduledAt ? (() => {
+      const url = makeGoogleCalUrl({
+        title:      `Committee Evaluation: ${a.projectName}`,
+        startISO:   a.scheduledAt,
+        durationMs: 60 * 60 * 1000,
+        location:   a.location || '',
+      });
+      return ` <a href="${url}" style="font-size:12px;color:#4285f4;text-decoration:none;white-space:nowrap;">&#128197; Add</a>`;
+    })() : '';
     return `<tr style="background:${i % 2 === 0 ? '#ffffff' : '#f9fafb'};">
       <td style="padding:10px 14px;font-size:14px;color:#111827;border-bottom:1px solid #f3f4f6;">${a.projectName} (${a.groupCode})</td>
-      <td style="padding:10px 14px;font-size:14px;color:#374151;border-bottom:1px solid #f3f4f6;">${a.formattedDateTime}${loc}</td>
+      <td style="padding:10px 14px;font-size:14px;color:#374151;border-bottom:1px solid #f3f4f6;">${a.formattedDateTime}${loc}${calLink}</td>
     </tr>`;
   }).join('');
 
@@ -457,6 +507,13 @@ function sendMilestoneCreated(studentEmails, data) {
   const { milestoneName, courseName, openDate, dueDate, description, appUrl = '' } = data;
   const fmt = (d) => new Date(d).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
+  const calUrl = makeGoogleCalUrl({
+    title:       `[${courseName}] Deadline: ${milestoneName}`,
+    startISO:    dueDate,
+    allDay:      true,
+    description: [courseName, description].filter(Boolean).join('\n'),
+  });
+
   const body = `
     ${heading('New Milestone Added')}
     ${paragraph(`A new milestone has been added for <strong>${courseName}</strong>.`)}
@@ -469,6 +526,7 @@ function sendMilestoneCreated(studentEmails, data) {
     ${description ? `<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:18px;margin:0 0 20px;">
       <p style="margin:0;font-size:14px;color:#374151;line-height:1.7;white-space:pre-line;">${description}</p>
     </div>` : ''}
+    ${googleCalendarButton(calUrl)}
     ${appUrl ? ctaButton('View Milestone', appUrl) : ''}
   `;
 
@@ -692,11 +750,20 @@ function sendMeetingInvitation(recipientEmails, data) {
   if (location)   rows.push(['Location', location]);
   if (notes)      rows.push(['Notes', notes]);
 
+  const calUrl = makeGoogleCalUrl({
+    title:       meetingTitle,
+    startISO:    dateTime,
+    durationMs:  60 * 60 * 1000,
+    description: [groupName, notes].filter(Boolean).join('\n'),
+    location:    location || meetingUrl || '',
+  });
+
   const body = `
     ${heading('📅 Meeting Invitation')}
     ${paragraph(`You have been invited to a meeting for <strong>${groupName}</strong>.`)}
     ${infoTable(rows)}
     ${meetingUrl ? ctaButton('Join Meeting', meetingUrl) : ''}
+    ${googleCalendarButton(calUrl)}
     ${appUrl ? `<p style="margin:0 0 24px;font-size:13px;color:#6b7280;text-align:center;">Or open the platform: <a href="${appUrl}" style="color:#1a6b4a;">${appUrl}</a></p>` : ''}
   `;
 
