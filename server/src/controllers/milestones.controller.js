@@ -154,7 +154,7 @@ async function createMilestone(req, res) {
       content:      announcementContent,
       author_id:    req.user.id,
       course_id:    courseId,
-      target_roles: ['student'],
+      target_roles: ['student', 'coordinator'],
       published_at: new Date().toISOString(),
       expires_at:   dueDate,
     });
@@ -163,7 +163,7 @@ async function createMilestone(req, res) {
         title:        `New Milestone: ${name}`,
         content:      announcementContent,
         author_id:    req.user.id,
-        target_roles: ['student'],
+        target_roles: ['student', 'coordinator'],
         published_at: new Date().toISOString(),
         expires_at:   dueDate,
       });
@@ -213,7 +213,7 @@ async function createMilestone(req, res) {
           notificationService.createAnnouncement({
             title:       `New Milestone Added: ${name}`,
             content:     `Coordinator created milestone "${name}" (type: ${type ?? 'chapter'}).\nCourse: ${courseLabel}\nOpens: ${openDateFormatted}\nDue: ${dueDateFormatted}${description ? `\n\n${description}` : ''}`,
-            targetRoles: ['supervisor'],
+            targetRoles: ['supervisor', 'coordinator'],
             courseId,
             authorId:    req.user.id,
             expiresAt:   dueDate,

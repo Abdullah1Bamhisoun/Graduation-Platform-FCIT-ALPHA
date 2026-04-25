@@ -192,9 +192,16 @@ export function DatePicker({ value, onChange, placeholder = 'Select date', minDa
             ))}
           </div>
 
-          {/* Today shortcut */}
-          {!isDisabled(todayYMD) && (
-            <div className="mt-3 pt-3 border-t border-[var(--color-border)]">
+          {/* Clear / Today shortcuts */}
+          <div className="mt-3 pt-3 border-t border-[var(--color-border)] flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => { onChange(''); setOpen(false); }}
+              className="text-xs text-[var(--color-text-500)] hover:text-[var(--color-text-900)] hover:underline"
+            >
+              Clear
+            </button>
+            {!isDisabled(todayYMD) && (
               <button
                 type="button"
                 onClick={() => {
@@ -204,12 +211,12 @@ export function DatePicker({ value, onChange, placeholder = 'Select date', minDa
                   onChange(toYMD(now));
                   setOpen(false);
                 }}
-                className="w-full text-xs text-center text-[var(--color-primary-600)] hover:underline"
+                className="text-xs text-[var(--color-primary-600)] hover:underline"
               >
-                Go to today
+                Today
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
     </div>

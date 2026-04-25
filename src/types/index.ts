@@ -412,6 +412,7 @@ export interface Announcement {
   expiresAt?: string;
   targetRoles: UserRole[];
   attachments?: string[];
+  isScheduled?: boolean;
 }
 
 // ─── Milestone Config ─────────────────────────────────────────────────────────

@@ -284,8 +284,8 @@ async function createEvent(req, res) {
     const targetRoles = isAdmin
       ? ['student', 'supervisor', 'coordinator']
       : isSupervisor
-        ? ['student']   // supervisor events target their group's students
-        : ['student', 'supervisor'];
+        ? ['student']                          // supervisor events target their group's students
+        : ['student', 'supervisor', 'coordinator']; // coordinator events visible to coordinator too
 
     try {
       const annPayload = {

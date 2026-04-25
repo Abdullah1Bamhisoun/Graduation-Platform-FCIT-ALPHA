@@ -1,7 +1,9 @@
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
 import { getAllAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement } from '../../services/announcements';
-import { Bell, Plus, Edit, Trash2, Calendar as CalendarIcon } from 'lucide-react';
+import { Bell, Clock, Plus, Edit, Trash2, Calendar as CalendarIcon } from 'lucide-react';
+import { DatePicker } from '../../components/ui/DatePicker';
+import { TimePicker } from '../../components/ui/TimePicker';
 import { Card } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { useState, useEffect } from 'react';
@@ -23,12 +25,23 @@ interface AnnouncementForm {
   content: string;
   targetRoles: UserRole[];
   groupId: string;
+  scheduledDate: string;
+  scheduledTime: string;
 }
 
 interface SupervisorGroup {
   id: string;
   name: string;
 }
+
+const EMPTY_FORM: AnnouncementForm = {
+  title: '',
+  content: '',
+  targetRoles: ['student'],
+  groupId: '',
+  scheduledDate: '',
+  scheduledTime: '',
+};
 
 export function AnnouncementsManager() {
   const { user } = useAuth();
@@ -37,12 +50,7 @@ export function AnnouncementsManager() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [supervisorGroups, setSupervisorGroups] = useState<SupervisorGroup[]>([]);
-  const [formData, setFormData] = useState<AnnouncementForm>({
-    title: '',
-    content: '',
-    targetRoles: ['student'],
-    groupId: '',
-  });
+  const [formData, setFormData] = useState<AnnouncementForm>(EMPTY_FORM);
 
   const isSupervisor = user?.activeRole === 'supervisor';
 
@@ -66,26 +74,18 @@ export function AnnouncementsManager() {
 
   if (!user) return null;
 
+  const set = (patch: Partial<AnnouncementForm>) => setFormData(prev => ({ ...prev, ...patch }));
+
   const handleOpenDialog = (announcementId?: string) => {
     if (announcementId) {
-      const announcement = announcements.find(a => a.id === announcementId);
-      if (announcement) {
+      const ann = announcements.find(a => a.id === announcementId);
+      if (ann) {
         setEditingId(announcementId);
-        setFormData({
-          title:       announcement.title,
-          content:     announcement.content,
-          targetRoles: announcement.targetRoles,
-          groupId:     '',
-        });
+        setFormData({ ...EMPTY_FORM, title: ann.title, content: ann.content, targetRoles: ann.targetRoles });
       }
     } else {
       setEditingId(null);
-      setFormData({
-        title:       '',
-        content:     '',
-        targetRoles: ['student'],
-        groupId:     '',
-      });
+      setFormData(EMPTY_FORM);
     }
     setIsDialogOpen(true);
   };
@@ -93,7 +93,7 @@ export function AnnouncementsManager() {
   const handleCloseDialog = () => {
     setIsDialogOpen(false);
     setEditingId(null);
-    setFormData({ title: '', content: '', targetRoles: ['student'], groupId: '' });
+    setFormData(EMPTY_FORM);
   };
 
   const handleSaveAnnouncement = async () => {
@@ -120,21 +120,30 @@ export function AnnouncementsManager() {
         setAnnouncements(announcements.map(a =>
           a.id === editingId
             ? { ...a, title: formData.title, content: formData.content, targetRoles: formData.targetRoles }
-            : a
+            : a,
         ));
         toast.success('Announcement updated successfully');
       } else {
+        const scheduledFor = formData.scheduledDate
+          ? new Date(`${formData.scheduledDate}T${formData.scheduledTime || '00:00'}`).toISOString()
+          : undefined;
+
         await createAnnouncement({
-          title:       formData.title,
-          content:     formData.content,
-          authorId:    user.id,
-          targetRoles: isSupervisor ? ['student'] : formData.targetRoles,
-          groupId:     formData.groupId || undefined,
+          title:        formData.title,
+          content:      formData.content,
+          authorId:     user.id,
+          targetRoles:  isSupervisor ? ['student'] : formData.targetRoles,
+          groupId:      formData.groupId || undefined,
+          scheduledFor,
         });
         const fresh = await getAllAnnouncements(user.activeRole);
         setAnnouncements(fresh);
         const groupName = supervisorGroups.find((g) => g.id === formData.groupId)?.name;
-        toast.success(groupName ? `Announcement published to ${groupName}` : 'Announcement published successfully');
+        const baseMsg   = groupName ? `Announcement published to ${groupName}` : 'Announcement published successfully';
+        toast.success(scheduledFor
+          ? `${baseMsg} — scheduled for ${new Date(scheduledFor).toLocaleString()}`
+          : baseMsg,
+        );
       }
       handleCloseDialog();
     } catch {
@@ -168,11 +177,13 @@ export function AnnouncementsManager() {
     ? 'Post announcements to your groups'
     : 'Create and manage announcements for students and supervisors';
 
+  const todayYMD = new Date().toISOString().split('T')[0];
+
   return (
     <Layout user={user} pageTitle={pageTitle}>
       {isLocked && !isSupervisor && <LockedBanner />}
       <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <p className="text-[var(--color-text-600)]">{pageDesc}</p>
+        <p className="text-(--color-text-600)">{pageDesc}</p>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button
@@ -184,7 +195,7 @@ export function AnnouncementsManager() {
               Create Announcement
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[600px]">
+          <DialogContent className="sm:max-w-150">
             <DialogHeader>
               <DialogTitle>
                 {editingId ? 'Edit Announcement' : 'Create New Announcement'}
@@ -204,7 +215,7 @@ export function AnnouncementsManager() {
                   <Label htmlFor="annGroup">Group *</Label>
                   <Select
                     value={formData.groupId}
-                    onValueChange={(value) => setFormData({ ...formData, groupId: value })}
+                    onValueChange={(value) => set({ groupId: value })}
                   >
                     <SelectTrigger className="mt-1.5" id="annGroup">
                       <SelectValue placeholder="Select a group" />
@@ -222,7 +233,7 @@ export function AnnouncementsManager() {
                 <Input
                   id="title"
                   value={formData.title}
-                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  onChange={(e) => set({ title: e.target.value })}
                   placeholder="Enter announcement title"
                   className="mt-1.5"
                 />
@@ -232,7 +243,7 @@ export function AnnouncementsManager() {
                 <Textarea
                   id="content"
                   value={formData.content}
-                  onChange={(e) => setFormData({ ...formData, content: e.target.value })}
+                  onChange={(e) => set({ content: e.target.value })}
                   placeholder="Enter announcement content"
                   rows={5}
                   className="mt-1.5"
@@ -243,41 +254,49 @@ export function AnnouncementsManager() {
                 <div>
                   <Label className="mb-3 block">Target Audience *</Label>
                   <div className="space-y-3">
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="student"
-                        checked={formData.targetRoles.includes('student')}
-                        onCheckedChange={() => handleToggleRole('student')}
-                      />
-                      <label htmlFor="student" className="text-[var(--color-text-900)] cursor-pointer">
-                        Students
-                      </label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="supervisor"
-                        checked={formData.targetRoles.includes('supervisor')}
-                        onCheckedChange={() => handleToggleRole('supervisor')}
-                      />
-                      <label htmlFor="supervisor" className="text-[var(--color-text-900)] cursor-pointer">
-                        Supervisors
-                      </label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="admin"
-                        checked={formData.targetRoles.includes('admin')}
-                        onCheckedChange={() => handleToggleRole('admin')}
-                      />
-                      <label htmlFor="admin" className="text-[var(--color-text-900)] cursor-pointer">
-                        Admins
-                      </label>
-                    </div>
+                    {(['student', 'supervisor', 'admin'] as const).map((role) => (
+                      <div key={role} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={role}
+                          checked={formData.targetRoles.includes(role)}
+                          onCheckedChange={() => handleToggleRole(role)}
+                        />
+                        <label htmlFor={role} className="text-(--color-text-900) cursor-pointer capitalize">
+                          {role === 'student' ? 'Students' : role === 'supervisor' ? 'Supervisors' : 'Admins'}
+                        </label>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
+              {/* Schedule field — only when creating */}
+              {!editingId && (
+                <div>
+                  <Label>Schedule for (optional)</Label>
+                  <div className="flex gap-2 mt-1.5">
+                    <div className="flex-1">
+                      <DatePicker
+                        value={formData.scheduledDate}
+                        onChange={(d) => set({ scheduledDate: d })}
+                        placeholder="Date"
+                        minDate={todayYMD}
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <TimePicker
+                        value={formData.scheduledTime}
+                        onChange={(t) => set({ scheduledTime: t })}
+                        placeholder="Time"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-(--color-text-500) mt-1">
+                    Leave empty to publish immediately.
+                  </p>
+                </div>
+              )}
               {isSupervisor && (
-                <p className="text-xs text-[var(--color-text-500)]">
+                <p className="text-xs text-(--color-text-500)">
                   This announcement will be sent to the students of the selected group only.
                 </p>
               )}
@@ -297,17 +316,25 @@ export function AnnouncementsManager() {
       <div className="space-y-4">
         {announcements.length > 0 ? (
           announcements.map((announcement) => (
-            <Card key={announcement.id} className="p-4 sm:p-6">
+            <Card key={announcement.id} className={`p-4 sm:p-6 ${announcement.isScheduled ? 'border-dashed opacity-80' : ''}`}>
               <div className="flex items-start gap-3 sm:gap-4">
-                <div className="p-2.5 sm:p-3 bg-[var(--color-primary-100)] rounded-lg flex-shrink-0">
-                  <Bell className="w-5 h-5 sm:w-6 sm:h-6 text-[var(--color-primary-700)]" />
+                <div className="p-2.5 sm:p-3 bg-(--color-primary-100) rounded-lg shrink-0">
+                  <Bell className="w-5 h-5 sm:w-6 sm:h-6 text-(--color-primary-700)" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2 mb-2">
-                    <h2 className="text-[var(--color-text-900)] text-base sm:text-lg leading-snug">
-                      {announcement.title}
-                    </h2>
-                    <div className="flex gap-1.5 flex-shrink-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-(--color-text-900) text-base sm:text-lg leading-snug">
+                        {announcement.title}
+                      </h2>
+                      {announcement.isScheduled && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
+                          <Clock className="w-3 h-3" />
+                          Scheduled
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex gap-1.5 shrink-0">
                       {!isSupervisor && (
                         <Button
                           variant="outline"
@@ -332,13 +359,16 @@ export function AnnouncementsManager() {
                       </Button>
                     </div>
                   </div>
-                  <p className="text-[var(--color-text-700)] mb-3 text-sm whitespace-pre-line">
+                  <p className="text-(--color-text-700) mb-3 text-sm whitespace-pre-line">
                     {announcement.content}
                   </p>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--color-text-600)]">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-(--color-text-600)">
                     <div className="flex items-center gap-1.5">
-                      <CalendarIcon className="w-3.5 h-3.5" />
+                      {announcement.isScheduled
+                        ? <Clock className="w-3.5 h-3.5" />
+                        : <CalendarIcon className="w-3.5 h-3.5" />}
                       <span>
+                        {announcement.isScheduled ? 'Publishes ' : ''}
                         {new Date(announcement.publishedAt).toLocaleDateString('en-US', {
                           month: 'short', day: 'numeric', year: 'numeric',
                           hour: '2-digit', minute: '2-digit',
@@ -350,7 +380,7 @@ export function AnnouncementsManager() {
                     {announcement.courseName && (
                       <>
                         <span>•</span>
-                        <span className="font-medium text-[var(--color-primary-700)]">
+                        <span className="font-medium text-(--color-primary-700)">
                           {announcement.courseName}
                         </span>
                       </>
@@ -365,9 +395,9 @@ export function AnnouncementsManager() {
         ) : (
           <Card className="p-12">
             <div className="text-center">
-              <Bell className="w-16 h-16 mx-auto mb-4 text-[var(--color-text-400)]" />
-              <h3 className="text-[var(--color-text-900)] mb-2">No announcements</h3>
-              <p className="text-[var(--color-text-600)] mb-4">
+              <Bell className="w-16 h-16 mx-auto mb-4 text-(--color-text-400)" />
+              <h3 className="text-(--color-text-900) mb-2">No announcements</h3>
+              <p className="text-(--color-text-600) mb-4">
                 {isSupervisor
                   ? 'Post your first announcement to one of your groups.'
                   : 'Create your first announcement to share important information.'}

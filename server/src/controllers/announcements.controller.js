@@ -142,6 +142,19 @@ async function listAnnouncements(req, res) {
       }
     }
 
+    // Coordinators (no role param): only see announcements that explicitly target
+    // 'coordinator'. This is role-based, not author-based, so a user who is both
+    // coordinator and supervisor never sees their supervisor-created announcements
+    // while in coordinator mode.
+    if (!role && req.user?.activeRole === 'coordinator') {
+      query = query.contains('target_roles', ['coordinator']);
+    }
+
+    // Students never see scheduled (future) announcements.
+    if (req.user?.activeRole === 'student') {
+      query = query.lte('published_at', new Date().toISOString());
+    }
+
     // ── Resolve the viewer's course + group context ──────────────────────────
     // Used to scope announcements for students, supervisors, and coordinators.
     let viewerCourseId  = null;
@@ -185,12 +198,12 @@ async function listAnnouncements(req, res) {
     }
 
     // ── Apply group-scoped filter (migration 006) ─────────────────────────────
-    // Include announcements that:
-    //   (a) are not group-specific (group_id IS NULL), OR
-    //   (b) are scoped to a group the viewer belongs to / supervises
-    // This ensures committee-evaluation and weekly-report announcements are only
-    // visible to the specific group's students and supervisor.
-    if (viewerGroupIds.length > 0) {
+    // Coordinators only manage course-wide announcements (group_id IS NULL).
+    // Group-specific supervisor↔student communications are out of their scope.
+    if (req.user?.activeRole === 'coordinator') {
+      query = query.is('group_id', null);
+    } else if (viewerGroupIds.length > 0) {
+      // Students / supervisors: show their group's announcements + course-wide ones.
       const groupParts = viewerGroupIds.map((id) => `group_id.eq.${id}`).join(',');
       query = query.or(`group_id.is.null,${groupParts}`);
     }
@@ -241,7 +254,7 @@ async function listAnnouncements(req, res) {
 
     const [profilesRes, coursesRes] = await Promise.all([
       authorIds.length > 0
-        ? supabaseAdmin.from('profiles').select('id, name').in('id', authorIds)
+        ? supabaseAdmin.from('profiles').select('id, name, email').in('id', authorIds)
         : Promise.resolve({ data: [] }),
       courseIds.length > 0
         ? supabaseAdmin.from('courses').select('id, code, name').in('id', courseIds)
@@ -249,7 +262,7 @@ async function listAnnouncements(req, res) {
     ]);
 
     const authorMap = {};
-    for (const p of (profilesRes.data || [])) authorMap[p.id] = p.name;
+    for (const p of (profilesRes.data || [])) authorMap[p.id] = p.name || p.email || null;
 
     const courseMap = {};
     for (const c of (coursesRes.data || [])) {
@@ -268,6 +281,7 @@ async function listAnnouncements(req, res) {
       publishedAt: a.published_at,
       expiresAt:   a.expires_at ?? undefined,
       targetRoles: a.target_roles ?? [],
+      isScheduled: new Date(a.published_at) > new Date(),
     }));
 
     // Cache for non-manager roles
@@ -290,7 +304,7 @@ async function listAnnouncements(req, res) {
  */
 async function createAnnouncement(req, res) {
   try {
-    const { title, content, targetRoles, expiresAt, groupId: bodyGroupId } = req.body;
+    const { title, content, targetRoles, expiresAt, groupId: bodyGroupId, scheduledFor } = req.body;
 
     if (!title || !content || !Array.isArray(targetRoles) || targetRoles.length === 0) {
       return res.status(400).json({ error: 'title, content, and targetRoles are required' });
@@ -303,6 +317,12 @@ async function createAnnouncement(req, res) {
     let courseId        = req.user.coordinatorCourseId ?? null;
     let resolvedGroupId = null;
     let effectiveRoles  = targetRoles;
+
+    // Coordinator-created announcements always include 'coordinator' so they
+    // remain visible in the coordinator management view.
+    if (isCoordinator && !effectiveRoles.includes('coordinator')) {
+      effectiveRoles = [...effectiveRoles, 'coordinator'];
+    }
 
     if (isSupervisor) {
       if (!bodyGroupId) {
@@ -324,13 +344,21 @@ async function createAnnouncement(req, res) {
       effectiveRoles  = ['student']; // supervisors can only target their group's students
     }
 
+    // Honour optional scheduling: if scheduledFor is a valid future date, use it
+    // as published_at and delay the email blast accordingly.
+    const now = new Date();
+    const scheduledDate = scheduledFor ? new Date(scheduledFor) : null;
+    const isScheduled = scheduledDate && !isNaN(scheduledDate.getTime()) && scheduledDate > now;
+    const publishedAt = isScheduled ? scheduledDate.toISOString() : now.toISOString();
+    const emailDelay  = isScheduled ? scheduledDate.getTime() - now.getTime() : 0;
+
     const basePayload = {
       title,
       content,
       author_id:    req.user.id,
       target_roles: effectiveRoles,
       expires_at:   expiresAt ?? null,
-      published_at: new Date().toISOString(),
+      published_at: publishedAt,
     };
 
     // Try with course_id + group_id first; fall back progressively.
@@ -365,8 +393,7 @@ async function createAnnouncement(req, res) {
     // ── Queue email blast ─────────────────────────────────────────────────────
     // For supervisor group-scoped announcements: email only the group's students.
     // For coordinator/admin announcements: use the standard course-scoped resolver.
-    const publishedAt = new Date().toISOString();
-
+    // Scheduled announcements pass emailDelay so the job fires at publish time.
     if (isSupervisor && resolvedGroupId) {
       // Fetch only this group's students for the email blast
       ;(async () => {
@@ -386,7 +413,7 @@ async function createAnnouncement(req, res) {
             : { data: null };
           const courseName = normalizeCourseCode(course?.code ?? '');
 
-          await queueAnnouncementEmail(emails, { title, content, courseName, publishedAt });
+          await queueAnnouncementEmail(emails, { title, content, courseName, publishedAt }, { delay: emailDelay });
         } catch (e) {
           console.error('[announcements] supervisor group email blast failed:', e.message);
         }
@@ -396,7 +423,7 @@ async function createAnnouncement(req, res) {
       resolveRecipientEmails(effectiveRoles, coordinatorCourseId)
         .then(({ emails, courseName }) => {
           if (emails.length === 0) return;
-          return queueAnnouncementEmail(emails, { title, content, courseName, publishedAt });
+          return queueAnnouncementEmail(emails, { title, content, courseName, publishedAt }, { delay: emailDelay });
         })
         .catch((err) => console.error('[announcements] Failed to queue announcement emails:', err.message));
     }

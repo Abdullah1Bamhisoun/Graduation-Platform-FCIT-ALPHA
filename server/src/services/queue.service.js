@@ -117,15 +117,21 @@ function startWorker() {
  * @param {string[]} emails
  * @param {{ title, content, courseName, publishedAt }} data
  */
-async function queueAnnouncementEmail(emails, data) {
+async function queueAnnouncementEmail(emails, data, { delay = 0 } = {}) {
   if (!isRedisReady()) {
-    // Fallback: send directly (no retry on failure)
-    emailService.sendAnnouncement(emails, data).catch((err) =>
+    // Fallback: send directly, honouring delay via setTimeout
+    const send = () => emailService.sendAnnouncement(emails, data).catch((err) =>
       console.error('[queue] Fallback announcement email failed:', err.message)
     );
+    if (delay > 0) setTimeout(send, delay);
+    else send();
     return;
   }
-  await getQueue().add('send-announcement', { type: 'announcement', payload: { emails, data } });
+  await getQueue().add(
+    'send-announcement',
+    { type: 'announcement', payload: { emails, data } },
+    { delay },
+  );
 }
 
 /**

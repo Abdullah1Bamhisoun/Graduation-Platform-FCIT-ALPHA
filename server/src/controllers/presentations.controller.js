@@ -476,12 +476,25 @@ async function assignSchedule(req, res) {
           for (const profile of (committeeMemberProfiles || [])) {
             if (!profile.id) continue;
 
+            // Scope the announcement to the committee member's OWN supervised group.
+            // • Supervisor mode:   group filter shows group_id in viewer's groups → VISIBLE only to them.
+            // • Coordinator mode:  coordinator filter requires group_id IS NULL     → HIDDEN.
+            // This works even when the same user holds both roles simultaneously.
+            const { data: memberGroup } = await supabaseAdmin
+              .from('groups')
+              .select('id')
+              .eq('supervisor_id', profile.id)
+              .limit(1)
+              .maybeSingle();
+            const memberGroupId = memberGroup?.id ?? null;
+
             await Promise.all([
               notificationService.createAnnouncement({
                 title:       `Committee Assignment: ${projectName}`,
                 content:     announcementContent,
                 targetRoles: ['supervisor'],
-                courseId,
+                courseId:    null,
+                groupId:     memberGroupId,
                 authorId:    req.user.id,
                 expiresAt:   presentationDate.toISOString().slice(0, 10),
               }),

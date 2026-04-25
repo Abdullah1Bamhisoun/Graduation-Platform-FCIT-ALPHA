@@ -2,7 +2,9 @@ import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
 import { getAnnouncementsForRole, createAnnouncement, deleteAnnouncement } from '../../services/announcements';
 import { useUnreadAnnouncements } from '../../hooks/useUnreadAnnouncements';
-import { Bell, Calendar as CalendarIcon, Plus, Trash2 } from 'lucide-react';
+import { Bell, Calendar as CalendarIcon, Clock, Plus, Trash2 } from 'lucide-react';
+import { DatePicker } from '../../components/ui/DatePicker';
+import { TimePicker } from '../../components/ui/TimePicker';
 import { Card } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
@@ -32,7 +34,7 @@ export function Announcements() {
   // Supervisor group state
   const [supervisorGroups, setSupervisorGroups] = useState<SupervisorGroup[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [formData, setFormData] = useState({ title: '', content: '', groupId: '' });
+  const [formData, setFormData] = useState({ title: '', content: '', groupId: '', scheduledDate: '', scheduledTime: '' });
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -70,17 +72,26 @@ export function Announcements() {
     }
     setSaving(true);
     try {
+      const scheduledFor = formData.scheduledDate
+        ? new Date(`${formData.scheduledDate}T${formData.scheduledTime || '00:00'}`).toISOString()
+        : undefined;
+
       await createAnnouncement({
         title:       formData.title,
         content:     formData.content,
         authorId:    user!.id,
         targetRoles: ['student'],
         groupId:     formData.groupId,
+        scheduledFor,
       });
       const groupName = supervisorGroups.find((g) => g.id === formData.groupId)?.name;
-      toast.success(groupName ? `Announcement posted to ${groupName}` : 'Announcement posted');
+      const baseMsg   = groupName ? `Announcement posted to ${groupName}` : 'Announcement posted';
+      toast.success(scheduledFor
+        ? `${baseMsg} — scheduled for ${new Date(scheduledFor).toLocaleString()}`
+        : baseMsg,
+      );
       setIsDialogOpen(false);
-      setFormData({ title: '', content: '', groupId: '' });
+      setFormData({ title: '', content: '', groupId: '', scheduledDate: '', scheduledTime: '' });
       // Refresh list
       getAnnouncementsForRole(user!.activeRole as UserRole, user!.activeRole).then(setAnnouncements);
     } catch {
@@ -163,6 +174,29 @@ export function Announcements() {
                     className="mt-1.5"
                   />
                 </div>
+                <div>
+                  <Label>Schedule for (optional)</Label>
+                  <div className="flex gap-2 mt-1.5">
+                    <div className="flex-1">
+                      <DatePicker
+                        value={formData.scheduledDate}
+                        onChange={(d) => setFormData({ ...formData, scheduledDate: d })}
+                        placeholder="Date"
+                        minDate={new Date().toISOString().split('T')[0]}
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <TimePicker
+                        value={formData.scheduledTime}
+                        onChange={(t) => setFormData({ ...formData, scheduledTime: t })}
+                        placeholder="Time"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-(--color-text-500) mt-1">
+                    Leave empty to post immediately.
+                  </p>
+                </div>
                 <p className="text-xs text-[var(--color-text-500)]">
                   This announcement will be visible only to students of the selected group.
                 </p>
@@ -181,14 +215,22 @@ export function Announcements() {
       <div className="space-y-4">
         {announcements.length > 0 ? (
           announcements.map((announcement) => (
-            <Card key={announcement.id} className="p-6">
+            <Card key={announcement.id} className={`p-6 ${announcement.isScheduled ? 'border-dashed opacity-80' : ''}`}>
               <div className="flex items-start gap-4">
                 <div className="p-3 bg-[var(--color-primary-100)] rounded-lg flex-shrink-0">
                   <Bell className="w-6 h-6 text-[var(--color-primary-700)]" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2 mb-2">
-                    <h2 className="text-[var(--color-text-900)]">{announcement.title}</h2>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-(--color-text-900)">{announcement.title}</h2>
+                      {announcement.isScheduled && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
+                          <Clock className="w-3 h-3" />
+                          Scheduled
+                        </span>
+                      )}
+                    </div>
                     {isSupervisor && announcement.authorId === user.id && (
                       <button
                         onClick={() => handleDelete(announcement.id)}
@@ -204,8 +246,9 @@ export function Announcements() {
                   </p>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[var(--color-text-600)]">
                     <div className="flex items-center gap-2">
-                      <CalendarIcon className="w-4 h-4" />
+                      {announcement.isScheduled ? <Clock className="w-4 h-4" /> : <CalendarIcon className="w-4 h-4" />}
                       <span>
+                        {announcement.isScheduled ? 'Publishes ' : ''}
                         {new Date(announcement.publishedAt).toLocaleDateString('en-US', {
                           month: 'short', day: 'numeric', year: 'numeric',
                           hour: '2-digit', minute: '2-digit',
