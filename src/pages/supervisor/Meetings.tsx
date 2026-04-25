@@ -35,12 +35,19 @@ function StatusBadge({ status }: { status: Meeting['status'] }) {
   );
 }
 
-function CreatorBadge({ role }: { role: 'coordinator' | 'supervisor' }) {
+function CreatorBadge({ role }: { role: 'coordinator' | 'supervisor' | 'student' }) {
+  const styles =
+    role === 'coordinator' ? 'bg-purple-100 text-purple-700' :
+    role === 'student'     ? 'bg-blue-100 text-blue-700' :
+                             'bg-teal-100 text-teal-700';
+  const label =
+    role === 'coordinator' ? 'By Coordinator' :
+    role === 'student'     ? 'By Student' :
+                             'By You';
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium
-      ${role === 'coordinator' ? 'bg-purple-100 text-purple-700' : 'bg-teal-100 text-teal-700'}`}>
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${styles}`}>
       <Tag className="w-3 h-3" />
-      {role === 'coordinator' ? 'By Coordinator' : 'By You'}
+      {label}
     </span>
   );
 }
