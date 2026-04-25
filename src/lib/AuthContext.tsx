@@ -90,6 +90,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         coordinatorCourseId = (lockRow?.entity_id as string | undefined) ?? undefined;
       }
 
+      // 3b. Resolve course code for the coordinator course UUID
+      let coordinatorCourseCode: string | undefined;
+      if (coordinatorCourseId) {
+        const { data: courseRow } = await supabase
+          .from('courses')
+          .select('code')
+          .eq('id', coordinatorCourseId)
+          .maybeSingle();
+        coordinatorCourseCode = (courseRow?.code as string | undefined) ?? undefined;
+      }
+
       // Build role list: from user_roles if available, otherwise derive from profiles
       let roleNames: UserRole[];
       if (roleEntries.length > 0) {
@@ -120,6 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         roles: roleNames,
         activeRole,
         coordinatorCourseId,
+        coordinatorCourseCode,
         studentId: profile.student_id ?? undefined,
         employeeNumber: profile.employee_number ?? undefined,
         avatarUrl: profile.avatar_url ?? undefined,

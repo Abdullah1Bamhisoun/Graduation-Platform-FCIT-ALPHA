@@ -711,11 +711,48 @@ async function sendDiscussionNotification(recipientEmails, { senderName, senderR
   );
 }
 
+/**
+ * Registration approved → applicant
+ *
+ * @param {string} to
+ * @param {{ name: string, accountType: string, loginUrl?: string }} data
+ */
+function sendRegistrationApproved(to, { name, accountType, loginUrl = '' }) {
+  const roleLabel = accountType === 'student' ? 'Student' : accountType === 'supervisor' ? 'Supervisor' : 'User';
+  const body =
+    heading('Your Registration Has Been Approved') +
+    paragraph(`Congratulations, <strong>${name}</strong>! Your registration as a <strong>${roleLabel}</strong> on the FCIT Graduation Project Platform has been reviewed and approved.`) +
+    paragraph('You can now log in to your account and access all platform features.') +
+    (loginUrl ? ctaButton('Log In to the Platform', loginUrl) : '') +
+    paragraph('If you have any questions, please contact your course coordinator.');
+
+  return sendEmail(to, 'Your Registration Has Been Approved — FCIT Graduation Platform', layout(body, 'Registration Approved'));
+}
+
+/**
+ * Registration rejected → applicant
+ *
+ * @param {string} to
+ * @param {{ name: string, accountType: string }} data
+ */
+function sendRegistrationRejected(to, { name, accountType }) {
+  const roleLabel = accountType === 'student' ? 'Student' : accountType === 'supervisor' ? 'Supervisor' : 'User';
+  const body =
+    heading('Registration Not Approved') +
+    paragraph(`Dear <strong>${name}</strong>,`) +
+    paragraph(`Thank you for registering on the FCIT Graduation Project Platform as a <strong>${roleLabel}</strong>. After review, we are unable to approve your registration at this time.`) +
+    paragraph('If you believe this is an error or would like more information, please contact your course coordinator directly.');
+
+  return sendEmail(to, 'Registration Status Update — FCIT Graduation Platform', layout(body, 'Registration Update'));
+}
+
 // ─── Exports ───────────────────────────────────────────────────────────────────
 
 module.exports = {
   sendEmail,
   sendSubmissionReceived,
+  sendRegistrationApproved,
+  sendRegistrationRejected,
   sendSubmissionDecision,
   sendSupervisorEvaluation,
   sendAllGrades,

@@ -78,6 +78,12 @@ function startWorker() {
         case 'discussion-notification':
           await emailService.sendDiscussionNotification(payload.emails, payload.data);
           break;
+        case 'registration-approved':
+          await emailService.sendRegistrationApproved(payload.to, payload.data);
+          break;
+        case 'registration-rejected':
+          await emailService.sendRegistrationRejected(payload.to, payload.data);
+          break;
         default:
           throw new Error(`Unknown email job type: ${type}`);
       }
@@ -200,6 +206,36 @@ async function queueDiscussionNotificationEmail(emails, data) {
   await getQueue().add('send-discussion-notification', { type: 'discussion-notification', payload: { emails, data } });
 }
 
+/**
+ * Queue a registration-approved email to the applicant.
+ * @param {string} to
+ * @param {{ name: string, accountType: string, loginUrl?: string }} data
+ */
+async function queueRegistrationApprovedEmail(to, data) {
+  if (!isRedisReady()) {
+    emailService.sendRegistrationApproved(to, data).catch((err) =>
+      console.error('[queue] Fallback registration-approved email failed:', err.message)
+    );
+    return;
+  }
+  await getQueue().add('send-registration-approved', { type: 'registration-approved', payload: { to, data } });
+}
+
+/**
+ * Queue a registration-rejected email to the applicant.
+ * @param {string} to
+ * @param {{ name: string, accountType: string }} data
+ */
+async function queueRegistrationRejectedEmail(to, data) {
+  if (!isRedisReady()) {
+    emailService.sendRegistrationRejected(to, data).catch((err) =>
+      console.error('[queue] Fallback registration-rejected email failed:', err.message)
+    );
+    return;
+  }
+  await getQueue().add('send-registration-rejected', { type: 'registration-rejected', payload: { to, data } });
+}
+
 // ── Initialise worker when module first loads ─────────────────────────────────
 startWorker();
 
@@ -210,4 +246,6 @@ module.exports = {
   queueMeetingReminderEmail,
   queueMeetingCancelledEmail,
   queueDiscussionNotificationEmail,
+  queueRegistrationApprovedEmail,
+  queueRegistrationRejectedEmail,
 };

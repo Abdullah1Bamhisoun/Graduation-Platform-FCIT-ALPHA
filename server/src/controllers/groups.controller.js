@@ -324,8 +324,24 @@ async function deleteGroup(req, res) {
       }
     }
 
-    // Remove members first to avoid FK violation
-    await supabaseAdmin.from('group_members').delete().eq('group_id', groupId);
+    // Delete all child records explicitly before removing the group.
+    // Some FK constraints may not have ON DELETE CASCADE in the live DB,
+    // so we clean up every referencing table to avoid constraint violations.
+    await Promise.all([
+      supabaseAdmin.from('group_members').delete().eq('group_id', groupId),
+      supabaseAdmin.from('submissions').delete().eq('group_id', groupId),
+      supabaseAdmin.from('weekly_reports').delete().eq('group_id', groupId),
+      supabaseAdmin.from('supervisor_rubric_scores').delete().eq('group_id', groupId),
+      supabaseAdmin.from('committee_rubric_scores').delete().eq('group_id', groupId),
+      supabaseAdmin.from('coordinator_deliverable_scores').delete().eq('group_id', groupId),
+      supabaseAdmin.from('committee_evaluations').delete().eq('group_id', groupId),
+      supabaseAdmin.from('peer_evaluations').delete().eq('group_id', groupId),
+      supabaseAdmin.from('coordinator_evaluations').delete().eq('group_id', groupId),
+      supabaseAdmin.from('coordinator_assessments').delete().eq('group_id', groupId),
+      supabaseAdmin.from('supervisor_assessments').delete().eq('group_id', groupId),
+      supabaseAdmin.from('group_files').delete().eq('group_id', groupId),
+      supabaseAdmin.from('presentation_schedules').delete().eq('group_id', groupId),
+    ]);
 
     const { error } = await supabaseAdmin.from('groups').delete().eq('id', groupId);
     if (error) throw error;
@@ -443,20 +459,19 @@ async function createGroup(req, res) {
       .eq('id', courseId)
       .maybeSingle();
 
-    // Find next group_number for this course
+    // Find the first available group_number for this course (fills gaps left by deletions)
     const { data: existing } = await supabaseAdmin
       .from('groups')
       .select('group_number')
       .eq('course_id', courseId)
-      .order('group_number', { ascending: false })
-      .limit(1);
+      .order('group_number', { ascending: true });
 
-    const lastNum = existing?.[0]?.group_number ?? 0;
-    if (lastNum >= 50) {
+    const usedNumbers = new Set((existing || []).map((g) => g.group_number));
+    let nextNum = 1;
+    while (usedNumbers.has(nextNum)) nextNum++;
+    if (nextNum > 50) {
       return res.status(400).json({ error: 'Group limit (50) reached for this course' });
     }
-
-    const nextNum = lastNum + 1;
     const now = new Date();
     const year = now.getFullYear().toString();
 

@@ -295,9 +295,10 @@ export function Register() {
 
   // ── Registration Form ──────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row">
+    <div className="h-screen flex flex-col lg:flex-row overflow-hidden">
       {/* Left Panel */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-8 lg:p-12 bg-[var(--color-surface-white)] overflow-y-auto">
+      <div className="w-full lg:w-1/2 overflow-y-auto bg-[var(--color-surface-white)] flex flex-col">
+        <div className="flex-1 flex items-center justify-center p-6 sm:p-8 lg:p-12">
         <div className="w-full max-w-md">
           <div className="mb-6">
             <img src="/gpp-logo.png" alt="GPP FCIT KAU" className="w-64 mx-auto mb-6" />
@@ -596,10 +597,11 @@ export function Register() {
             </Link>
           </div>
         </div>
+        </div>
       </div>
 
       {/* Right Panel (hidden on mobile) */}
-      <div className="hidden lg:flex w-1/2 bg-gradient-to-br from-[var(--color-primary-600)] to-[var(--color-primary-700)] p-12 items-center justify-center text-white sticky top-0 h-screen">
+      <div className="hidden lg:flex w-1/2 bg-gradient-to-br from-[var(--color-primary-600)] to-[var(--color-primary-700)] p-12 items-center justify-center text-white">
         <div className="max-w-md">
           <h2 className="text-white mb-6">Graduation Project Platform</h2>
           <p className="mb-8 text-white/90">

@@ -135,7 +135,11 @@ export function Sidebar({ user, isOpen = false, onClose }: SidebarProps) {
               ? 'bg-purple-50 border border-purple-200 text-purple-700'
               : 'bg-blue-50 border border-blue-200 text-blue-700'
           }`}>
-            You are in <span className="font-bold">{roleLabel[user.activeRole] ?? user.activeRole}</span>
+            You are in{' '}
+            <span className="font-bold whitespace-nowrap">
+              {roleLabel[user.activeRole] ?? user.activeRole}
+              {user.activeRole === 'coordinator' && user.coordinatorCourseCode && ` · ${user.coordinatorCourseCode.replace(/_/g, '-')}`}
+            </span>
           </div>
           {user.activeRole === 'supervisor' && user.roles.includes('coordinator') && (
             <button

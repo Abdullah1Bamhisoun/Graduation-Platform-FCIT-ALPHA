@@ -9,7 +9,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { toast } from 'sonner';
-import { Search, CheckCircle, XCircle, Eye, Clock, Users, UserCheck, Pencil, Trash2, ChevronDown } from 'lucide-react';
+import { Search, CheckCircle, XCircle, Clock, Users, UserCheck, Pencil, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import { getPendingRegistrationsViaAPI, approveRegistration, rejectRegistration, subscribe, type PendingRegistration } from '../../lib/pending-registrations';
 import { assignSupervisor, updateGroupStatus, deleteGroup, updateGroup, getGroupById, type GroupData } from '../../services/groups';
 import type { User as ProfileUser } from '../../types';
@@ -78,6 +78,9 @@ export function AdminUserManagement() {
   const [groupFilterCourse, setGroupFilterCourse] = useState('all');
   const [assigningGroup, setAssigningGroup] = useState<GroupData | null>(null);
   const [selectedSupervisorId, setSelectedSupervisorId] = useState('');
+  const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set());
+  const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
+  const [isBulkGroupProcessing, setIsBulkGroupProcessing] = useState(false);
 
   // ── Delete User ───────────────────────────────────────────────────────────
   const [deletingUser, setDeletingUser] = useState<User | null>(null);
@@ -113,9 +116,11 @@ export function AdminUserManagement() {
 
   // ── Pending Registrations ─────────────────────────────────────────────────
   const [pendingRegs, setPendingRegs] = useState<PendingRegistration[]>([]);
-  const [viewingReg, setViewingReg] = useState<PendingRegistration | null>(null);
-  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
-  const [viewingRegGroup, setViewingRegGroup] = useState<{ groupNumber: number; groupCode: string; projectName: string } | null>(null);
+  const [expandedRegIds, setExpandedRegIds] = useState<Set<string>>(new Set());
+  const [selectedRegIds, setSelectedRegIds] = useState<Set<string>>(new Set());
+  const [regGroupCache, setRegGroupCache] = useState<Record<string, { groupNumber: number; groupCode: string; projectName: string } | null>>({});
+  const [isApprovingId, setIsApprovingId] = useState<string | null>(null);
+  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
 
   // ── Loading ───────────────────────────────────────────────────────────────
   const [isLoading, setIsLoading] = useState(true);
@@ -219,14 +224,17 @@ export function AdminUserManagement() {
 
   // ── Handlers: registrations ───────────────────────────────────────────────
   const handleApprove = async (reg: PendingRegistration) => {
+    if (isApprovingId || isBulkProcessing) return;
+    setIsApprovingId(reg.id);
     try {
       await approveRegistration(reg.id, user?.activeRole);
       toast.success(`${reg.name} approved — they can now log in`);
-      setIsViewDialogOpen(false);
-      setViewingReg(null);
+      setSelectedRegIds((prev) => { const n = new Set(prev); n.delete(reg.id); return n; });
       await Promise.all([reloadUsers(), reloadGroups()]);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to approve');
+    } finally {
+      setIsApprovingId(null);
     }
   };
 
@@ -234,11 +242,74 @@ export function AdminUserManagement() {
     try {
       await rejectRegistration(reg.id);
       toast.success(`${reg.name}'s registration rejected`);
-      setIsViewDialogOpen(false);
-      setViewingReg(null);
+      setSelectedRegIds((prev) => { const n = new Set(prev); n.delete(reg.id); return n; });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to reject');
     }
+  };
+
+  const handleBulkApprove = async () => {
+    if (isBulkProcessing || isApprovingId) return;
+    const ids = [...selectedRegIds];
+    if (ids.length === 0) return;
+    setIsBulkProcessing(true);
+    let approved = 0, failed = 0;
+    for (const id of ids) {
+      const reg = pendingRegs.find((r) => r.id === id);
+      if (!reg) continue;
+      try {
+        await approveRegistration(id, user?.activeRole);
+        approved++;
+        setSelectedRegIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
+      } catch {
+        failed++;
+      }
+    }
+    if (approved > 0) toast.success(`${approved} registration${approved > 1 ? 's' : ''} approved`);
+    if (failed > 0) toast.error(`${failed} approval${failed > 1 ? 's' : ''} failed`);
+    await Promise.all([reloadUsers(), reloadGroups()]);
+    setIsBulkProcessing(false);
+  };
+
+  const handleBulkReject = async () => {
+    if (isBulkProcessing || isApprovingId) return;
+    const ids = [...selectedRegIds];
+    if (ids.length === 0) return;
+    setIsBulkProcessing(true);
+    let rejected = 0, failed = 0;
+    for (const id of ids) {
+      const reg = pendingRegs.find((r) => r.id === id);
+      if (!reg) continue;
+      try {
+        await rejectRegistration(id);
+        rejected++;
+        setSelectedRegIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
+      } catch {
+        failed++;
+      }
+    }
+    if (rejected > 0) toast.success(`${rejected} registration${rejected > 1 ? 's' : ''} rejected`);
+    if (failed > 0) toast.error(`${failed} rejection${failed > 1 ? 's' : ''} failed`);
+    setIsBulkProcessing(false);
+  };
+
+  const toggleExpanded = (id: string, reg: PendingRegistration) => {
+    setExpandedRegIds((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) { n.delete(id); } else {
+        n.add(id);
+        if (reg.groupId && !(id in regGroupCache)) {
+          getGroupById(reg.groupId).then((g) =>
+            setRegGroupCache((c) => ({ ...c, [id]: g }))
+          ).catch(() => setRegGroupCache((c) => ({ ...c, [id]: null })));
+        }
+      }
+      return n;
+    });
+  };
+
+  const toggleSelectReg = (id: string) => {
+    setSelectedRegIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   };
 
   // ── Handlers: assign coordinator ─────────────────────────────────────────
@@ -425,9 +496,27 @@ export function AdminUserManagement() {
         removeSupervisor,
       });
       toast.success('Group updated');
+
+      // Optimistic update — reflect the changes instantly in the groups list
+      setGroups((prev) => prev.map((g) => {
+        if (g.id !== editingGroup.id) return g;
+        const newMembers = g.members
+          .filter((m) => !removingMemberIds.includes(m.id));
+        return {
+          ...g,
+          projectName: editProjectName || g.projectName,
+          supervisorId: removeSupervisor ? '' : g.supervisorId,
+          supervisorName: removeSupervisor ? '' : g.supervisorName,
+          members: newMembers,
+          membersCount: newMembers.length,
+        };
+      }));
+
       setEditingGroup(null);
+      setRemovingMemberIds([]);
+      setAddingMemberIds([]);
       setRemoveSupervisor(false);
-      reloadGroups();
+      reloadGroups(); // background refresh to pick up any server-side changes
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to update group');
     } finally {
@@ -440,10 +529,58 @@ export function AdminUserManagement() {
     try {
       await updateGroupStatus(groupId, status);
       toast.success(`Group ${status}`);
+      setGroups((prev) => prev.map((g) => g.id === groupId ? { ...g, status } : g));
       reloadGroups();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to update group');
     }
+  };
+
+  const toggleSelectGroup = (id: string) => {
+    setSelectedGroupIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  };
+
+  const toggleExpandGroup = (id: string) => {
+    setExpandedGroupIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  };
+
+  const handleBulkGroupStatus = async (status: 'approved' | 'rejected') => {
+    if (isBulkGroupProcessing) return;
+    const ids = [...selectedGroupIds];
+    if (ids.length === 0) return;
+    setIsBulkGroupProcessing(true);
+    let done = 0, failed = 0;
+    for (const id of ids) {
+      try {
+        await updateGroupStatus(id, status);
+        done++;
+        setSelectedGroupIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
+        setGroups((prev) => prev.map((g) => g.id === id ? { ...g, status } : g));
+      } catch { failed++; }
+    }
+    if (done > 0) toast.success(`${done} group${done > 1 ? 's' : ''} ${status}`);
+    if (failed > 0) toast.error(`${failed} failed`);
+    setIsBulkGroupProcessing(false);
+    reloadGroups();
+  };
+
+  const handleBulkDeleteGroups = async () => {
+    if (isBulkGroupProcessing) return;
+    const ids = [...selectedGroupIds];
+    if (ids.length === 0) return;
+    setIsBulkGroupProcessing(true);
+    let done = 0, failed = 0;
+    for (const id of ids) {
+      try {
+        await deleteGroup(id);
+        done++;
+        setSelectedGroupIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
+        setGroups((prev) => prev.filter((g) => g.id !== id));
+      } catch { failed++; }
+    }
+    if (done > 0) toast.success(`${done} group${done > 1 ? 's' : ''} deleted`);
+    if (failed > 0) toast.error(`${failed} deletion${failed > 1 ? 's' : ''} failed`);
+    setIsBulkGroupProcessing(false);
   };
 
   const handleAssignSupervisor = async () => {
@@ -618,42 +755,130 @@ export function AdminUserManagement() {
             </div>
           ) : (
             <div className="space-y-3">
-              {pendingRegs.map((reg) => (
-                <div key={reg.id} className="!bg-white rounded-xl border border-amber-200 shadow-sm p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
-                      <Clock className="w-4 h-4 text-amber-600" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <h3 className="font-medium text-[var(--color-text-900)] truncate">{reg.name}</h3>
-                      <p className="text-sm text-[var(--color-text-600)] truncate">{reg.email}</p>
-                      <div className="flex flex-wrap items-center gap-2 mt-1">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs capitalize ${getRoleBadge(reg.accountType)}`}>
-                          {reg.accountType}
-                        </span>
-                        {reg.department && <span className="text-xs text-[var(--color-text-600)]">{reg.department}</span>}
-                        <span className="text-xs text-[var(--color-text-600)]">{formatDate(reg.submittedAt)}</span>
+              {/* ── Bulk action toolbar ── */}
+              <div className="flex items-center gap-3 flex-wrap">
+                <label className="flex items-center gap-2 text-sm text-[var(--color-text-600)] cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 rounded accent-[var(--color-primary)]"
+                    checked={selectedRegIds.size === pendingRegs.length && pendingRegs.length > 0}
+                    onChange={(e) =>
+                      setSelectedRegIds(e.target.checked ? new Set(pendingRegs.map((r) => r.id)) : new Set())
+                    }
+                  />
+                  Select all
+                </label>
+                {selectedRegIds.size > 0 && (
+                  <>
+                    <span className="text-sm text-[var(--color-text-600)]">{selectedRegIds.size} selected</span>
+                    <Button size="sm" variant="primary" disabled={isLocked || isBulkProcessing || !!isApprovingId} onClick={handleBulkApprove}>
+                      <CheckCircle className="w-3.5 h-3.5 mr-1" />
+                      {isBulkProcessing ? 'Processing…' : 'Approve Selected'}
+                    </Button>
+                    <Button size="sm" variant="destructive" disabled={isLocked || isBulkProcessing || !!isApprovingId} onClick={handleBulkReject}>
+                      <XCircle className="w-3.5 h-3.5 mr-1" />
+                      {isBulkProcessing ? 'Processing…' : 'Reject Selected'}
+                    </Button>
+                  </>
+                )}
+              </div>
+
+              {/* ── Registration rows ── */}
+              {pendingRegs.map((reg) => {
+                const isExpanded = expandedRegIds.has(reg.id);
+                const isSelected = selectedRegIds.has(reg.id);
+                const cachedGroup = regGroupCache[reg.id];
+                const hasExtra = reg.accountType === 'student' && (reg.projectName || reg.projectIdea || reg.groupId);
+                return (
+                  <div key={reg.id} className={`!bg-white rounded-xl border shadow-sm transition-colors ${isSelected ? 'border-[var(--color-primary)] ring-1 ring-[var(--color-primary)]/20' : 'border-amber-200'}`}>
+                    {/* ── Collapsed row ── */}
+                    <div className="p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4 rounded flex-shrink-0 accent-[var(--color-primary)] cursor-pointer"
+                          checked={isSelected}
+                          onChange={() => toggleSelectReg(reg.id)}
+                        />
+                        <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                          <Clock className="w-3.5 h-3.5 text-amber-600" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <h3 className="font-medium text-[var(--color-text-900)] truncate">{reg.name}</h3>
+                          <p className="text-sm text-[var(--color-text-600)] truncate">{reg.email}</p>
+                          <div className="flex flex-wrap items-center gap-2 mt-1">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs capitalize ${getRoleBadge(reg.accountType)}`}>
+                              {reg.accountType}
+                            </span>
+                            {reg.department && <span className="text-xs text-[var(--color-text-600)]">{reg.department}</span>}
+                            <span className="text-xs text-[var(--color-text-600)]">{formatDate(reg.submittedAt)}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <Button size="sm" variant="primary" onClick={() => handleApprove(reg)} disabled={isLocked || !!isApprovingId || isBulkProcessing}>
+                          <CheckCircle className="w-4 h-4 mr-1" />{isApprovingId === reg.id ? 'Approving…' : 'Approve'}
+                        </Button>
+                        <Button size="sm" variant="destructive" onClick={() => handleReject(reg)} disabled={isLocked || isBulkProcessing}>
+                          <XCircle className="w-4 h-4 mr-1" />Reject
+                        </Button>
+                        {hasExtra && (
+                          <button
+                            onClick={() => toggleExpanded(reg.id, reg)}
+                            className="p-1.5 rounded-lg text-[var(--color-text-600)] hover:bg-[var(--color-surface-alt)] transition-colors"
+                          >
+                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          </button>
+                        )}
                       </div>
                     </div>
+
+                    {/* ── Expanded details ── */}
+                    {isExpanded && hasExtra && (
+                      <div className="border-t border-[var(--color-border)] px-4 pb-4 pt-3">
+                        {reg.groupId ? (
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold text-[var(--color-text-600)] uppercase tracking-wide">Group Assignment</p>
+                            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+                              Joining an existing group — assigned automatically on approval.
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="p-2.5 bg-[var(--color-surface-alt)] rounded-lg">
+                                <p className="text-xs text-[var(--color-text-600)]">Group Code</p>
+                                <p className="text-sm font-medium text-[var(--color-text-900)]">
+                                  {cachedGroup === undefined ? '…' : cachedGroup ? (cachedGroup.groupCode || `Group ${cachedGroup.groupNumber}`) : '—'}
+                                </p>
+                              </div>
+                              <div className="p-2.5 bg-[var(--color-surface-alt)] rounded-lg">
+                                <p className="text-xs text-[var(--color-text-600)]">Project</p>
+                                <p className="text-sm font-medium text-[var(--color-text-900)]">
+                                  {cachedGroup === undefined ? '…' : cachedGroup?.projectName || '—'}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold text-[var(--color-text-600)] uppercase tracking-wide">Project Information</p>
+                            {reg.projectName && (
+                              <div className="p-2.5 bg-[var(--color-surface-alt)] rounded-lg">
+                                <p className="text-xs text-[var(--color-text-600)]">Project Name</p>
+                                <p className="text-sm text-[var(--color-text-900)]">{reg.projectName}</p>
+                              </div>
+                            )}
+                            {reg.projectIdea && (
+                              <div className="p-2.5 bg-[var(--color-surface-alt)] rounded-lg">
+                                <p className="text-xs text-[var(--color-text-600)]">Project Idea</p>
+                                <p className="text-sm text-[var(--color-text-900)]">{reg.projectIdea}</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <Button size="sm" variant="outline" onClick={() => {
-                      setViewingReg(reg);
-                      setViewingRegGroup(null);
-                      setIsViewDialogOpen(true);
-                      if (reg.groupId) getGroupById(reg.groupId).then(setViewingRegGroup);
-                    }}>
-                      <Eye className="w-4 h-4 mr-1" />Details
-                    </Button>
-                    <Button size="sm" variant="primary" onClick={() => handleApprove(reg)} disabled={isLocked}>
-                      <CheckCircle className="w-4 h-4 mr-1" />Approve
-                    </Button>
-                    <Button size="sm" variant="destructive" onClick={() => handleReject(reg)} disabled={isLocked}>
-                      <XCircle className="w-4 h-4 mr-1" />Reject
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </>
@@ -891,204 +1116,146 @@ export function AdminUserManagement() {
             </Select>
           </div>
 
-          <div className="!bg-white rounded-xl border border-[var(--color-border)] shadow-sm">
-            {/* Desktop header — hidden on mobile */}
-            <div className="hidden sm:grid grid-cols-12 gap-3 p-4 border-b border-[var(--color-border)] text-sm font-medium text-[var(--color-text-600)]">
-              <div className="col-span-1">#</div>
-              <div className="col-span-1">Group ID</div>
-              <div className="col-span-1">Dept</div>
-              <div className="col-span-1">Project Name</div>
-              <div className="col-span-1">Members</div>
-              <div className="col-span-2">Students</div>
-              <div className="col-span-2">Supervisor</div>
-              <div className="col-span-1">Status</div>
-              <div className="col-span-2">Actions</div>
-            </div>
-            <div className="divide-y divide-[var(--color-border)]">
-              {isLoading ? (
-                <div className="p-8 text-center text-[var(--color-text-600)]">Loading groups…</div>
-              ) : filteredGroups.length === 0 ? (
-                <div className="p-8 text-center text-[var(--color-text-600)]">No groups found</div>
-              ) : (
-                filteredGroups.map((g) => (
-                  <div key={g.id}>
-                    {/* Mobile card */}
-                    <div className="sm:hidden p-4 space-y-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="font-semibold text-[var(--color-text-900)] text-sm break-all">{g.groupCode || '—'}</p>
-                          <p className="text-xs text-[var(--color-text-600)] mt-0.5 break-words">{g.projectName || 'No project name'}</p>
-                          <p className="text-xs text-[var(--color-text-500)] mt-0.5">{getGroupDept(g.groupCode) || '—'}</p>
-                        </div>
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs capitalize ${getStatusBadge(g.status)}`}>
-                            {g.status}
-                          </span>
-                          <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                            g.membersCount >= 3 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
-                          }`}>
-                            {g.membersCount}/3
-                          </span>
-                        </div>
-                      </div>
-                      <div className="text-xs text-[var(--color-text-700)] space-y-0.5">
-                        {g.members.length > 0 ? (
-                          g.members.map((m) => (
-                            <p key={m.id}>{m.name || '—'}</p>
-                          ))
-                        ) : (
-                          <p className="text-[var(--color-text-400)]">No members</p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 text-xs">
-                        <span className="text-[var(--color-text-600)]">Supervisor:</span>
-                        {g.supervisorName ? (
-                          <>
-                            <span className="text-[var(--color-text-900)]">{g.supervisorName}</span>
-                            <button
-                              className="text-[var(--color-primary-600)] hover:underline"
-                              onClick={() => { setAssigningGroup(g); setSelectedSupervisorId(''); }}
-                            >
-                              Change
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            className="text-[var(--color-primary-600)] hover:underline"
-                            onClick={() => { setAssigningGroup(g); setSelectedSupervisorId(''); }}
-                          >
-                            + Assign
-                          </button>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {g.status === 'pending' && (
-                          <>
-                            <Button size="sm" variant="primary" onClick={() => handleGroupStatus(g.id, 'approved')} disabled={isLocked} className="text-xs h-7 px-2.5">
-                              Approve
-                            </Button>
-                            <Button size="sm" variant="destructive" onClick={() => handleGroupStatus(g.id, 'rejected')} disabled={isLocked} className="text-xs h-7 px-2.5">
-                              Reject
-                            </Button>
-                          </>
-                        )}
-                        <button
-                          className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg font-medium bg-yellow-400 text-yellow-900 hover:bg-yellow-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          onClick={() => {
-                            setEditingGroup(g);
-                            setEditProjectName(g.projectName || '');
-                            setRemovingMemberIds([]);
-                            setAddingMemberIds([]);
-                          }}
-                          disabled={isLocked}
-                        >
-                          <Pencil className="w-3 h-3" />
-                          Edit
-                        </button>
-                        <button
-                          className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg font-medium bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          onClick={() => setDeletingGroup(g)}
-                          disabled={isLocked}
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                    {/* Desktop row */}
-                    <div className="hidden sm:grid grid-cols-12 gap-3 p-4 hover:bg-[var(--color-surface-alt)] transition-colors items-center">
-                      <div className="col-span-1 font-semibold text-[var(--color-text-900)]">
-                        {g.groupNumber ?? '—'}
-                      </div>
-                      <div className="col-span-1 text-xs text-[var(--color-text-600)] font-mono truncate" title={g.groupCode}>
-                        {g.groupCode || '—'}
-                      </div>
-                      <div className="col-span-1 text-sm text-[var(--color-text-600)]">{getGroupDept(g.groupCode) || '—'}</div>
-                      <div className="col-span-1">
-                        <p className="text-sm font-medium text-[var(--color-text-900)] truncate">{g.projectName || '—'}</p>
-                      </div>
-                      <div className="col-span-1 text-sm text-center">
-                        <span className={`inline-flex items-center justify-center px-2 py-1 rounded-full text-xs font-medium ${
-                          g.membersCount >= 3 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
-                        }`}>
-                          {g.membersCount}/3
-                        </span>
-                      </div>
-                      <div className="col-span-2 text-sm">
-                        {g.members.length > 0 ? (
-                          <div className="space-y-0.5">
-                            {g.members.map((m) => (
-                              <p key={m.id} className="text-xs text-[var(--color-text-900)] truncate">{m.name || '—'}</p>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-[var(--color-text-400)] text-xs">No members</span>
-                        )}
-                      </div>
-                      <div className="col-span-2 text-sm">
-                        {g.supervisorName ? (
-                          <div className="flex items-center gap-1">
-                            <span className="text-[var(--color-text-900)] truncate">{g.supervisorName}</span>
-                            <button
-                              className="text-xs text-[var(--color-text-600)] hover:text-[var(--color-primary-600)] hover:underline flex-shrink-0"
-                              onClick={() => { setAssigningGroup(g); setSelectedSupervisorId(''); }}
-                            >
-                              Change
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            className="text-[var(--color-primary-600)] hover:underline text-xs"
-                            onClick={() => { setAssigningGroup(g); setSelectedSupervisorId(''); }}
-                          >
-                            + Assign
-                          </button>
-                        )}
-                      </div>
-                      <div className="col-span-1">
-                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs capitalize ${getStatusBadge(g.status)}`}>
-                          {g.status}
-                        </span>
-                      </div>
-                      <div className="col-span-2 flex items-center gap-1 flex-wrap">
-                        {g.status === 'pending' && (
-                          <>
-                            <Button size="sm" variant="primary" onClick={() => handleGroupStatus(g.id, 'approved')} disabled={isLocked}>
-                              Approve
-                            </Button>
-                            <Button size="sm" variant="destructive" onClick={() => handleGroupStatus(g.id, 'rejected')} disabled={isLocked}>
-                              Reject
-                            </Button>
-                          </>
-                        )}
-                        <button
-                          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium bg-yellow-400 text-yellow-900 hover:bg-yellow-500 dark:bg-yellow-500 dark:text-white dark:hover:bg-yellow-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          onClick={() => {
-                            setEditingGroup(g);
-                            setEditProjectName(g.projectName || '');
-                            setRemovingMemberIds([]);
-                            setAddingMemberIds([]);
-                          }}
-                          disabled={isLocked}
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                          Edit
-                        </button>
-                        <button
-                          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          onClick={() => setDeletingGroup(g)}
-                          disabled={isLocked}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+          {/* ── Select-all / bulk toolbar ── */}
+          <div className="mb-3 flex items-center gap-3 flex-wrap">
+            <label className="flex items-center gap-2 text-sm text-[var(--color-text-600)] cursor-pointer select-none">
+              <input
+                type="checkbox"
+                className="w-4 h-4 rounded accent-[var(--color-primary)]"
+                checked={selectedGroupIds.size === filteredGroups.length && filteredGroups.length > 0}
+                onChange={(e) =>
+                  setSelectedGroupIds(e.target.checked ? new Set(filteredGroups.map((g) => g.id)) : new Set())
+                }
+              />
+              Select all
+            </label>
+            {selectedGroupIds.size > 0 && (
+              <>
+                <span className="text-sm text-[var(--color-text-600)]">{selectedGroupIds.size} selected</span>
+                {filteredGroups.filter((g) => selectedGroupIds.has(g.id) && g.status === 'pending').length > 0 && (
+                  <>
+                    <Button size="sm" variant="primary" disabled={isLocked || isBulkGroupProcessing} onClick={() => handleBulkGroupStatus('approved')}>
+                      <CheckCircle className="w-3.5 h-3.5 mr-1" />{isBulkGroupProcessing ? 'Processing…' : 'Approve Selected'}
+                    </Button>
+                    <Button size="sm" variant="destructive" disabled={isLocked || isBulkGroupProcessing} onClick={() => handleBulkGroupStatus('rejected')}>
+                      <XCircle className="w-3.5 h-3.5 mr-1" />{isBulkGroupProcessing ? 'Processing…' : 'Reject Selected'}
+                    </Button>
+                  </>
+                )}
+                <button
+                  className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={isLocked || isBulkGroupProcessing}
+                  onClick={handleBulkDeleteGroups}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />{isBulkGroupProcessing ? 'Processing…' : 'Delete Selected'}
+                </button>
+              </>
+            )}
           </div>
+
+          {/* ── Group cards ── */}
+          {isLoading ? (
+            <div className="!bg-white rounded-xl border border-[var(--color-border)] p-8 text-center text-[var(--color-text-600)]">Loading groups…</div>
+          ) : filteredGroups.length === 0 ? (
+            <div className="!bg-white rounded-xl border border-[var(--color-border)] p-8 text-center text-[var(--color-text-600)]">No groups found</div>
+          ) : (
+            <div className="space-y-3">
+              {filteredGroups.map((g) => {
+                const isSelected = selectedGroupIds.has(g.id);
+                const isExpanded = expandedGroupIds.has(g.id);
+                return (
+                  <div key={g.id} className={`!bg-white rounded-xl border shadow-sm transition-colors ${isSelected ? 'border-[var(--color-primary)] ring-1 ring-[var(--color-primary)]/20' : 'border-[var(--color-border)]'}`}>
+                    {/* ── Collapsed row ── */}
+                    <div className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4 rounded flex-shrink-0 accent-[var(--color-primary)] cursor-pointer"
+                          checked={isSelected}
+                          onChange={() => toggleSelectGroup(g.id)}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold text-sm text-[var(--color-text-900)] font-mono">{g.groupCode || '—'}</span>
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs capitalize ${getStatusBadge(g.status)}`}>{g.status}</span>
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${g.membersCount >= 3 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{g.membersCount}/3</span>
+                            {getGroupDept(g.groupCode) && <span className="text-xs text-[var(--color-text-600)]">{getGroupDept(g.groupCode)}</span>}
+                          </div>
+                          <p className="text-sm text-[var(--color-text-600)] mt-0.5 truncate">{g.projectName || 'No project name'}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap">
+                        {g.status === 'pending' && (
+                          <>
+                            <Button size="sm" variant="primary" onClick={() => handleGroupStatus(g.id, 'approved')} disabled={isLocked || isBulkGroupProcessing}>
+                              <CheckCircle className="w-3.5 h-3.5 mr-1" />Approve
+                            </Button>
+                            <Button size="sm" variant="destructive" onClick={() => handleGroupStatus(g.id, 'rejected')} disabled={isLocked || isBulkGroupProcessing}>
+                              <XCircle className="w-3.5 h-3.5 mr-1" />Reject
+                            </Button>
+                          </>
+                        )}
+                        <button
+                          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium bg-yellow-400 text-yellow-900 hover:bg-yellow-500 transition-colors disabled:opacity-50"
+                          onClick={() => { setEditingGroup(g); setEditProjectName(g.projectName || ''); setRemovingMemberIds([]); setAddingMemberIds([]); }}
+                          disabled={isLocked}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />Edit
+                        </button>
+                        <button
+                          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50"
+                          onClick={() => setDeletingGroup(g)}
+                          disabled={isLocked}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />Delete
+                        </button>
+                        <button
+                          onClick={() => toggleExpandGroup(g.id)}
+                          className="p-1.5 rounded-lg text-[var(--color-text-600)] hover:bg-[var(--color-surface-alt)] transition-colors"
+                        >
+                          {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* ── Expanded details ── */}
+                    {isExpanded && (
+                      <div className="border-t border-[var(--color-border)] px-4 pb-4 pt-3 grid sm:grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-xs font-semibold text-[var(--color-text-600)] uppercase tracking-wide mb-2">Members</p>
+                          {g.members.length > 0 ? (
+                            <div className="space-y-1.5">
+                              {g.members.map((m) => (
+                                <div key={m.id} className="flex items-center justify-between p-2 bg-[var(--color-surface-alt)] rounded-lg">
+                                  <div>
+                                    <p className="text-sm font-medium text-[var(--color-text-900)]">{m.name || '—'}</p>
+                                    {m.studentId && <p className="text-xs text-[var(--color-text-600)]">{m.studentId}</p>}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-[var(--color-text-400)]">No members</p>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold text-[var(--color-text-600)] uppercase tracking-wide mb-2">Supervisor</p>
+                          {g.supervisorName ? (
+                            <div className="flex items-center justify-between p-2 bg-[var(--color-surface-alt)] rounded-lg">
+                              <p className="text-sm font-medium text-[var(--color-text-900)]">{g.supervisorName}</p>
+                              <button className="text-xs text-[var(--color-primary-600)] hover:underline" onClick={() => { setAssigningGroup(g); setSelectedSupervisorId(''); }}>Change</button>
+                            </div>
+                          ) : (
+                            <button className="text-sm text-[var(--color-primary-600)] hover:underline" onClick={() => { setAssigningGroup(g); setSelectedSupervisorId(''); }}>+ Assign supervisor</button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </>
       )}
 
@@ -1151,88 +1318,6 @@ export function AdminUserManagement() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Registration Details Dialog ── */}
-      <Dialog open={isViewDialogOpen} onOpenChange={(open) => { setIsViewDialogOpen(open); if (!open) { setViewingReg(null); setViewingRegGroup(null); } }}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle>Registration Details</DialogTitle>
-            <DialogDescription>Review all information submitted during registration</DialogDescription>
-          </DialogHeader>
-          {viewingReg && (
-            <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto">
-              <div>
-                <h4 className="text-sm font-semibold text-[var(--color-text-900)] mb-3">Basic Information</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  {[
-                    ['Full Name', viewingReg.name],
-                    ['Email', viewingReg.email],
-                    ['Account Type', viewingReg.accountType],
-                    ['Department', viewingReg.department],
-                    [viewingReg.accountType === 'student' ? 'Student ID' : 'Employee Number',
-                      viewingReg.accountType === 'student' ? viewingReg.studentId : viewingReg.employeeNumber],
-                    ['Submitted At', formatDate(viewingReg.submittedAt)],
-                  ].map(([label, val]) => (
-                    <div key={label} className="p-3 bg-[var(--color-surface-alt)] rounded-lg">
-                      <p className="text-xs text-[var(--color-text-600)]">{label}</p>
-                      <p className="text-sm font-medium text-[var(--color-text-900)] capitalize">{val || '—'}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              {viewingReg.accountType === 'student' && (
-                <div>
-                  <h4 className="text-sm font-semibold text-[var(--color-text-900)] mb-3">
-                    {viewingReg.groupId ? 'Group Assignment' : 'Project Information'}
-                  </h4>
-                  {viewingReg.groupId ? (
-                    <div className="space-y-3">
-                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
-                        This student is joining an existing group. The group will be assigned automatically on approval.
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="p-3 bg-[var(--color-surface-alt)] rounded-lg">
-                          <p className="text-xs text-[var(--color-text-600)]">Group Number</p>
-                          <p className="text-sm font-medium text-[var(--color-text-900)]">
-                            {viewingRegGroup ? (viewingRegGroup.groupCode || `Group ${viewingRegGroup.groupNumber}`) : '—'}
-                          </p>
-                        </div>
-                        <div className="p-3 bg-[var(--color-surface-alt)] rounded-lg">
-                          <p className="text-xs text-[var(--color-text-600)]">Group Project</p>
-                          <p className="text-sm font-medium text-[var(--color-text-900)]">
-                            {viewingRegGroup?.projectName || '—'}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {[['Project Name', viewingReg.projectName], ['Project Idea', viewingReg.projectIdea]].map(([l, v]) => (
-                        <div key={l} className="p-3 bg-[var(--color-surface-alt)] rounded-lg">
-                          <p className="text-xs text-[var(--color-text-600)]">{l}</p>
-                          <p className="text-sm text-[var(--color-text-900)]">{v || '—'}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setIsViewDialogOpen(false); setViewingReg(null); }}>Close</Button>
-            {viewingReg && (
-              <>
-                <Button variant="destructive" onClick={() => handleReject(viewingReg)} disabled={isLocked}>
-                  <XCircle className="w-4 h-4 mr-1" />Reject
-                </Button>
-                <Button variant="primary" onClick={() => handleApprove(viewingReg)} disabled={isLocked}>
-                  <CheckCircle className="w-4 h-4 mr-1" />Approve
-                </Button>
-              </>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* ── Assign Supervisor Dialog ── */}
       <Dialog open={!!assigningGroup} onOpenChange={(open) => { if (!open) { setAssigningGroup(null); setSelectedSupervisorId(''); } }}>

@@ -44,6 +44,8 @@ export interface User {
   activeRole: UserRole;
   /** Course UUID this user coordinates (undefined if not a coordinator) */
   coordinatorCourseId?: string;
+  /** Course code this user coordinates, e.g. 'CPIS-498' (undefined if not a coordinator) */
+  coordinatorCourseCode?: string;
   studentId?: string;
   employeeNumber?: string;
   avatarUrl?: string;

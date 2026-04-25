@@ -98,6 +98,7 @@ export function Topbar({ user, pageTitle, onMenuClick }: TopbarProps) {
                     className={`text-xs font-semibold px-2 py-0.5 rounded-full ${roleBadgeStyle[user.activeRole] ?? ''}`}
                   >
                     {roleLabel[user.activeRole] ?? user.activeRole}
+                    {user.activeRole === 'coordinator' && user.coordinatorCourseCode && ` · ${user.coordinatorCourseCode.replace(/_/g, '-')}`}
                   </span>
                 </div>
                 {/* Show user name in dropdown on mobile (since it's hidden in header) */}

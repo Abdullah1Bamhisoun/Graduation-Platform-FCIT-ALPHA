@@ -1,5 +1,7 @@
 const { supabaseAdmin, supabase } = require('../config/supabase');
 const bcrypt = require('bcryptjs');
+const { queueRegistrationApprovedEmail, queueRegistrationRejectedEmail } = require('../services/queue.service');
+const { APP_URL } = require('../config/env');
 
 /**
  * POST /api/auth/submit-registration
@@ -203,62 +205,76 @@ async function approveRegistration(req, res) {
 
       if (registration.project_name) {
         // ── HAS IDEA: auto-create a new group ──────────────────────────────
-        // Find the highest existing group_number for this course
-        let groupQuery = supabaseAdmin
-          .from('groups')
-          .select('group_number')
-          .order('group_number', { ascending: false })
-          .limit(1);
+        // Check if student already has a group for this course (idempotency guard)
+        const { data: existingMembership } = await supabaseAdmin
+          .from('group_members')
+          .select('group_id, group:groups!group_id(course_id)')
+          .eq('student_id', userId)
+          .maybeSingle();
 
-        if (resolvedCourseId) {
-          groupQuery = groupQuery.eq('course_id', resolvedCourseId);
-        }
+        const alreadyInCourseGroup =
+          existingMembership &&
+          (!resolvedCourseId || existingMembership.group?.course_id === resolvedCourseId);
 
-        const { data: existingGroups, error: numError } = await groupQuery;
+        if (alreadyInCourseGroup) {
+          console.warn(`approveRegistration: student ${userId} already has a group for course ${resolvedCourseId}, skipping group creation`);
+        } else {
+          // Find the first available group_number for this course (fills gaps left by deletions)
+          let groupQuery = supabaseAdmin
+            .from('groups')
+            .select('group_number')
+            .order('group_number', { ascending: true });
 
-        if (!numError) {
-          const lastNum = existingGroups?.[0]?.group_number ?? 0;
-          if (lastNum >= 50) {
-            console.warn(`Group limit reached for course ${resolvedCourseId}`);
-          } else {
-            const nextNum = lastNum + 1;
+          if (resolvedCourseId) {
+            groupQuery = groupQuery.eq('course_id', resolvedCourseId);
+          }
 
-            // New group code format: DEPT_SECTION_COURSENUM_YEAR_GROUPNUM_GENDER
-            // Example: IS_13_499_2026_01_M
-            // Section defaults to term code (01/02/03) for auto-created groups
-            const dept        = (registration.department || 'IS').toUpperCase();
-            const section     = termCode; // e.g. '01', '02', '03'
-            const courseNum   = (registration.course || '000').replace(/[^0-9]/g, '').slice(-3);
-            const groupNum    = String(nextNum).padStart(2, '0');
-            const genderCode  = registration.gender === 'female' ? 'F' : 'M';
-            const groupCode   = `${dept}_${section}_${courseNum}_${year}_${groupNum}_${genderCode}`;
+          const { data: existingGroups, error: numError } = await groupQuery;
 
-            const { data: newGroup, error: groupError } = await supabaseAdmin
-              .from('groups')
-              .insert({
-                group_code: groupCode,
-                group_number: nextNum,
-                course_id: resolvedCourseId,
-                course_number: courseNum || null,
-                department: registration.department || null,
-                gender: registration.gender || null,
-                project_name: registration.project_name,
-                project_description: registration.project_idea || '',
-                is_locked: true,
-                status: 'pending',
-              })
-              .select('id')
-              .single();
-
-            if (groupError) {
-              console.error('Error creating group:', groupError);
+          if (!numError) {
+            const usedNumbers = new Set((existingGroups || []).map((g) => g.group_number));
+            let nextNum = 1;
+            while (usedNumbers.has(nextNum)) nextNum++;
+            if (nextNum > 50) {
+              console.warn(`Group limit reached for course ${resolvedCourseId}`);
             } else {
-              const { error: memberInsertError } = await supabaseAdmin.from('group_members').insert({
-                group_id: newGroup.id,
-                student_id: userId,
-              });
-              if (memberInsertError) {
-                console.error(`approveRegistration: failed to add student ${userId} to new group ${newGroup.id}:`, memberInsertError.message);
+              // New group code format: DEPT_SECTION_COURSENUM_YEAR_GROUPNUM_GENDER
+              const dept      = (registration.department || 'IS').toUpperCase();
+              const section   = termCode; // e.g. '01', '02', '03'
+              const courseNum = (registration.course || '000').replace(/[^0-9]/g, '').slice(-3);
+              const groupNum  = String(nextNum).padStart(2, '0');
+              const genderCode = registration.gender === 'female' ? 'F' : 'M';
+              const groupCode  = `${dept}_${section}_${courseNum}_${year}_${groupNum}_${genderCode}`;
+
+              const { data: newGroup, error: groupError } = await supabaseAdmin
+                .from('groups')
+                .insert({
+                  group_code: groupCode,
+                  group_number: nextNum,
+                  course_id: resolvedCourseId,
+                  course_number: courseNum || null,
+                  department: registration.department || null,
+                  gender: registration.gender || null,
+                  project_name: registration.project_name,
+                  project_description: registration.project_idea || '',
+                  is_locked: true,
+                  status: 'pending',
+                })
+                .select('id')
+                .single();
+
+              if (groupError) {
+                console.error('Error creating group:', groupError);
+              } else {
+                const { error: memberInsertError } = await supabaseAdmin
+                  .from('group_members')
+                  .upsert(
+                    { group_id: newGroup.id, student_id: userId },
+                    { onConflict: 'group_id,student_id', ignoreDuplicates: true }
+                  );
+                if (memberInsertError) {
+                  console.error(`approveRegistration: failed to add student ${userId} to new group ${newGroup.id}:`, memberInsertError.message);
+                }
               }
             }
           }
@@ -331,6 +347,13 @@ async function approveRegistration(req, res) {
       course_id: registration.course_id || null,
     });
     if (approvalInsertError) console.error('Error inserting approval record:', approvalInsertError);
+
+    // Send approval email — fire-and-forget, never blocks the response
+    queueRegistrationApprovedEmail(registration.email, {
+      name: registration.name,
+      accountType: registration.account_type,
+      loginUrl: `${APP_URL}/login`,
+    }).catch((err) => console.error('Failed to queue registration-approved email:', err.message));
 
     res.json({
       success: true,
@@ -429,6 +452,12 @@ async function rejectRegistration(req, res) {
       course_id: registration.course_id || null,
     });
     if (rejectionInsertError) console.error('Error inserting rejection record:', rejectionInsertError);
+
+    // Send rejection email — fire-and-forget, never blocks the response
+    queueRegistrationRejectedEmail(registration.email, {
+      name: registration.name,
+      accountType: registration.account_type,
+    }).catch((err) => console.error('Failed to queue registration-rejected email:', err.message));
 
     res.json({
       success: true,
