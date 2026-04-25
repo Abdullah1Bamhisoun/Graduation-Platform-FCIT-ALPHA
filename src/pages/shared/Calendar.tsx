@@ -1,6 +1,6 @@
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, Trash2, CalendarPlus } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { DatePicker } from '../../components/ui/DatePicker';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
@@ -17,6 +17,82 @@ import { apiUrl, apiFetch } from '@/lib/api';
 interface SupervisorGroup {
   id: string;
   name: string;
+}
+
+function parseEventDates(event: CalendarEvent): { start: Date; end: Date; allDay: boolean } {
+  const [year, month, day] = event.date.split('-').map(Number);
+  if (event.time) {
+    const m12 = event.time.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    const m24 = event.time.trim().match(/^(\d{1,2}):(\d{2})$/);
+    let h = -1, min = 0;
+    if (m12) {
+      h = parseInt(m12[1]); min = parseInt(m12[2]);
+      if (m12[3].toUpperCase() === 'PM' && h !== 12) h += 12;
+      if (m12[3].toUpperCase() === 'AM' && h === 12) h = 0;
+    } else if (m24) {
+      h = parseInt(m24[1]); min = parseInt(m24[2]);
+    }
+    if (h >= 0) {
+      const start = new Date(Date.UTC(year, month - 1, day, h, min));
+      return { start, end: new Date(start.getTime() + 60 * 60 * 1000), allDay: false };
+    }
+  }
+  const start = new Date(Date.UTC(year, month - 1, day));
+  return { start, end: new Date(Date.UTC(year, month - 1, day + 1)), allDay: true };
+}
+
+function buildGoogleCalUrl(event: CalendarEvent): string {
+  const ymd    = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, '');
+  const ymdhms = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const { start, end, allDay } = parseEventDates(event);
+  const dates = allDay ? `${ymd(start)}/${ymd(end)}` : `${ymdhms(start)}/${ymdhms(end)}`;
+  const params = new URLSearchParams({ action: 'TEMPLATE', text: event.title, dates });
+  if (event.location) params.set('location', event.location);
+  return `https://calendar.google.com/calendar/render?${params}`;
+}
+
+function exportAllToIcs(events: CalendarEvent[]) {
+  const ymd    = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, '');
+  const ymdhms = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+
+  const vevents = events.map((e) => {
+    const { start, end, allDay } = parseEventDates(e);
+    const dtStart = allDay
+      ? `DTSTART;VALUE=DATE:${ymd(start)}`
+      : `DTSTART:${ymdhms(start)}`;
+    const dtEnd = allDay
+      ? `DTEND;VALUE=DATE:${ymd(end)}`
+      : `DTEND:${ymdhms(end)}`;
+    const lines = [
+      'BEGIN:VEVENT',
+      `UID:${e.id}@fcit-platform`,
+      dtStart,
+      dtEnd,
+      `SUMMARY:${e.title.replace(/,/g, '\\,')}`,
+      e.location ? `LOCATION:${e.location.replace(/,/g, '\\,')}` : null,
+      `CATEGORIES:${e.type.toUpperCase()}`,
+      'END:VEVENT',
+    ].filter(Boolean).join('\r\n');
+    return lines;
+  }).join('\r\n');
+
+  const ics = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//FCIT Graduation Platform//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    vevents,
+    'END:VCALENDAR',
+  ].join('\r\n');
+
+  const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'fcit-events.ics';
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export function Calendar() {
@@ -305,13 +381,16 @@ export function Calendar() {
                     {dayEvents.slice(0, 2).map((event, idx) => {
                       const isPast = event.date < new Date().toISOString().slice(0, 10);
                       return (
-                        <div
+                        <a
                           key={idx}
+                          href={buildGoogleCalUrl(event)}
+                          target="_blank"
+                          rel="noopener noreferrer"
                           className={`block w-full text-[11px] leading-snug px-1 py-0.5 rounded mb-0.5 wrap-break-word line-clamp-2 font-medium ${isPast ? 'bg-gray-100! text-gray-400! border-gray-300! border' : eventTypeColors[event.type]}`}
-                          title={event.title}
+                          title={`${event.title} — Add to Google Calendar`}
                         >
                           {event.title}
-                        </div>
+                        </a>
                       );
                     })}
                     {dayEvents.length > 2 && (
@@ -336,33 +415,52 @@ export function Calendar() {
               </h2>
             </div>
             <div className="p-6 space-y-4">
-              {calendarEvents.filter((event) => {
+              {(() => {
                 const monthStart = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-01`;
                 const monthEnd   = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate()).padStart(2, '0')}`;
                 const today      = new Date().toISOString().slice(0, 10);
                 const isCurrentMonth = currentMonth.getFullYear() === new Date().getFullYear() && currentMonth.getMonth() === new Date().getMonth();
-                return event.date >= (isCurrentMonth ? today : monthStart) && event.date <= monthEnd;
-              }).map((event) => (
-                <div key={event.id} className={`p-4 border rounded-lg ${eventTypeColors[event.type]}`}>
-                  <div className="flex items-start justify-between gap-2">
-                    <h3 className="mb-1">{event.title}</h3>
-                    {canDeleteEvent(event) && (
+                const upcoming = calendarEvents.filter((e) =>
+                  e.date >= (isCurrentMonth ? today : monthStart) && e.date <= monthEnd
+                );
+                return (
+                  <>
+                    {upcoming.length > 0 && (
                       <button
-                        onClick={() => handleDeleteEvent(event.id)}
-                        className="flex-shrink-0 p-1 rounded hover:bg-red-100 text-red-500 hover:text-red-700 transition-colors"
-                        title="Delete event"
+                        onClick={() => exportAllToIcs(upcoming)}
+                        className="flex items-center justify-center gap-2 w-full px-3 py-2 bg-[#4285f4] hover:bg-[#3367d6] text-white text-sm font-semibold rounded-lg transition-colors"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <CalendarPlus className="w-4 h-4" />
+                        Add All to Google Calendar
                       </button>
                     )}
-                  </div>
-                  <p className="mb-1">
-                    {new Date(event.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                  </p>
-                  {event.time && <p>{event.time}</p>}
-                  {event.location && <p>{event.location}</p>}
-                </div>
-              ))}
+                    {upcoming.map((event) => (
+                      <div key={event.id} className={`p-4 border rounded-lg ${eventTypeColors[event.type]}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <h3 className="mb-1">{event.title}</h3>
+                          {canDeleteEvent(event) && (
+                            <button
+                              onClick={() => handleDeleteEvent(event.id)}
+                              className="shrink-0 p-1 rounded hover:bg-red-100 text-red-500 hover:text-red-700 transition-colors"
+                              title="Delete event"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        <p className="mb-1">
+                          {new Date(event.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </p>
+                        {event.time && <p>{event.time}</p>}
+                        {event.location && <p>{event.location}</p>}
+                      </div>
+                    ))}
+                    {upcoming.length === 0 && (
+                      <p className="text-sm text-(--color-text-500) text-center py-4">No upcoming events this month.</p>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
 
