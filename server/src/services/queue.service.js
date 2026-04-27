@@ -78,6 +78,9 @@ function startWorker() {
         case 'discussion-notification':
           await emailService.sendDiscussionNotification(payload.emails, payload.data);
           break;
+        case 'week-opened':
+          await emailService.sendWeekOpened(payload.emails, payload.data);
+          break;
         case 'registration-approved':
           await emailService.sendRegistrationApproved(payload.to, payload.data);
           break;
@@ -213,6 +216,29 @@ async function queueDiscussionNotificationEmail(emails, data) {
 }
 
 /**
+ * Queue a week-opened notification email to students.
+ * Pass { delay } (ms) to fire at a future time (e.g. when open_at arrives).
+ * @param {string[]} emails
+ * @param {{ weekNumber: number, courseType: string, appUrl?: string }} data
+ * @param {{ delay?: number }} options
+ */
+async function queueWeekOpenedEmail(emails, data, { delay = 0 } = {}) {
+  if (!isRedisReady()) {
+    const send = () => emailService.sendWeekOpened(emails, data).catch((err) =>
+      console.error('[queue] Fallback week-opened email failed:', err.message)
+    );
+    if (delay > 0) setTimeout(send, delay);
+    else send();
+    return;
+  }
+  await getQueue().add(
+    'send-week-opened',
+    { type: 'week-opened', payload: { emails, data } },
+    { delay },
+  );
+}
+
+/**
  * Queue a registration-approved email to the applicant.
  * @param {string} to
  * @param {{ name: string, accountType: string, loginUrl?: string }} data
@@ -248,6 +274,7 @@ startWorker();
 module.exports = {
   queueAnnouncementEmail,
   queueEmail,
+  queueWeekOpenedEmail,
   queueMeetingInvitationEmail,
   queueMeetingReminderEmail,
   queueMeetingCancelledEmail,

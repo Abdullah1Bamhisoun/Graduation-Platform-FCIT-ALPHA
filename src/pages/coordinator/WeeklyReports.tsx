@@ -747,7 +747,7 @@ $$;`}</pre>
                     />
                   </div>
                   <p className="text-xs text-[var(--color-text-500)]">
-                    Students will be notified by email 24 hours before this deadline.
+                    Students will be notified by email when this week is opened.
                   </p>
                 </div>
 

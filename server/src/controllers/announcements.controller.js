@@ -142,12 +142,13 @@ async function listAnnouncements(req, res) {
       }
     }
 
-    // Coordinators (no role param): only see announcements that explicitly target
-    // 'coordinator'. This is role-based, not author-based, so a user who is both
-    // coordinator and supervisor never sees their supervisor-created announcements
-    // while in coordinator mode.
+    // Coordinators: only see announcements they authored that are course-wide
+    // (group_id IS NULL). The group_id null check is what separates coordinator-
+    // created announcements from supervisor-created group announcements — even
+    // when both roles belong to the same user account.
     if (!role && req.user?.activeRole === 'coordinator') {
-      query = query.contains('target_roles', ['coordinator']);
+      query = query.eq('author_id', req.user.id);
+      // group_id IS NULL is enforced below in the group-scope section
     }
 
     // Students never see scheduled (future) announcements.
@@ -187,14 +188,19 @@ async function listAnnouncements(req, res) {
     }
 
     // ── Apply course-scoped filter ────────────────────────────────────────────
-    // Include announcements that:
-    //   (a) belong to any of the viewer's courses, OR
-    //   (b) are platform-wide / admin-posted (course_id IS NULL)
-    if (viewerCourseIds.length > 0) {
+    // Coordinators: only their assigned course (no platform-wide fallback) so
+    // they never see other courses' announcements.
+    // Students / supervisors: their courses + platform-wide (course_id IS NULL).
+    if (req.user?.activeRole === 'coordinator') {
+      if (viewerCourseIds.length > 0) {
+        query = query.eq('course_id', viewerCourseIds[0]);
+      } else {
+        // No course assigned — restrict to own authored posts only
+        query = query.eq('author_id', req.user.id);
+      }
+    } else if (viewerCourseIds.length > 0) {
       const courseFilter = viewerCourseIds.map((id) => `course_id.eq.${id}`).join(',');
       query = query.or(`${courseFilter},course_id.is.null`);
-    } else if (req.user?.activeRole === 'coordinator') {
-      query = query.eq('author_id', req.user.id);
     }
 
     // ── Apply group-scoped filter (migration 006) ─────────────────────────────
@@ -317,12 +323,6 @@ async function createAnnouncement(req, res) {
     let courseId        = req.user.coordinatorCourseId ?? null;
     let resolvedGroupId = null;
     let effectiveRoles  = targetRoles;
-
-    // Coordinator-created announcements always include 'coordinator' so they
-    // remain visible in the coordinator management view.
-    if (isCoordinator && !effectiveRoles.includes('coordinator')) {
-      effectiveRoles = [...effectiveRoles, 'coordinator'];
-    }
 
     if (isSupervisor) {
       if (!bodyGroupId) {

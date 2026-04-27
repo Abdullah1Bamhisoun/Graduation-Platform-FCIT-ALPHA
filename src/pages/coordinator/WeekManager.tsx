@@ -81,7 +81,7 @@ export function CoordinatorWeekManager() {
     setOpenTarget(null);
     setActionLoading(ws.id);
     try {
-      await openWeek(ws.id, user.id);
+      await openWeek(ws.id, user.id, user.coordinatorCourseId ?? undefined);
       await refresh();
       toast.success(`Week ${ws.weekNumber} opened`);
     } catch (err: any) {

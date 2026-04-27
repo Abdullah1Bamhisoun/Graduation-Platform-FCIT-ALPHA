@@ -285,7 +285,7 @@ async function createEvent(req, res) {
       ? ['student', 'supervisor', 'coordinator']
       : isSupervisor
         ? ['student']                          // supervisor events target their group's students
-        : ['student', 'supervisor', 'coordinator']; // coordinator events visible to coordinator too
+        : ['student', 'supervisor'];
 
     try {
       const annPayload = {

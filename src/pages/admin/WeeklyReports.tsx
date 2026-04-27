@@ -767,6 +767,10 @@ $$;`}</pre>
                     Current deadline: <strong>{new Date(deadlineTarget.closeAt).toLocaleString()}</strong>
                   </div>
                 )}
+
+                <p className="text-xs text-[var(--color-text-500)]">
+                  Students will be notified by email when this week is opened.
+                </p>
               </div>
 
               <div className="flex items-center justify-between gap-3 p-5 border-t border-[var(--color-border)]">

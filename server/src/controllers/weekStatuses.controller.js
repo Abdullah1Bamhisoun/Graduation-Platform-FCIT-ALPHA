@@ -1,5 +1,6 @@
 const { supabaseAdmin } = require('../config/supabase');
 const emailService = require('../services/email.service');
+const { queueWeekOpenedEmail } = require('../services/queue.service');
 
 /**
  * Seed closed rows for a course type if the table is empty for it.
@@ -236,7 +237,7 @@ async function setDeadline(req, res) {
 
     res.json({ success: true });
 
-    // Send "week opened" email + schedule 24h reminder (best-effort, non-blocking)
+    // Queue "week opened" email — fires at open_at if in the future, immediately otherwise
     ;(async () => {
       try {
         const { data: weekRow } = await supabaseAdmin
@@ -259,33 +260,14 @@ async function setDeadline(req, res) {
           return;
         }
 
-        // Notify students that the week is now open
-        await emailService.sendWeekOpened(emails, {
+        const delay = open_at ? Math.max(0, new Date(open_at).getTime() - Date.now()) : 0;
+        await queueWeekOpenedEmail(emails, {
           weekNumber: weekRow.week_number,
           courseType: weekRow.course_type,
-        });
-        console.log(`[setDeadline] Week-opened email sent to ${emails.length} student(s) for week ${weekRow.week_number}`);
-
-        // Schedule 24h pre-deadline reminder
-        if (close_at) {
-          const deadline = new Date(close_at);
-          const msUntilReminder = deadline.getTime() - 24 * 60 * 60 * 1000 - Date.now();
-          if (msUntilReminder > 0) {
-            setTimeout(async () => {
-              try {
-                await emailService.sendDeadlineReminder(emails, {
-                  weekNumber: weekRow.week_number,
-                  courseType: weekRow.course_type,
-                  closeAt: close_at,
-                });
-              } catch (e) {
-                console.error('[setDeadline] Failed to send deadline-reminder emails:', e);
-              }
-            }, msUntilReminder);
-          }
-        }
+        }, { delay });
+        console.log(`[setDeadline] Week-opened email queued for week ${weekRow.week_number} with delay ${delay}ms`);
       } catch (e) {
-        console.error('[setDeadline] Failed to send emails:', e);
+        console.error('[setDeadline] Failed to queue week-opened email:', e);
       }
     })();
   } catch (err) {
