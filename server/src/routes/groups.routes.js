@@ -32,8 +32,12 @@ router.get(
   async (req, res) => {
     try {
       const { supabaseAdmin } = require('../config/supabase');
+      const { cacheGet, cacheSet, TTL } = require('../utils/cache');
       const userId = req.user.id;
-      console.log('[groups/mine] userId:', userId, 'roles:', req.user.roles);
+      const ck = `groups:mine:${userId}`;
+
+      const cached = await cacheGet(ck);
+      if (cached) return res.json(cached);
 
       const { data, error } = await supabaseAdmin
         .from('groups')
@@ -48,7 +52,7 @@ router.get(
         name: g.project_name || g.group_code || `Group ${g.group_number}`,
       }));
 
-      console.log('[groups/mine] found', groups.length, 'groups');
+      await cacheSet(ck, groups, TTL.LONG);
       return res.json(groups);
     } catch (err) {
       console.error('[groups/mine]', err.message);

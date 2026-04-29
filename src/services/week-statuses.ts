@@ -2,6 +2,22 @@ import { supabase } from '../lib/supabase';
 import { apiUrl, apiFetch } from '../lib/api';
 import type { WeekStatus, WeekDisplayStatus } from '../types';
 
+// ─── Module-level cache ───────────────────────────────────────────────────────
+
+const WEEK_STATUS_CACHE_TTL = 60 * 1000; // 1 minute
+
+interface CacheEntry { data: WeekStatus[]; fetchedAt: number }
+
+const _cache = new Map<string, CacheEntry>();
+
+function _isFresh(entry: CacheEntry | undefined): entry is CacheEntry {
+  return !!entry && Date.now() - entry.fetchedAt < WEEK_STATUS_CACHE_TTL;
+}
+
+export function clearWeekStatusesCache() {
+  _cache.clear();
+}
+
 /**
  * Maps a raw DB row to the WeekStatus interface.
  */
@@ -90,13 +106,18 @@ export async function getWeekStatuses(
   _semester?: string,
   _department?: string
 ): Promise<WeekStatus[]> {
+  const cached = _cache.get(courseType);
+  if (_isFresh(cached)) return cached.data;
+
   const token = await getToken();
   const res = await apiFetch(apiUrl(`/api/week-statuses?courseType=${courseType}`), {
     headers: { Authorization: `Bearer ${token}` },
   });
   await checkResponse(res, 'Failed to fetch week statuses');
-  const data = await res.json();
-  return (data || []).map(mapRow);
+  const raw = await res.json();
+  const data = (raw || []).map(mapRow);
+  _cache.set(courseType, { data, fetchedAt: Date.now() });
+  return data;
 }
 
 /** Open a week (sets is_open = true, was_opened = true). */
@@ -112,6 +133,7 @@ export async function openWeek(
     body: courseId ? JSON.stringify({ courseId }) : undefined,
   });
   await checkResponse(res, 'Failed to open week');
+  clearWeekStatusesCache();
 }
 
 /** Close a week (sets is_open = false). Cannot close a locked week. */
@@ -122,6 +144,7 @@ export async function closeWeek(weekStatusId: string): Promise<void> {
     headers: { Authorization: `Bearer ${token}` },
   });
   await checkResponse(res, 'Failed to close week');
+  clearWeekStatusesCache();
 }
 
 /** Lock a week permanently (must have been opened before). */
@@ -132,6 +155,7 @@ export async function lockWeek(weekStatusId: string): Promise<void> {
     headers: { Authorization: `Bearer ${token}` },
   });
   await checkResponse(res, 'Failed to lock week');
+  clearWeekStatusesCache();
 }
 
 /**
@@ -155,6 +179,7 @@ export async function setWeekDeadline(
     body: JSON.stringify({ open_at: openAt, close_at: closeAt, courseId: courseId ?? null }),
   });
   await checkResponse(res, 'Failed to set deadline');
+  clearWeekStatusesCache();
 }
 
 /** Returns the number of weeks that were opened (for grade calculation). */

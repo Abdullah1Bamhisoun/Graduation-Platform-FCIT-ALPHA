@@ -54,6 +54,10 @@ export function timeAgo(isoString: string): string {
 }
 
 export async function getAdminStats(courseId?: string): Promise<AdminStats> {
+  const key = courseId ?? '';
+  const cached = _adminStatsCache.get(key);
+  if (_isFresh(cached)) return cached.data;
+
   try {
     const now = new Date().toISOString();
     const in7Days = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -99,13 +103,15 @@ export async function getAdminStats(courseId?: string): Promise<AdminStats> {
       const totalStudents = studentResult.count ?? 0;
       const completedProjects = assessmentResult.count ?? 0;
 
-      return {
+      const result: AdminStats = {
         totalStudents,
         overdueSubmissions: overdueCount,
         upcomingDeadlines: upcomingResult.count ?? 0,
         completedProjects,
         completionRate: totalStudents > 0 ? Math.round((completedProjects / totalStudents) * 100) : 0,
       };
+      _adminStatsCache.set(key, { data: result, fetchedAt: Date.now() });
+      return result;
     }
 
     // Admin scope: all courses
@@ -136,13 +142,15 @@ export async function getAdminStats(courseId?: string): Promise<AdminStats> {
     const totalStudents = studentResult.count ?? 0;
     const completedProjects = assessmentResult.count ?? 0;
 
-    return {
+    const result: AdminStats = {
       totalStudents,
       overdueSubmissions: overdueCount,
       upcomingDeadlines: upcomingResult.count ?? 0,
       completedProjects,
       completionRate: totalStudents > 0 ? Math.round((completedProjects / totalStudents) * 100) : 0,
     };
+    _adminStatsCache.set(key, { data: result, fetchedAt: Date.now() });
+    return result;
   } catch (error) {
     console.error('Error fetching admin stats:', error);
     return { totalStudents: 0, overdueSubmissions: 0, upcomingDeadlines: 0, completedProjects: 0, completionRate: 0 };
@@ -152,6 +160,10 @@ export async function getAdminStats(courseId?: string): Promise<AdminStats> {
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export async function getSubmissionVolumeLastWeek(courseId?: string): Promise<SubmissionVolumeDay[]> {
+  const key = courseId ?? '';
+  const cached = _submissionVolumeCache.get(key);
+  if (_isFresh(cached)) return cached.data;
+
   try {
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
@@ -184,7 +196,9 @@ export async function getSubmissionVolumeLastWeek(courseId?: string): Promise<Su
       if (entry) entry.count++;
     });
 
-    return days.map(({ day, count }) => ({ day, count }));
+    const result = days.map(({ day, count }) => ({ day, count }));
+    _submissionVolumeCache.set(key, { data: result, fetchedAt: Date.now() });
+    return result;
   } catch (error) {
     console.error('Error fetching submission volume:', error);
     return [];
@@ -192,6 +206,10 @@ export async function getSubmissionVolumeLastWeek(courseId?: string): Promise<Su
 }
 
 export async function getEvaluationProgressByCourse(courseId?: string): Promise<EvaluationProgress> {
+  const key = courseId ?? '';
+  const cached = _evaluationProgressCache.get(key);
+  if (_isFresh(cached)) return cached.data;
+
   try {
     let courses: { id: string; code: string }[] = [];
 
@@ -242,7 +260,9 @@ export async function getEvaluationProgressByCourse(courseId?: string): Promise<
     const overallEvaluated = courseResults.reduce((sum, c) => sum + c.evaluated, 0);
     const overallPercent = overallTotal > 0 ? Math.round((overallEvaluated / overallTotal) * 100) : 0;
 
-    return { courses: courseResults, overallEvaluated, overallTotal, overallPercent };
+    const result: EvaluationProgress = { courses: courseResults, overallEvaluated, overallTotal, overallPercent };
+    _evaluationProgressCache.set(key, { data: result, fetchedAt: Date.now() });
+    return result;
   } catch (error) {
     console.error('Error fetching evaluation progress:', error);
     return { courses: [], overallEvaluated: 0, overallTotal: 0, overallPercent: 0 };
@@ -250,6 +270,10 @@ export async function getEvaluationProgressByCourse(courseId?: string): Promise<
 }
 
 export async function getRecentActivity(limit = 5): Promise<ActivityEntry[]> {
+  const key = String(limit);
+  const cached = _recentActivityCache.get(key);
+  if (_isFresh(cached)) return cached.data;
+
   try {
     const { data, error } = await supabase
       .from('audit_log')
@@ -260,12 +284,14 @@ export async function getRecentActivity(limit = 5): Promise<ActivityEntry[]> {
     if (error) throw error;
 
     const colors = ['blue', 'green', 'purple', 'amber', 'gray'];
-    return (data || []).map((entry: any, index: number) => ({
+    const result = (data || []).map((entry: any, index: number) => ({
       id: entry.id,
       message: `${entry.action}${entry.entity ? ' ' + entry.entity : ''}${entry.context ? ' — ' + entry.context : ''}`,
       time: timeAgo(entry.timestamp),
       color: colors[index % colors.length],
     }));
+    _recentActivityCache.set(key, { data: result, fetchedAt: Date.now() });
+    return result;
   } catch (error) {
     console.error('Error fetching recent activity:', error);
     return [];
@@ -310,6 +336,34 @@ export interface CourseKpi {
   kpi: KpiData;
 }
 
+// ─── Module-level cache ───────────────────────────────────────────────────────
+
+const DASHBOARD_CACHE_TTL = 2 * 60 * 1000; // 2 minutes
+
+interface CacheEntry<T> { data: T; fetchedAt: number }
+
+function _isFresh<T>(entry: CacheEntry<T> | undefined): entry is CacheEntry<T> {
+  return !!entry && Date.now() - entry.fetchedAt < DASHBOARD_CACHE_TTL;
+}
+
+const _adminStatsCache          = new Map<string, CacheEntry<AdminStats>>();
+const _submissionVolumeCache    = new Map<string, CacheEntry<SubmissionVolumeDay[]>>();
+const _evaluationProgressCache  = new Map<string, CacheEntry<EvaluationProgress>>();
+const _recentActivityCache      = new Map<string, CacheEntry<ActivityEntry[]>>();
+const _kpiDataCache             = new Map<string, CacheEntry<KpiData>>();
+const _allCourseKpisCache       = new Map<string, CacheEntry<CourseKpi[]>>();
+const _upcomingEventsCache      = new Map<string, CacheEntry<UpcomingEvent[]>>();
+
+export function clearDashboardCache() {
+  _adminStatsCache.clear();
+  _submissionVolumeCache.clear();
+  _evaluationProgressCache.clear();
+  _recentActivityCache.clear();
+  _kpiDataCache.clear();
+  _allCourseKpisCache.clear();
+  _upcomingEventsCache.clear();
+}
+
 const KPI_EMPTY: KpiData = {
   totalActiveProjects: 0, sparkline: [0, 0, 0, 0, 0, 0],
   submissionActivityRate: 0, activeGroupsCount: 0, totalGroupsCount: 0,
@@ -318,6 +372,10 @@ const KPI_EMPTY: KpiData = {
 };
 
 export async function getKpiData(courseId?: string, since?: string): Promise<KpiData> {
+  const key = `${courseId ?? ''}:${since ?? ''}`;
+  const cached = _kpiDataCache.get(key);
+  if (_isFresh(cached)) return cached.data;
+
   try {
     const now = new Date().toISOString();
     const sixWeeksAgo  = new Date(Date.now() - 42 * 24 * 3_600_000).toISOString();
@@ -391,7 +449,7 @@ export async function getKpiData(courseId?: string, since?: string): Promise<Kpi
       if (idx >= 0) weekCounts[idx]++;
     });
 
-    return {
+    const result: KpiData = {
       totalActiveProjects: totalGroups,
       sparkline: weekCounts,
       submissionActivityRate,
@@ -405,6 +463,8 @@ export async function getKpiData(courseId?: string, since?: string): Promise<Kpi
       overdueGroups,
       totalAttentionCount: pendingGroupIds.size + overdueGroups,
     };
+    _kpiDataCache.set(key, { data: result, fetchedAt: Date.now() });
+    return result;
   } catch (err) {
     console.error('Error fetching KPI data:', err);
     return { ...KPI_EMPTY };
@@ -412,10 +472,14 @@ export async function getKpiData(courseId?: string, since?: string): Promise<Kpi
 }
 
 export async function getAllCourseKpis(since?: string): Promise<CourseKpi[]> {
+  const key = since ?? '';
+  const cached = _allCourseKpisCache.get(key);
+  if (_isFresh(cached)) return cached.data;
+
   try {
     const { data: courses } = await supabase.from('courses').select('id, code, name').order('code');
     if (!courses?.length) return [];
-    return Promise.all(
+    const result = await Promise.all(
       (courses as any[]).map(async (c) => ({
         courseId: c.id as string,
         courseCode: (c.code as string).replace('_', '-'),
@@ -423,6 +487,8 @@ export async function getAllCourseKpis(since?: string): Promise<CourseKpi[]> {
         kpi: await getKpiData(c.id, since),
       }))
     );
+    _allCourseKpisCache.set(key, { data: result, fetchedAt: Date.now() });
+    return result;
   } catch (err) {
     console.error('Error fetching all course KPIs:', err);
     return [];
@@ -430,6 +496,10 @@ export async function getAllCourseKpis(since?: string): Promise<CourseKpi[]> {
 }
 
 export async function getUpcomingEvents(limit?: number, courseId?: string): Promise<UpcomingEvent[]> {
+  const key = `${limit ?? ''}:${courseId ?? ''}`;
+  const cached = _upcomingEventsCache.get(key);
+  if (_isFresh(cached)) return cached.data;
+
   try {
     const now = new Date();
     const nowIso = now.toISOString();
@@ -487,7 +557,9 @@ export async function getUpcomingEvents(limit?: number, courseId?: string): Prom
       .sort((a, b) => a._sortDate.getTime() - b._sortDate.getTime())
       .map(({ _sortDate: _d, ...event }) => event);
 
-    return limit !== undefined ? merged.slice(0, limit) : merged;
+    const result = limit !== undefined ? merged.slice(0, limit) : merged;
+    _upcomingEventsCache.set(key, { data: result, fetchedAt: Date.now() });
+    return result;
   } catch (error) {
     console.error('Error fetching upcoming events:', error);
     return [];

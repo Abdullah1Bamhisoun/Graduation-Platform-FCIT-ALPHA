@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useDebounce } from '../../hooks/useDebounce';
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
 import { useLockStatus } from '../../hooks/useLockStatus';
@@ -637,8 +638,11 @@ export function AdminUserManagement() {
   });
 
   // ── Filtered data ─────────────────────────────────────────────────────────
-  const filteredUsers = users.filter((u) => {
-    const q = searchQuery.toLowerCase();
+  const debouncedSearchQuery = useDebounce(searchQuery, 200);
+  const debouncedGroupSearch = useDebounce(groupSearch, 200);
+
+  const filteredUsers = useMemo(() => users.filter((u) => {
+    const q = debouncedSearchQuery.toLowerCase();
     const matchesSearch =
       u.name.toLowerCase().includes(q) ||
       u.email.toLowerCase().includes(q) ||
@@ -650,10 +654,10 @@ export function AdminUserManagement() {
     const matchesSemester = filterSemester === 'all' || studentSemesterMap.get(u.id) === filterSemester;
     const matchesCourse = filterCourse === 'all' || studentCourseMap.get(u.id) === filterCourse;
     return matchesSearch && matchesRole && matchesDept && matchesGender && matchesSemester && matchesCourse;
-  });
+  }), [users, debouncedSearchQuery, filterRole, filterDept, filterGender, filterSemester, filterCourse, studentSemesterMap, studentCourseMap]);
 
-  const filteredGroups = groups.filter((g) => {
-    const q = groupSearch.toLowerCase();
+  const filteredGroups = useMemo(() => groups.filter((g) => {
+    const q = debouncedGroupSearch.toLowerCase();
     const matchesSearch =
       (g.projectName ?? '').toLowerCase().includes(q) ||
       String(g.groupNumber ?? '').includes(q) ||
@@ -665,7 +669,7 @@ export function AdminUserManagement() {
     const matchesSemester = groupFilterSemester === 'all' || getGroupSemester(g.groupCode) === groupFilterSemester;
     const matchesCourse = groupFilterCourse === 'all' || getGroupCourse(g.groupCode) === groupFilterCourse;
     return matchesSearch && matchesDept && matchesStatus && matchesGender && matchesSemester && matchesCourse;
-  });
+  }), [groups, debouncedGroupSearch, groupFilterDept, groupFilterStatus, groupFilterGender, groupFilterSemester, groupFilterCourse]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const getRoleBadge = (role: string) => ({

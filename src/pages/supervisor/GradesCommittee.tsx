@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { Button } from '../../components/ui/button';
 import { Label } from '../../components/ui/label';
@@ -419,20 +419,21 @@ export function SupervisorGradesCommittee() {
   const [isUploading, setIsUploading]   = useState(false);
 
   // Filter groups
-  const filteredGroups = assignedGroups.filter(group => {
-    const matchesSearch = group.projectName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         group.groupId.toLowerCase().includes(searchQuery.toLowerCase());
+  const filteredGroups = useMemo(() => assignedGroups.filter(group => {
+    const q = searchQuery.toLowerCase();
+    const matchesSearch = group.projectName.toLowerCase().includes(q) ||
+                         group.groupId.toLowerCase().includes(q);
     const matchesCourse = selectedCourses.includes(group.course === 'CPIS-498' ? '498' : '499');
     const matchesStatus = selectedStatuses.includes(group.status);
     return matchesSearch && matchesCourse && matchesStatus;
-  });
+  }), [assignedGroups, searchQuery, selectedCourses, selectedStatuses]);
 
   // Pagination
   const totalPages = Math.ceil(filteredGroups.length / itemsPerPage);
-  const paginatedGroups = filteredGroups.slice(
+  const paginatedGroups = useMemo(() => filteredGroups.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
-  );
+  ), [filteredGroups, currentPage, itemsPerPage]);
 
   // Handle course chip toggle
   const toggleCourse = (course: string) => {

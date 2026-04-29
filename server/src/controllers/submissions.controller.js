@@ -2,6 +2,7 @@ const { supabaseAdmin } = require('../config/supabase');
 const emailService = require('../services/email.service');
 const { normalizeCourseCode } = require('../utils/helpers');
 const notificationService = require('../services/notification.service');
+const { cacheGet, cacheSet, cacheDelPattern, TTL } = require('../utils/cache');
 
 /**
  * Normalize a DB status value (underscore format) to the frontend format (hyphen format).
@@ -172,6 +173,8 @@ async function updateSubmissionApproval(req, res) {
       });
     }
 
+    await cacheDelPattern('submissions:coordinator:*');
+
     // Store the review feedback — upsert so re-approving/re-rejecting doesn't
     // crash on a duplicate submission_id unique constraint.
     if (feedback || action === 'reject') {
@@ -288,6 +291,10 @@ async function getChapterSubmissionsForCoordinator(req, res) {
     const coordinatorId = req.user.id;
     const isAdmin = req.user.activeRole === 'admin' || (req.user.roles || []).includes('admin');
 
+    const ck = `submissions:coordinator:${coordinatorId}:${courseType ?? 'all'}:${filterGroup ?? 'all'}:${req.pagination.from}-${req.pagination.to}`;
+    const cached = await cacheGet(ck);
+    if (cached) return res.json(cached);
+
     // Step 1 — resolve course ID(s)
     // Admins ALWAYS use courseType lookup (never constrained to a single coordinatorCourseId)
     let coordinatorCourseId = isAdmin ? null : req.user.coordinatorCourseId;
@@ -400,7 +407,9 @@ async function getChapterSubmissionsForCoordinator(req, res) {
       rejected: result.filter((s) => s.status === 'changes-requested').length,
     };
 
-    res.json({ submissions: result, stats });
+    const payload = { submissions: result, stats };
+    await cacheSet(ck, payload, TTL.SHORT);
+    res.json(payload);
   } catch (error) {
     console.error('Error fetching chapter submissions for coordinator:', error);
     res.status(500).json({ error: 'Failed to fetch chapter submissions' });

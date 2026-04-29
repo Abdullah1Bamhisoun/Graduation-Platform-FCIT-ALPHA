@@ -2,6 +2,9 @@ const { supabaseAdmin } = require('../config/supabase');
 const emailService = require('../services/email.service');
 const { normalizeCourseCode } = require('../utils/helpers');
 const { buildStudentGradesSummary } = require('../utils/gradesSummary');
+const { cacheGet, cacheSet, cacheDelPattern, TTL } = require('../utils/cache');
+
+const allGroupsCk = (courseId) => `groups:all:${courseId ?? 'admin'}`;
 
 /**
  * GET /api/groups
@@ -9,6 +12,10 @@ const { buildStudentGradesSummary } = require('../utils/gradesSummary');
  */
 async function getAllGroups(req, res) {
   try {
+    const ck = allGroupsCk(req.user.coordinatorCourseId);
+    const cached = await cacheGet(ck);
+    if (cached) return res.json(cached);
+
     // Step 1: fetch groups (with supervisor join) and group_members separately
     const groupSelect = `
       id, group_code, group_number, department, gender, course_number, project_name,
@@ -95,6 +102,7 @@ async function getAllGroups(req, res) {
       };
     });
 
+    await cacheSet(ck, groups, TTL.SHORT);
     res.json(groups);
   } catch (error) {
     console.error('Error fetching groups:', error);
@@ -246,6 +254,7 @@ async function assignSupervisor(req, res) {
       context: { groupId, supervisorId: supervisor_id, supervisorName: supervisor.name },
     });
 
+    await cacheDelPattern('groups:*');
     res.json({ success: true, message: `Supervisor assigned successfully` });
   } catch (error) {
     console.error('Error assigning supervisor:', error);
@@ -292,6 +301,7 @@ async function updateGroupStatus(req, res) {
       context: { groupId },
     });
 
+    await cacheDelPattern('groups:*');
     res.json({ success: true });
   } catch (error) {
     console.error('Error updating group status:', error);
@@ -355,6 +365,7 @@ async function deleteGroup(req, res) {
       });
     } catch { /* non-fatal */ }
 
+    await cacheDelPattern('groups:*');
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting group:', error);
@@ -417,6 +428,7 @@ async function updateGroup(req, res) {
       if (error) throw error;
     }
 
+    await cacheDelPattern('groups:*');
     res.json({ success: true });
   } catch (error) {
     console.error('Error updating group:', error);
@@ -513,6 +525,7 @@ async function createGroup(req, res) {
       });
     } catch { /* non-fatal */ }
 
+    await cacheDelPattern('groups:*');
     res.json({ success: true, group: newGroup });
   } catch (error) {
     console.error('Error creating group:', error);

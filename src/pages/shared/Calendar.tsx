@@ -11,8 +11,7 @@ import { toast } from 'sonner';
 import { useState, useEffect } from 'react';
 import { getCalendarEvents, createCalendarEvent, deleteCalendarEvent } from '../../services/calendarEvents';
 import type { CalendarEvent } from '../../services/calendarEvents';
-import { supabase } from '../../lib/supabase';
-import { apiUrl, apiFetch } from '@/lib/api';
+import { getSupervisorGroupsMine } from '../../services/groups';
 
 interface SupervisorGroup {
   id: string;
@@ -122,15 +121,7 @@ export function Calendar() {
 
   useEffect(() => {
     if (!isSupervisor) return;
-    supabase.auth.getSession().then(({ data }) => {
-      const token = data.session?.access_token ?? '';
-      return apiFetch(apiUrl('/api/groups/mine'), {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    })
-      .then((r) => r.json())
-      .then((data) => Array.isArray(data) && setSupervisorGroups(data))
-      .catch(() => {});
+    getSupervisorGroupsMine().then(setSupervisorGroups).catch(() => {});
   }, [isSupervisor]);
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);

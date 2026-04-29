@@ -1,6 +1,9 @@
 const { supabaseAdmin } = require('../config/supabase');
 const emailService = require('../services/email.service');
 const { queueWeekOpenedEmail } = require('../services/queue.service');
+const { cacheGet, cacheSet, cacheDelPattern, TTL } = require('../utils/cache');
+
+const weekStatusCk = (courseType) => `week-statuses:${courseType}`;
 
 /**
  * Seed closed rows for a course type if the table is empty for it.
@@ -45,6 +48,10 @@ async function getWeekStatuses(req, res) {
       return res.status(400).json({ error: 'courseType must be 498 or 499' });
     }
 
+    const ck = weekStatusCk(courseType);
+    const cached = await cacheGet(ck);
+    if (cached) return res.json(cached);
+
     await ensureSeeded(courseType);
 
     const { data, error } = await supabaseAdmin
@@ -55,7 +62,9 @@ async function getWeekStatuses(req, res) {
 
     if (error) throw error;
 
-    res.json(data || []);
+    const payload = data || [];
+    await cacheSet(ck, payload, TTL.SHORT);
+    res.json(payload);
   } catch (err) {
     console.error('Error fetching week statuses:', JSON.stringify(err));
     res.status(500).json({ error: 'Failed to fetch week statuses' });
@@ -92,6 +101,7 @@ async function openWeek(req, res) {
     const { data: weekRow } = await supabaseAdmin
       .from('week_statuses').select('week_number, course_type').eq('id', id).single();
 
+    await cacheDelPattern('week-statuses:*');
     res.json({ success: true });
 
     if (!weekRow) { console.warn('[weekStatuses] weekRow not found for id:', id); return; }
@@ -149,6 +159,7 @@ async function closeWeek(req, res) {
       .eq('id', id);
 
     if (error) throw error;
+    await cacheDelPattern('week-statuses:*');
     res.json({ success: true });
   } catch (err) {
     console.error('Error closing week:', err);
@@ -194,6 +205,7 @@ async function lockWeek(req, res) {
     }
 
     if (lockErr) throw lockErr;
+    await cacheDelPattern('week-statuses:*');
     res.json({ success: true });
   } catch (err) {
     console.error('Error locking week:', err);
@@ -235,6 +247,7 @@ async function setDeadline(req, res) {
 
     if (error) throw error;
 
+    await cacheDelPattern('week-statuses:*');
     res.json({ success: true });
 
     // Queue "week opened" email — fires at open_at if in the future, immediately otherwise

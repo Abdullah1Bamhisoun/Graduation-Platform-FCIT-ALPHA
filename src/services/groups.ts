@@ -2,6 +2,43 @@ import { supabase } from '../lib/supabase';
 import { apiUrl, apiFetch } from '@/lib/api';
 import { mapCourseCode } from './mappers';
 
+// ─── Module-level cache ───────────────────────────────────────────────────────
+
+const GROUPS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+interface CacheEntry<T> { data: T; fetchedAt: number }
+
+function _isFresh<T>(entry: CacheEntry<T> | undefined): entry is CacheEntry<T> {
+  return !!entry && Date.now() - entry.fetchedAt < GROUPS_CACHE_TTL;
+}
+
+export interface SupervisorGroup { id: string; name: string }
+
+let _supervisorGroupsMineCache: CacheEntry<SupervisorGroup[]> | undefined;
+
+export function clearGroupsCache() {
+  _supervisorGroupsMineCache = undefined;
+}
+
+/** Fetch the current supervisor's own groups from /api/groups/mine with caching. */
+export async function getSupervisorGroupsMine(): Promise<SupervisorGroup[]> {
+  if (_isFresh(_supervisorGroupsMineCache)) return _supervisorGroupsMineCache.data;
+
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token ?? '';
+  try {
+    const res = await apiFetch(apiUrl('/api/groups/mine'), {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const json = await res.json();
+    const data: SupervisorGroup[] = Array.isArray(json) ? json : [];
+    _supervisorGroupsMineCache = { data, fetchedAt: Date.now() };
+    return data;
+  } catch {
+    return [];
+  }
+}
+
 export interface GroupData {
   id: string;
   groupCode: string;

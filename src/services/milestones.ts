@@ -3,6 +3,26 @@ import { apiUrl, apiFetch } from '@/lib/api';
 import type { Milestone, MilestoneConfig, RubricCriterion } from '../types';
 import { mapMilestoneType, mapCourseCode, mapSubmissionStatus } from './mappers';
 
+// ─── Module-level cache ───────────────────────────────────────────────────────
+
+const MILESTONES_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+interface CacheEntry<T> { data: T; fetchedAt: number }
+
+const _milestonesCache    = new Map<string, CacheEntry<Milestone[]>>();
+const _studentCache       = new Map<string, CacheEntry<Milestone[]>>();
+const _configsCache       = new Map<string, CacheEntry<MilestoneConfig[]>>();
+
+function _isFresh<T>(entry: CacheEntry<T> | undefined): entry is CacheEntry<T> {
+  return !!entry && Date.now() - entry.fetchedAt < MILESTONES_CACHE_TTL;
+}
+
+export function clearMilestonesCache() {
+  _milestonesCache.clear();
+  _studentCache.clear();
+  _configsCache.clear();
+}
+
 function mapDbRubric(data: any): RubricCriterion {
   return {
     id: data.id,
@@ -51,6 +71,10 @@ function mapApiMilestoneConfig(data: any): MilestoneConfig {
 
 /** Fetch milestones directly from Supabase (used by student view). */
 export async function getMilestones(courseCode?: string): Promise<Milestone[]> {
+  const key = courseCode ?? '';
+  const cached = _milestonesCache.get(key);
+  if (_isFresh(cached)) return cached.data;
+
   try {
     let query = supabase
       .from('milestones')
@@ -70,7 +94,9 @@ export async function getMilestones(courseCode?: string): Promise<Milestone[]> {
 
     const { data, error } = await query;
     if (error) throw error;
-    return (data || []).map(mapDbMilestone);
+    const result = (data || []).map(mapDbMilestone);
+    _milestonesCache.set(key, { data: result, fetchedAt: Date.now() });
+    return result;
   } catch (error) {
     console.error('Error fetching milestones:', error);
     return [];
@@ -82,6 +108,9 @@ export async function getMilestones(courseCode?: string): Promise<Milestone[]> {
  * Students without a group see no milestones (empty array).
  */
 export async function getMilestonesByStudentWithStatus(studentId: string): Promise<Milestone[]> {
+  const cached = _studentCache.get(studentId);
+  if (_isFresh(cached)) return cached.data;
+
   try {
     // Resolve the student's course via their group membership
     const { data: membership } = await supabase
@@ -132,7 +161,7 @@ export async function getMilestonesByStudentWithStatus(studentId: string): Promi
       });
     }
 
-    return (milestones || []).map((m: any) => {
+    const result = (milestones || []).map((m: any) => {
       const mapped = mapDbMilestone(m);
       const subStatus = submissionMap.get(m.id);
       if (subStatus) {
@@ -140,6 +169,8 @@ export async function getMilestonesByStudentWithStatus(studentId: string): Promi
       }
       return mapped;
     });
+    _studentCache.set(studentId, { data: result, fetchedAt: Date.now() });
+    return result;
   } catch (error) {
     console.error('Error fetching milestones with status:', error);
     return [];
@@ -164,6 +195,10 @@ export async function getMilestoneById(id: string): Promise<Milestone | null> {
 
 /** Fetch milestone configs via the backend API (enforces coordinator course scope). */
 export async function getMilestoneConfigs(courseId?: string): Promise<MilestoneConfig[]> {
+  const key = courseId ?? '';
+  const cached = _configsCache.get(key);
+  if (_isFresh(cached)) return cached.data;
+
   try {
     const session = await supabase.auth.getSession();
     const token = session.data.session?.access_token;
@@ -187,7 +222,9 @@ export async function getMilestoneConfigs(courseId?: string): Promise<MilestoneC
     }
 
     const data = await response.json();
-    return (data || []).map(mapApiMilestoneConfig);
+    const result = (data || []).map(mapApiMilestoneConfig);
+    _configsCache.set(key, { data: result, fetchedAt: Date.now() });
+    return result;
   } catch (error) {
     console.error('Error fetching milestone configs:', error);
     return [];
@@ -229,6 +266,7 @@ export async function createMilestone(config: Omit<MilestoneConfig, 'id'>): Prom
   }
 
   const data = await response.json();
+  clearMilestonesCache();
   return data.id as string;
 }
 
@@ -264,6 +302,7 @@ export async function updateMilestone(id: string, updates: Partial<MilestoneConf
     const err = await response.json().catch(() => ({ error: 'Request failed' }));
     throw new Error(err.error || 'Failed to update milestone');
   }
+  clearMilestonesCache();
 }
 
 /** Delete a milestone via the backend API (also deletes its linked announcement). */
@@ -285,4 +324,5 @@ export async function deleteMilestone(id: string): Promise<void> {
     const err = await response.json().catch(() => ({ error: 'Request failed' }));
     throw new Error(err.error || 'Failed to delete milestone');
   }
+  clearMilestonesCache();
 }

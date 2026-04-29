@@ -24,7 +24,7 @@
  *    approval/rejection controls.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { StatusBadge } from '../../features/submissions/components/StatusBadge';
 import { Button } from '../../components/ui/button';
@@ -420,16 +420,18 @@ export function SupervisorMyGroupsAndReviews() {
 
   // ── Filtered submissions ──────────────────────────────────────────────────
 
-  const filteredSubmissions =
-    filterGroup === 'all'
+  const filteredSubmissions = useMemo(
+    () => filterGroup === 'all'
       ? submissions
-      : submissions.filter((s) => s.groupId === filterGroup);
+      : submissions.filter((s) => s.groupId === filterGroup),
+    [submissions, filterGroup],
+  );
 
-  const stats = {
+  const stats = useMemo(() => ({
     pending:  filteredSubmissions.filter((s) => ['submitted', 'under-review'].includes(s.status)).length,
     approved: filteredSubmissions.filter((s) => s.status === 'approved').length,
     rejected: filteredSubmissions.filter((s) => s.status === 'changes-requested').length,
-  };
+  }), [filteredSubmissions]);
 
   // ── Approval handlers ─────────────────────────────────────────────────────
 

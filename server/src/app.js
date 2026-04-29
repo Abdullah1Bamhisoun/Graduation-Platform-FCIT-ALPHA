@@ -1,8 +1,9 @@
-const express    = require('express');
-const cors       = require('cors');
-const helmet     = require('helmet');
-const morgan     = require('morgan');
-const rateLimit  = require('express-rate-limit');
+const express     = require('express');
+const cors        = require('cors');
+const helmet      = require('helmet');
+const compression = require('compression');
+const morgan      = require('morgan');
+const rateLimit   = require('express-rate-limit');
 const { errorHandler } = require('./middleware/error.middleware');
 
 // Route imports
@@ -38,6 +39,9 @@ app.set('trust proxy', 1);
 
 // ── Security headers (Helmet) ────────────────────────────────────────────────
 app.use(helmet());
+
+// ── Response compression (gzip) ──────────────────────────────────────────────
+app.use(compression());
 
 // ── CORS — restrict to explicitly allowed origins ────────────────────────────
 const rawOrigins    = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173').split(',');

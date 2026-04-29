@@ -1,5 +1,8 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { normalizeCourseCode } = require('../utils/helpers');
+const { cacheGet, cacheSet, cacheDel, TTL } = require('../utils/cache');
+
+const myGradesCk = (studentId) => `students:my-grades:${studentId}`;
 
 /**
  * GET /api/students/my-grades
@@ -28,6 +31,9 @@ const { normalizeCourseCode } = require('../utils/helpers');
 async function getMyGrades(req, res) {
   try {
     const studentId = req.user.id;
+    const ck = myGradesCk(studentId);
+    const cached = await cacheGet(ck);
+    if (cached) return res.json(cached);
 
     // ── Step 1: Resolve student's group (backend-enforced) ──────────────────
     // This is the key access-control step: the group is derived from the
@@ -393,7 +399,7 @@ async function getMyGrades(req, res) {
       }
     }
 
-    res.json({
+    const payload = {
       groupId:       group.id,
       groupNumber:   group.group_number,
       projectName:   group.project_name,
@@ -405,10 +411,6 @@ async function getMyGrades(req, res) {
       courseType,
       supervisorName: group.supervisor?.name ?? null,
       students,
-      /**
-       * Grade components from grading_components — Coordinator-defined, read-only.
-       * Weights are never hardcoded; they are always fetched dynamically.
-       */
       components: assembledComponents,
       supervisorEvaluation: supervisorEval,
       committeeEvaluation: committeeScore != null
@@ -435,17 +437,16 @@ async function getMyGrades(req, res) {
         componentWeight: peerWeight,
         hasSubmitted:    hasSubmittedPeer,
       },
-      // Per-deliverable breakdown — returned for both 498 and 499 (used for criteria scores)
       deliverables:              deliverableDetail,
       deliverablesTotal,
-      // Per-criterion rubric scores (fetched server-side to bypass RLS restrictions)
       supervisorCriterionScores,
       committeeCriterionScores,
       totalScore,
       finalGrade: finalGradeLetterOf(totalScore),
-      // Previous CPIS-498 committee feedback (only populated for CPIS-499 students)
       prevCourseComments,
-    });
+    };
+    await cacheSet(ck, payload, TTL.SHORT);
+    res.json(payload);
   } catch (error) {
     console.error('Error fetching student grades:', error);
     res.status(500).json({ error: 'Failed to fetch grades' });
@@ -530,6 +531,10 @@ async function submitPeerEvaluations(req, res) {
 
     if (error) throw error;
 
+    // Peer scores affect each rated student's grade — bust their caches
+    await Promise.all(
+      Object.keys(req.body.ratings || {}).map((sid) => cacheDel(myGradesCk(sid)))
+    );
     res.json({ success: true });
   } catch (error) {
     console.error('Error submitting peer evaluations:', error);

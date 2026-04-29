@@ -4,14 +4,21 @@ import { AuthProvider } from './lib/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
-// Auth
+// ── Auth ──────────────────────────────────────────────────────────────────────
 import { Login } from './features/auth/components/Login';
 import { Register } from './features/auth/components/Register';
 import { AccountConfirmed } from './features/auth/components/AccountConfirmed';
 import { ForgotPassword } from './features/auth/components/ForgotPassword';
 import { ResetPassword } from './features/auth/components/ResetPassword';
 
-// Student Pages
+// ── Shared pages ──────────────────────────────────────────────────────────────
+import { Calendar } from './pages/shared/Calendar';
+import { Settings } from './pages/shared/Settings';
+import { Announcements } from './pages/shared/Announcements';
+import { ImportantFiles } from './pages/shared/ImportantFiles';
+import { ContactUs } from './pages/shared/ContactUs';
+
+// ── Student pages ─────────────────────────────────────────────────────────────
 import { StudentDashboard } from './pages/student/Dashboard';
 import { StudentMilestones } from './pages/student/Milestones';
 import { StudentWeeklyReports } from './pages/student/WeeklyReports';
@@ -20,8 +27,9 @@ import { StudentFeedback } from './pages/student/Feedback';
 import { StudentGradesOverview } from './pages/student/GradesOverview';
 import { StudentPresentationSelection } from './pages/student/PresentationSelection';
 import { StudentMyPresentation } from './pages/student/MyPresentation';
+import { StudentMeetings } from './pages/student/Meetings';
 
-// Supervisor Pages
+// ── Supervisor pages ──────────────────────────────────────────────────────────
 import { SupervisorDashboard } from './pages/supervisor/Dashboard';
 import { SupervisorSubmissionReview } from './pages/supervisor/SubmissionReview';
 import { SupervisorMyGroupsAndReviews } from './pages/supervisor/MyGroupsAndReviews';
@@ -32,8 +40,9 @@ import { SupervisorEvaluation } from './pages/supervisor/Evaluation';
 import { SupervisorMyAvailability } from './pages/supervisor/MyAvailability';
 import { SupervisorGradingEvaluation } from './pages/supervisor/GradingEvaluation';
 import { SupervisorEvaluateGroup } from './pages/supervisor/EvaluateGroup';
+import { SupervisorMeetings } from './pages/supervisor/Meetings';
 
-// Coordinator Pages
+// ── Coordinator pages ─────────────────────────────────────────────────────────
 import { CoordinatorDashboard } from './pages/coordinator/Dashboard';
 import { CoordinatorApprovals } from './pages/coordinator/Approvals';
 import { CoordinatorWeeklyReports } from './pages/coordinator/WeeklyReports';
@@ -45,12 +54,13 @@ import { CoordinatorCommitteeScores } from './pages/coordinator/CommitteeScores'
 import { CoordinatorGradeSchemeEditor } from './pages/coordinator/GradeSchemeEditor';
 import { CoordinatorCourseGrades } from './pages/coordinator/CoordinatorCourseGrades';
 import { CoordinatorEvaluateGroup } from './pages/coordinator/CoordinatorEvaluateGroup';
+import { AnnouncementsManager } from './pages/admin/AnnouncementsManager';
+import { CoordinatorMeetings } from './pages/coordinator/Meetings';
 
-// Admin Pages
+// ── Admin pages ───────────────────────────────────────────────────────────────
 import { AdminDashboard } from './pages/admin/Dashboard';
 import { AdminMilestonesConfig } from './pages/admin/MilestonesConfig';
 import { AdminExportsAudit } from './pages/admin/ExportsAudit';
-import { AnnouncementsManager } from './pages/admin/AnnouncementsManager';
 import { ImportantFilesManager } from './pages/admin/ImportantFilesManager';
 import { AdminUserManagement } from './pages/admin/UserManagement';
 import { AdminWeeklyReports } from './pages/admin/WeeklyReports';
@@ -59,18 +69,6 @@ import { AdminCourseGrades } from './pages/admin/AdminCourseGrades';
 import { AdminPresentationCommittee } from './pages/admin/PresentationCommittee';
 import { AdminLockManager } from './pages/admin/LockManager';
 import { AdminTermMigration } from './pages/admin/TermMigration';
-
-// Meeting Pages
-import { CoordinatorMeetings } from './pages/coordinator/Meetings';
-import { SupervisorMeetings }  from './pages/supervisor/Meetings';
-import { StudentMeetings }     from './pages/student/Meetings';
-
-// Shared Pages
-import { Calendar } from './pages/shared/Calendar';
-import { Settings } from './pages/shared/Settings';
-import { Announcements } from './pages/shared/Announcements';
-import { ImportantFiles } from './pages/shared/ImportantFiles';
-import { ContactUs } from './pages/shared/ContactUs';
 
 // Coordinator can access its own routes; admin has full override
 const COORDINATOR_ROLES = ['coordinator', 'admin'] as const;

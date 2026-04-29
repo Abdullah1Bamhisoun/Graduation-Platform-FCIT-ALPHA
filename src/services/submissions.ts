@@ -76,13 +76,14 @@ const SUBMISSION_SELECT = `
   )
 `;
 
-export async function getSubmissionsForStudent(studentId: string): Promise<Submission[]> {
+export async function getSubmissionsForStudent(studentId: string, limit = 200): Promise<Submission[]> {
   try {
     const { data, error } = await supabase
       .from('submissions')
       .select(SUBMISSION_SELECT)
       .eq('student_id', studentId)
-      .order('updated_at', { ascending: false });
+      .order('updated_at', { ascending: false })
+      .limit(limit);
 
     if (error) throw error;
     return (data || []).map(mapDbSubmission);
@@ -92,7 +93,7 @@ export async function getSubmissionsForStudent(studentId: string): Promise<Submi
   }
 }
 
-export async function getSubmissionsForSupervisor(supervisorId: string): Promise<Submission[]> {
+export async function getSubmissionsForSupervisor(supervisorId: string, limit = 500): Promise<Submission[]> {
   try {
     // Get groups supervised by this user
     const { data: groups, error: gError } = await supabase
@@ -109,7 +110,8 @@ export async function getSubmissionsForSupervisor(supervisorId: string): Promise
       .from('submissions')
       .select(SUBMISSION_SELECT)
       .in('group_id', groupIds)
-      .order('updated_at', { ascending: false });
+      .order('updated_at', { ascending: false })
+      .limit(limit);
 
     if (error) throw error;
     return (data || []).map(mapDbSubmission);
