@@ -2,6 +2,23 @@ import { supabase } from '../lib/supabase';
 import type { WeeklyReport } from '../types';
 import { mapCourseCode, mapProgressStatus, mapSubmissionStatus, toDbProgressStatus } from './mappers';
 
+// ── Module-level TTL cache ──────────────────────────────────────────────────
+const REPORTS_CACHE_TTL = 60 * 1000; // 1 minute
+interface CacheEntry<T> { data: T; fetchedAt: number }
+const _byGroupCache = new Map<string, CacheEntry<WeeklyReport[]>>();
+const _bySupervisorCache = new Map<string, CacheEntry<WeeklyReport[]>>();
+let _allCache: CacheEntry<WeeklyReport[]> | undefined;
+
+function _isFresh<T>(e?: CacheEntry<T>): e is CacheEntry<T> {
+  return !!e && Date.now() - e.fetchedAt < REPORTS_CACHE_TTL;
+}
+
+export function clearWeeklyReportsCache() {
+  _byGroupCache.clear();
+  _bySupervisorCache.clear();
+  _allCache = undefined;
+}
+
 function mapDbWeeklyReport(data: any): WeeklyReport {
   return {
     id:                      data.id,
@@ -36,6 +53,9 @@ const REPORT_SELECT = `
 `;
 
 export async function getWeeklyReportsByGroup(groupId: string): Promise<WeeklyReport[]> {
+  const cached = _byGroupCache.get(groupId);
+  if (_isFresh(cached)) return cached.data;
+
   try {
     const { data, error } = await supabase
       .from('weekly_reports')
@@ -44,7 +64,9 @@ export async function getWeeklyReportsByGroup(groupId: string): Promise<WeeklyRe
       .order('week_number');
 
     if (error) throw error;
-    return (data || []).map(mapDbWeeklyReport);
+    const result = (data || []).map(mapDbWeeklyReport);
+    _byGroupCache.set(groupId, { data: result, fetchedAt: Date.now() });
+    return result;
   } catch (error) {
     console.error('Error fetching weekly reports:', error);
     return [];
@@ -52,6 +74,9 @@ export async function getWeeklyReportsByGroup(groupId: string): Promise<WeeklyRe
 }
 
 export async function getWeeklyReportsForSupervisor(supervisorId: string): Promise<WeeklyReport[]> {
+  const cached = _bySupervisorCache.get(supervisorId);
+  if (_isFresh(cached)) return cached.data;
+
   try {
     const { data: groups, error: gError } = await supabase
       .from('groups')
@@ -59,7 +84,10 @@ export async function getWeeklyReportsForSupervisor(supervisorId: string): Promi
       .eq('supervisor_id', supervisorId);
 
     if (gError) throw gError;
-    if (!groups || groups.length === 0) return [];
+    if (!groups || groups.length === 0) {
+      _bySupervisorCache.set(supervisorId, { data: [], fetchedAt: Date.now() });
+      return [];
+    }
 
     const groupIds = groups.map((g: any) => g.id);
 
@@ -70,7 +98,9 @@ export async function getWeeklyReportsForSupervisor(supervisorId: string): Promi
       .order('week_number', { ascending: false });
 
     if (error) throw error;
-    return (data || []).map(mapDbWeeklyReport);
+    const result = (data || []).map(mapDbWeeklyReport);
+    _bySupervisorCache.set(supervisorId, { data: result, fetchedAt: Date.now() });
+    return result;
   } catch (error) {
     console.error('Error fetching supervisor weekly reports:', error);
     return [];
@@ -78,6 +108,8 @@ export async function getWeeklyReportsForSupervisor(supervisorId: string): Promi
 }
 
 export async function getAllWeeklyReports(): Promise<WeeklyReport[]> {
+  if (_isFresh(_allCache)) return _allCache.data;
+
   try {
     const { data, error } = await supabase
       .from('weekly_reports')
@@ -85,7 +117,9 @@ export async function getAllWeeklyReports(): Promise<WeeklyReport[]> {
       .order('submitted_at', { ascending: false });
 
     if (error) throw error;
-    return (data || []).map(mapDbWeeklyReport);
+    const result = (data || []).map(mapDbWeeklyReport);
+    _allCache = { data: result, fetchedAt: Date.now() };
+    return result;
   } catch (error) {
     console.error('Error fetching all weekly reports:', error);
     return [];
@@ -127,6 +161,7 @@ export async function submitStudentWeeklyReport(report: {
   );
 
   if (error) throw error;
+  clearWeeklyReportsCache();
 }
 
 /**
@@ -172,6 +207,7 @@ export async function supervisorRespondToWeeklyReport(params: {
     .eq('week_number', params.weekNumber);
 
   if (error) throw error;
+  clearWeeklyReportsCache();
 }
 
 /**
@@ -203,4 +239,5 @@ export async function createWeeklyReport(report: {
   });
 
   if (error) throw error;
+  clearWeeklyReportsCache();
 }

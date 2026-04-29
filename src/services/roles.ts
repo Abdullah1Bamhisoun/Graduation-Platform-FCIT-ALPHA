@@ -2,11 +2,27 @@ import { supabase } from '../lib/supabase';
 import { apiUrl, apiFetch } from '@/lib/api';
 import type { UserRole, UserRoleEntry } from '../types';
 
+// ── Module-level TTL cache (roles rarely change per user) ────────────────────
+const ROLES_CACHE_TTL = 2 * 60 * 1000; // 2 minutes
+interface CacheEntry<T> { data: T; fetchedAt: number }
+const _userRolesCache = new Map<string, CacheEntry<UserRoleEntry[]>>();
+
+function _isFresh<T>(e?: CacheEntry<T>): e is CacheEntry<T> {
+  return !!e && Date.now() - e.fetchedAt < ROLES_CACHE_TTL;
+}
+
+export function clearRolesCache() {
+  _userRolesCache.clear();
+}
+
 /**
  * Load all role entries for a user from the user_roles table.
  * Returns an array of UserRoleEntry objects (role name + optional coordinator course).
  */
 export async function getUserRoles(userId: string): Promise<UserRoleEntry[]> {
+  const cached = _userRolesCache.get(userId);
+  if (_isFresh(cached)) return cached.data;
+
   const { data, error } = await supabase
     .from('user_roles')
     .select(`
@@ -21,11 +37,13 @@ export async function getUserRoles(userId: string): Promise<UserRoleEntry[]> {
     return [];
   }
 
-  return (data || []).map((row: any) => ({
+  const result = (data || []).map((row: any) => ({
     roleId: row.roles?.id ?? row.id,
     roleName: (row.roles?.name ?? 'student') as UserRole,
     coordinatorCourseId: row.coordinator_course_id ?? undefined,
   }));
+  _userRolesCache.set(userId, { data: result, fetchedAt: Date.now() });
+  return result;
 }
 
 /**

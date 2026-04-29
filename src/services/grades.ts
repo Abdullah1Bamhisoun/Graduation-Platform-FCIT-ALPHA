@@ -4,6 +4,25 @@ import { mapCourseCode, mapDeliverableStatus, toDbCourseCode } from './mappers';
 import { getGradingSchemas, findSchemaWeight } from './grading-schemas';
 import { getWeekStatuses, countOpenedWeeks } from './week-statuses';
 
+// ── Module-level TTL cache (heavy multi-query results) ──────────────────────
+const GRADES_CACHE_TTL = 60 * 1000; // 1 minute
+interface CacheEntry<T> { data: T; fetchedAt: number }
+const _groupGradeCache = new Map<string, CacheEntry<GroupGrade | null>>();
+const _allGroupGradesCache = new Map<string, CacheEntry<GroupGrade[]>>();
+const _studentGradeCache = new Map<string, CacheEntry<StudentGrade | null>>();
+const _courseIdCache = new Map<string, CacheEntry<string | null>>();
+
+function _isFresh<T>(e?: CacheEntry<T>): e is CacheEntry<T> {
+  return !!e && Date.now() - e.fetchedAt < GRADES_CACHE_TTL;
+}
+
+export function clearGradesCache() {
+  _groupGradeCache.clear();
+  _allGroupGradesCache.clear();
+  _studentGradeCache.clear();
+  _courseIdCache.clear();
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
@@ -31,13 +50,18 @@ const DELIVERABLE_MAX_SCORES_FALLBACK: Record<string, number> = {
 };
 
 async function getCourseIdByCode(courseCode: string): Promise<string | null> {
+  const cached = _courseIdCache.get(courseCode);
+  if (_isFresh(cached)) return cached.data;
+
   const dbCode = toDbCourseCode(courseCode);
   const { data } = await supabase
     .from('courses')
     .select('id')
     .eq('code', dbCode)
     .limit(1);
-  return data?.[0]?.id ?? null;
+  const result = data?.[0]?.id ?? null;
+  _courseIdCache.set(courseCode, { data: result, fetchedAt: Date.now() });
+  return result;
 }
 
 /** Derive course_type ('498' | '499') from a course code string. */
@@ -131,9 +155,16 @@ export async function getGroupGrade(
   courseCode: string,
   semester = 'DEFAULT'
 ): Promise<GroupGrade | null> {
+  const ck = `${groupId}:${courseCode}:${semester}`;
+  const cached = _groupGradeCache.get(ck);
+  if (_isFresh(cached)) return cached.data;
+
   try {
     const courseId = await getCourseIdByCode(courseCode);
-    if (!courseId) return null;
+    if (!courseId) {
+      _groupGradeCache.set(ck, { data: null, fetchedAt: Date.now() });
+      return null;
+    }
 
     const courseType = courseTypeFromCode(courseCode);
 
@@ -204,7 +235,7 @@ export async function getGroupGrade(
       };
     }
 
-    return {
+    const result: GroupGrade = {
       groupId,
       groupName: `${(group as any).group_code} - ${(group as any).project_name}`,
       course: mapCourseCode(toDbCourseCode(courseCode)) as 'CPIS-498' | 'CPIS-499',
@@ -229,6 +260,8 @@ export async function getGroupGrade(
       } as any,
       supervisorAssessment,
     };
+    _groupGradeCache.set(ck, { data: result, fetchedAt: Date.now() });
+    return result;
   } catch (error) {
     console.error('Error fetching group grade:', error);
     return null;
@@ -241,6 +274,10 @@ export async function getAllGroupGrades(
   courseCode?: string,
   semester = 'DEFAULT'
 ): Promise<GroupGrade[]> {
+  const ck = `${courseCode ?? 'all'}:${semester}`;
+  const cached = _allGroupGradesCache.get(ck);
+  if (_isFresh(cached)) return cached.data;
+
   try {
     let groupQuery = supabase
       .from('groups')
@@ -253,14 +290,17 @@ export async function getAllGroupGrades(
     }
 
     const { data: groups } = await groupQuery;
-    if (!groups || groups.length === 0) return [];
+    if (!groups || groups.length === 0) {
+      _allGroupGradesCache.set(ck, { data: [], fetchedAt: Date.now() });
+      return [];
+    }
 
     const code = courseCode ?? 'CPIS-498';
-    const results: GroupGrade[] = [];
-    for (const g of groups) {
-      const grade = await getGroupGrade(g.id, code, semester);
-      if (grade) results.push(grade);
-    }
+    // Parallelize per-group grade fetches — was sequential, blocking
+    const results = (
+      await Promise.all(groups.map((g) => getGroupGrade(g.id, code, semester)))
+    ).filter((g): g is GroupGrade => g !== null);
+    _allGroupGradesCache.set(ck, { data: results, fetchedAt: Date.now() });
     return results;
   } catch (error) {
     console.error('Error fetching all group grades:', error);
@@ -275,9 +315,16 @@ export async function getStudentGrade(
   courseCode: string,
   semester = 'DEFAULT'
 ): Promise<StudentGrade | null> {
+  const ck = `${studentId}:${courseCode}:${semester}`;
+  const cached = _studentGradeCache.get(ck);
+  if (_isFresh(cached)) return cached.data;
+
   try {
     const courseId = await getCourseIdByCode(courseCode);
-    if (!courseId) return null;
+    if (!courseId) {
+      _studentGradeCache.set(ck, { data: null, fetchedAt: Date.now() });
+      return null;
+    }
 
     const courseType = courseTypeFromCode(courseCode);
 
@@ -397,7 +444,7 @@ export async function getStudentGrade(
       ? (cachedGroupGrade?.deliverables as Record<string, any> | undefined)
       : undefined;
 
-    return {
+    const result = {
       studentId,
       studentName: profile.name,
       groupId: groupId ?? '',
@@ -435,6 +482,8 @@ export async function getStudentGrade(
       // Pass through schema weights for rendering
       _schemas: schemas,
     } as any;
+    _studentGradeCache.set(ck, { data: result, fetchedAt: Date.now() });
+    return result;
   } catch (error) {
     console.error('Error fetching student grade:', error);
     return null;
@@ -469,6 +518,7 @@ export async function updateDeliverableGrade(
     }, { onConflict: 'group_id,course_id,deliverable_key' });
 
   if (error) throw error;
+  clearGradesCache();
 }
 
 export async function updateSupervisorAssessment(
@@ -498,6 +548,7 @@ export async function updateSupervisorAssessment(
     }, { onConflict: 'student_id,group_id,course_id' });
 
   if (error) throw error;
+  clearGradesCache();
 }
 
 export async function createCommitteeEvaluation(evaluation: {
@@ -524,6 +575,7 @@ export async function createCommitteeEvaluation(evaluation: {
     }, { onConflict: 'student_id,group_id,course_id,evaluator_id' });
 
   if (error) throw error;
+  clearGradesCache();
 }
 
 export async function createPeerEvaluation(evaluation: {
@@ -550,4 +602,5 @@ export async function createPeerEvaluation(evaluation: {
     }, { onConflict: 'student_id,evaluator_id,group_id,course_id' });
 
   if (error) throw error;
+  clearGradesCache();
 }

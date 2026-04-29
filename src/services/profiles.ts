@@ -2,6 +2,21 @@ import { supabase } from '../lib/supabase';
 import { apiUrl, apiFetch } from '@/lib/api';
 import type { User, UserRole } from '../types';
 
+// ── Module-level TTL cache ──────────────────────────────────────────────────
+const PROFILES_CACHE_TTL = 60 * 1000; // 1 minute
+interface CacheEntry<T> { data: T; fetchedAt: number }
+const _byRoleCache = new Map<UserRole, CacheEntry<User[]>>();
+const _byIdCache = new Map<string, CacheEntry<User | null>>();
+
+function _isFresh<T>(e?: CacheEntry<T>): e is CacheEntry<T> {
+  return !!e && Date.now() - e.fetchedAt < PROFILES_CACHE_TTL;
+}
+
+export function clearProfilesCache() {
+  _byRoleCache.clear();
+  _byIdCache.clear();
+}
+
 function mapDbProfile(data: any): User {
   return {
     id: data.id,
@@ -24,13 +39,18 @@ async function getAdminToken(): Promise<string> {
 }
 
 export async function getProfilesByRole(role: UserRole): Promise<User[]> {
+  const cached = _byRoleCache.get(role);
+  if (_isFresh(cached)) return cached.data;
+
   try {
     const token = await getAdminToken();
     const res = await apiFetch(apiUrl(`/api/users?role=${encodeURIComponent(role)}`), {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
+    const result = await res.json();
+    _byRoleCache.set(role, { data: result, fetchedAt: Date.now() });
+    return result;
   } catch (error) {
     console.error('Error fetching profiles:', error);
     return [];
@@ -38,6 +58,9 @@ export async function getProfilesByRole(role: UserRole): Promise<User[]> {
 }
 
 export async function getProfileById(id: string): Promise<User | null> {
+  const cached = _byIdCache.get(id);
+  if (_isFresh(cached)) return cached.data;
+
   try {
     const { data, error } = await supabase
       .from('profiles')
@@ -46,7 +69,9 @@ export async function getProfileById(id: string): Promise<User | null> {
       .single();
 
     if (error) throw error;
-    return data ? mapDbProfile(data) : null;
+    const result = data ? mapDbProfile(data) : null;
+    _byIdCache.set(id, { data: result, fetchedAt: Date.now() });
+    return result;
   } catch (error) {
     console.error('Error fetching profile:', error);
     return null;
@@ -64,4 +89,5 @@ export async function updateProfile(id: string, updates: Partial<Pick<User, 'nam
     .eq('id', id);
 
   if (error) throw error;
+  clearProfilesCache();
 }

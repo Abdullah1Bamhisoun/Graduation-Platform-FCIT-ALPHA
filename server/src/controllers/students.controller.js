@@ -99,34 +99,102 @@ async function getMyGrades(req, res) {
       name: m.student?.name ?? '',
     }));
 
-    // ── Step 3: Grading components (Coordinator-defined, read-only for everyone) ─
-    // This is the SINGLE source of truth for grading weights — never hardcoded.
-    const { data: components } = await supabaseAdmin
-      .from('grading_components')
-      .select('component_key, component_name, total_marks, evaluator_role, display_order')
-      .eq('is_active', true)
-      .eq('course_type', courseType)
-      .order('display_order');
-
-    // ── Step 4: Supervisor assessment for THIS student (read-only) ────────────
-    // NOTE: supervisor_assessments has no submission_status column — omit it.
+    // ── Steps 3–11: Run all independent queries in ONE parallel batch ───────
+    // Every query below depends only on { groupId, studentId, courseType },
+    // which are known after Step 2 — so they can run concurrently.
     const [
+      { data: components },
       { data: supRow },
       { data: supRubricRows },
+      { data: commRows },
+      { data: commRubricRows },
+      { data: delivScores },
+      { data: acRow },
+      { data: coordAssessRows },
+      { data: submissions },
+      { data: weeklyReports },
+      { data: peerReceived },
+      { data: peerSubmitted },
     ] = await Promise.all([
+      // Step 3: grading components (Coordinator-defined, read-only)
+      supabaseAdmin
+        .from('grading_components')
+        .select('component_key, component_name, total_marks, evaluator_role, display_order')
+        .eq('is_active', true)
+        .eq('course_type', courseType)
+        .order('display_order'),
+      // Step 4a: supervisor assessment for THIS student
       supabaseAdmin
         .from('supervisor_assessments')
         .select('score, max_score, graded_at, comment')
         .eq('student_id', studentId)
         .eq('group_id', groupId)
         .maybeSingle(),
+      // Step 4b: per-criterion supervisor rubric scores
       supabaseAdmin
         .from('supervisor_rubric_scores')
         .select('criterion_key, raw_score')
         .eq('student_id', studentId)
         .eq('group_id', groupId),
+      // Step 5a: committee evaluations
+      supabaseAdmin
+        .from('committee_evaluations')
+        .select('score, max_score, comment, evaluator_id, comment_file_url, comment_file_name')
+        .eq('group_id', groupId)
+        .in('submission_status', ['submitted', 'locked']),
+      // Step 5b: per-criterion committee rubric scores
+      supabaseAdmin
+        .from('committee_rubric_scores')
+        .select('criterion_key, score')
+        .eq('group_id', groupId)
+        .in('submission_status', ['submitted', 'locked']),
+      // Step 6: coordinator deliverable scores
+      supabaseAdmin
+        .from('coordinator_deliverable_scores')
+        .select('deliverable_key, score, max_score, graded_at')
+        .eq('group_id', groupId),
+      // Step 7: admin committee scores (CPIS-499 only — return null for 498)
+      courseType === '499'
+        ? supabaseAdmin
+            .from('admin_committee_scores')
+            .select('poster_day_score, implementation_score, testing_score')
+            .eq('group_id', groupId)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+      // Step 8: coordinator rubric-based assessment
+      supabaseAdmin
+        .from('coordinator_assessments')
+        .select('normalized_score, max_score, submission_status, comment')
+        .eq('group_id', groupId)
+        .eq('course_type', courseType)
+        .limit(1),
+      // Step 8b: chapter submission statuses
+      supabaseAdmin
+        .from('submissions')
+        .select('status')
+        .eq('group_id', groupId),
+      // Step 9: weekly reports
+      supabaseAdmin
+        .from('weekly_reports')
+        .select('week_number, student_mark, supervisor_mark')
+        .eq('group_id', groupId)
+        .order('week_number'),
+      // Step 10: peer evaluations received by THIS student
+      supabaseAdmin
+        .from('peer_evaluations')
+        .select('score')
+        .eq('student_id', studentId)
+        .eq('group_id', groupId),
+      // Step 11: has THIS student submitted any peer evaluations
+      supabaseAdmin
+        .from('peer_evaluations')
+        .select('id')
+        .eq('evaluator_id', studentId)
+        .eq('group_id', groupId)
+        .limit(1),
     ]);
 
+    // ── Post-processing (pure in-memory, no I/O) ────────────────────────────
     const supervisorMaxScore = courseType === '499' ? 23 : 20;
     const supervisorEval = supRow
       ? {
@@ -138,30 +206,11 @@ async function getMyGrades(req, res) {
         }
       : null;
 
-    // Per-criterion supervisor rubric scores (for student detail view)
     const supervisorCriterionScores = {};
     for (const r of supRubricRows ?? []) {
       supervisorCriterionScores[r.criterion_key] = Number(r.raw_score);
     }
 
-    // ── Step 5: Committee evaluation for THIS student (read-only) ─────────────
-    const [
-      { data: commRows },
-      { data: commRubricRows },
-    ] = await Promise.all([
-      supabaseAdmin
-        .from('committee_evaluations')
-        .select('score, max_score, comment, evaluator_id, comment_file_url, comment_file_name')
-        .eq('group_id', groupId)
-        .in('submission_status', ['submitted', 'locked']),
-      supabaseAdmin
-        .from('committee_rubric_scores')
-        .select('criterion_key, score')
-        .eq('group_id', groupId)
-        .in('submission_status', ['submitted', 'locked']),
-    ]);
-
-    // Average per-criterion across all submitted committee evaluators
     const commCritSums = {};
     for (const r of commRubricRows ?? []) {
       (commCritSums[r.criterion_key] ??= []).push(Number(r.score));
@@ -175,7 +224,6 @@ async function getMyGrades(req, res) {
       ? commRows.reduce((s, r) => s + Number(r.score ?? 0), 0) / commRows.length
       : null;
 
-    // Aggregate committee comments (non-empty ones)
     const committeeComments = (commRows ?? [])
       .map((r) => r.comment)
       .filter((c) => c && c.trim().length > 0);
@@ -183,24 +231,16 @@ async function getMyGrades(req, res) {
       ? committeeComments.join('\n\n---\n\n')
       : null;
 
-    // First submitted evaluation's file (shared for the whole group)
     const committeeFileRow = (commRows ?? []).find(
       (r) => r.comment_file_url && r.comment_file_name
     );
     const committeeFileUrl  = committeeFileRow?.comment_file_url  ?? null;
     const committeeFileName = committeeFileRow?.comment_file_name ?? null;
 
-    // ── Step 6: Coordinator deliverable scores for this group (498) ───────────
-    const { data: delivScores } = await supabaseAdmin
-      .from('coordinator_deliverable_scores')
-      .select('deliverable_key, score, max_score, graded_at')
-      .eq('group_id', groupId);
-
     const deliverablesTotal = (delivScores || []).reduce(
       (s, d) => s + Number(d.score ?? 0), 0
     );
 
-    // Build deliverables map for the per-chapter detail view (498 only)
     const deliverableDetail = {};
     for (const d of (delivScores || [])) {
       deliverableDetail[d.deliverable_key] = {
@@ -210,47 +250,20 @@ async function getMyGrades(req, res) {
       };
     }
 
-    // ── Step 7: Admin committee scores — CPIS-499 Course Deliverables (15) ────
     let adminCommitteeTotal = null;
-    if (courseType === '499') {
-      const { data: acRow } = await supabaseAdmin
-        .from('admin_committee_scores')
-        .select('poster_day_score, implementation_score, testing_score')
-        .eq('group_id', groupId)
-        .maybeSingle();
-
-      if (acRow) {
-        adminCommitteeTotal =
-          (Number(acRow.poster_day_score)     ?? 0) +
-          (Number(acRow.implementation_score) ?? 0) +
-          (Number(acRow.testing_score)        ?? 0);
-      }
+    if (courseType === '499' && acRow) {
+      adminCommitteeTotal =
+        (Number(acRow.poster_day_score)     ?? 0) +
+        (Number(acRow.implementation_score) ?? 0) +
+        (Number(acRow.testing_score)        ?? 0);
     }
-
-    // ── Step 8: Coordinator rubric-based assessment (coordinator_assessments) ───
-    // The coordinator "Evaluate Group" button stores normalized_score here.
-    // component_key is fetched from grading_components (evaluator_role='coordinator').
-    const { data: coordAssessRows } = await supabaseAdmin
-      .from('coordinator_assessments')
-      .select('normalized_score, max_score, submission_status, comment')
-      .eq('group_id', groupId)
-      .eq('course_type', courseType)
-      .limit(1);
 
     const coordinatorScore = coordAssessRows?.[0]?.normalized_score != null
       ? Number(coordAssessRows[0].normalized_score)
       : null;
-
-    // Only expose comment once coordinator has submitted (not while draft)
     const coordinatorComment = coordAssessRows?.[0]?.submission_status !== 'draft'
       ? (coordAssessRows?.[0]?.comment ?? null)
       : null;
-
-    // ── Step 8b: Chapter submission approval counts ────────────────────────────
-    const { data: submissions } = await supabaseAdmin
-      .from('submissions')
-      .select('status')
-      .eq('group_id', groupId);
 
     const approvalCounts = {
       total:    (submissions || []).length,
@@ -258,13 +271,6 @@ async function getMyGrades(req, res) {
       approved: (submissions || []).filter((s) => s.status === 'approved').length,
       rejected: (submissions || []).filter((s) => s.status === 'changes-requested').length,
     };
-
-    // ── Step 9: Weekly marks (per-week breakdown + capped total) ──────────────
-    const { data: weeklyReports } = await supabaseAdmin
-      .from('weekly_reports')
-      .select('week_number, student_mark, supervisor_mark')
-      .eq('group_id', groupId)
-      .order('week_number');
 
     const weeklyRaw = (weeklyReports || []).reduce(
       (s, r) => s + (r.student_mark ?? 0) + (r.supervisor_mark ?? 0), 0
@@ -280,30 +286,13 @@ async function getMyGrades(req, res) {
       supervisorMark: r.supervisor_mark ?? 0,
     }));
 
-    // ── Step 10: Peer evaluations RECEIVED by THIS student ─────────────────────
-    // This shows how peers rated this student (read-only — converted to a grade).
-    const { data: peerReceived } = await supabaseAdmin
-      .from('peer_evaluations')
-      .select('score')
-      .eq('student_id', studentId)
-      .eq('group_id', groupId);
-
     const peerScores    = (peerReceived || []).map((p) => Number(p.score));
     const peerAvgRaw    = peerScores.length > 0
       ? peerScores.reduce((s, v) => s + v, 0) / peerScores.length
       : null;
     const peerComponent = (components || []).find((c) => c.component_key === 'peer_review');
     const peerWeight    = peerComponent ? Number(peerComponent.total_marks) : 5;
-    // Convert 1–5 star rating → marks (proportional, e.g. 4/5 stars → 4 marks if weight=5)
     const peerConverted = peerAvgRaw != null ? (peerAvgRaw / 5) * peerWeight : null;
-
-    // ── Step 11: Has THIS student submitted peer evaluations for others? ────────
-    const { data: peerSubmitted } = await supabaseAdmin
-      .from('peer_evaluations')
-      .select('id')
-      .eq('evaluator_id', studentId)
-      .eq('group_id', groupId)
-      .limit(1);
 
     const hasSubmittedPeer = (peerSubmitted || []).length > 0;
 

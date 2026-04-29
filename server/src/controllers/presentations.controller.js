@@ -1,6 +1,7 @@
 const { supabaseAdmin } = require('../config/supabase');
 const emailService = require('../services/email.service');
 const notificationService = require('../services/notification.service');
+const { cacheGet, cacheSet, cacheDelPattern, TTL } = require('../utils/cache');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -53,6 +54,9 @@ function formatPresentationDateTime(date) {
 async function getStudentPresentationView(req, res) {
   try {
     const studentId = req.user.id;
+    const ck = `presentations:student-view:${studentId}`;
+    const cached = await cacheGet(ck);
+    if (cached) return res.json(cached);
 
     // Find the group this student belongs to
     const { data: membership, error: memError } = await supabaseAdmin
@@ -65,30 +69,31 @@ async function getStudentPresentationView(req, res) {
     if (memError) throw memError;
 
     if (!membership) {
-      return res.json({ group: null, schedule: null });
+      const empty = { group: null, schedule: null };
+      await cacheSet(ck, empty, TTL.SHORT);
+      return res.json(empty);
     }
 
     const groupId = membership.group_id;
 
-    // Fetch group info — intentionally excludes supervisor fields
-    const { data: group, error: groupError } = await supabaseAdmin
-      .from('groups')
-      .select('id, group_code, group_number, project_name')
-      .eq('id', groupId)
-      .single();
+    // Fetch group + schedule in parallel (both keyed by groupId, no dependency)
+    const [{ data: group, error: groupError }, { data: schedule, error: schedError }] = await Promise.all([
+      supabaseAdmin
+        .from('groups')
+        .select('id, group_code, group_number, project_name')
+        .eq('id', groupId)
+        .single(),
+      supabaseAdmin
+        .from('presentation_schedules')
+        .select('day, time_slot, scheduled_at, location')
+        .eq('group_id', groupId)
+        .maybeSingle(),
+    ]);
 
     if (groupError) throw groupError;
-
-    // Fetch presentation schedule — excludes committee_members to hide supervisor data
-    const { data: schedule, error: schedError } = await supabaseAdmin
-      .from('presentation_schedules')
-      .select('day, time_slot, scheduled_at, location')
-      .eq('group_id', groupId)
-      .maybeSingle();
-
     if (schedError) throw schedError;
 
-    return res.json({
+    const payload = {
       group: group
         ? {
             id: group.id,
@@ -105,7 +110,10 @@ async function getStudentPresentationView(req, res) {
             location: schedule.location ?? null,
           }
         : null,
-    });
+    };
+
+    await cacheSet(ck, payload, TTL.MEDIUM);
+    return res.json(payload);
   } catch (error) {
     console.error('Error fetching student presentation view:', error);
     res.status(500).json({ error: 'Failed to fetch presentation data' });
@@ -445,6 +453,7 @@ async function assignSchedule(req, res) {
         .catch((err) => console.error('[presentations] Failed to send presentation email:', err.message));
     }
 
+    await cacheDelPattern('presentations:student-view:*');
     res.json({ success: true });
 
     // ── Trigger 7: per-committee-member announcement + notification + personal calendar ───
@@ -641,6 +650,7 @@ async function deleteSchedule(req, res) {
       .eq('group_id', groupId);
     if (delErr) throw delErr;
 
+    await cacheDelPattern('presentations:student-view:*');
     return res.json({ success: true });
   } catch (error) {
     console.error('Error deleting presentation schedule:', error);

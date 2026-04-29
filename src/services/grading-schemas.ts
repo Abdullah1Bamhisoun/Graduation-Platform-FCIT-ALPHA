@@ -1,6 +1,19 @@
 import { supabase } from '../lib/supabase';
 import type { GradingSchema } from '../types';
 
+// ── Module-level TTL cache (grading schemas almost never change → long TTL) ──
+const SCHEMAS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+interface CacheEntry<T> { data: T; fetchedAt: number }
+const _cache = new Map<string, CacheEntry<GradingSchema[]>>();
+
+function _isFresh<T>(e?: CacheEntry<T>): e is CacheEntry<T> {
+  return !!e && Date.now() - e.fetchedAt < SCHEMAS_CACHE_TTL;
+}
+
+export function clearGradingSchemasCache() {
+  _cache.clear();
+}
+
 function mapRow(row: any): GradingSchema {
   return {
     id:            row.id,
@@ -23,6 +36,10 @@ export async function getGradingSchemas(
   semester: string,
   department = 'IS'
 ): Promise<GradingSchema[]> {
+  const ck = `${courseType}:${semester}:${department}`;
+  const cached = _cache.get(ck);
+  if (_isFresh(cached)) return cached.data;
+
   // Try exact semester first
   const { data: exact } = await supabase
     .from('grading_schemas')
@@ -33,7 +50,11 @@ export async function getGradingSchemas(
     .eq('is_active', true)
     .order('weight', { ascending: false });
 
-  if (exact && exact.length > 0) return exact.map(mapRow);
+  if (exact && exact.length > 0) {
+    const result = exact.map(mapRow);
+    _cache.set(ck, { data: result, fetchedAt: Date.now() });
+    return result;
+  }
 
   // Fall back to DEFAULT
   const { data: fallback } = await supabase
@@ -45,7 +66,9 @@ export async function getGradingSchemas(
     .eq('is_active', true)
     .order('weight', { ascending: false });
 
-  return (fallback || []).map(mapRow);
+  const result = (fallback || []).map(mapRow);
+  _cache.set(ck, { data: result, fetchedAt: Date.now() });
+  return result;
 }
 
 /** Returns the weight for a given component (case-insensitive partial match). */

@@ -3,6 +3,25 @@ import { apiUrl, apiFetch } from '@/lib/api';
 import type { Submission, SubmissionVersion, Feedback, RubricCriterion } from '../types';
 import { mapSubmissionStatus } from './mappers';
 
+// ── Module-level TTL cache ──────────────────────────────────────────────────
+const SUBMISSIONS_CACHE_TTL = 60 * 1000; // 1 minute
+interface CacheEntry<T> { data: T; fetchedAt: number }
+const _byStudentCache = new Map<string, CacheEntry<Submission[]>>();
+const _bySupervisorCache = new Map<string, CacheEntry<Submission[]>>();
+const _byIdCache = new Map<string, CacheEntry<Submission | null>>();
+const _byMilestoneStudentCache = new Map<string, CacheEntry<Submission | null>>();
+
+function _isFresh<T>(e?: CacheEntry<T>): e is CacheEntry<T> {
+  return !!e && Date.now() - e.fetchedAt < SUBMISSIONS_CACHE_TTL;
+}
+
+export function clearSubmissionsCache() {
+  _byStudentCache.clear();
+  _bySupervisorCache.clear();
+  _byIdCache.clear();
+  _byMilestoneStudentCache.clear();
+}
+
 function mapDbVersion(data: any): SubmissionVersion {
   return {
     version: data.version,
@@ -77,6 +96,10 @@ const SUBMISSION_SELECT = `
 `;
 
 export async function getSubmissionsForStudent(studentId: string, limit = 200): Promise<Submission[]> {
+  const ck = `${studentId}:${limit}`;
+  const cached = _byStudentCache.get(ck);
+  if (_isFresh(cached)) return cached.data;
+
   try {
     const { data, error } = await supabase
       .from('submissions')
@@ -86,7 +109,9 @@ export async function getSubmissionsForStudent(studentId: string, limit = 200): 
       .limit(limit);
 
     if (error) throw error;
-    return (data || []).map(mapDbSubmission);
+    const result = (data || []).map(mapDbSubmission);
+    _byStudentCache.set(ck, { data: result, fetchedAt: Date.now() });
+    return result;
   } catch (error) {
     console.error('Error fetching student submissions:', error);
     return [];
@@ -94,6 +119,10 @@ export async function getSubmissionsForStudent(studentId: string, limit = 200): 
 }
 
 export async function getSubmissionsForSupervisor(supervisorId: string, limit = 500): Promise<Submission[]> {
+  const ck = `${supervisorId}:${limit}`;
+  const cached = _bySupervisorCache.get(ck);
+  if (_isFresh(cached)) return cached.data;
+
   try {
     // Get groups supervised by this user
     const { data: groups, error: gError } = await supabase
@@ -102,7 +131,10 @@ export async function getSubmissionsForSupervisor(supervisorId: string, limit = 
       .eq('supervisor_id', supervisorId);
 
     if (gError) throw gError;
-    if (!groups || groups.length === 0) return [];
+    if (!groups || groups.length === 0) {
+      _bySupervisorCache.set(ck, { data: [], fetchedAt: Date.now() });
+      return [];
+    }
 
     const groupIds = groups.map((g: any) => g.id);
 
@@ -114,7 +146,9 @@ export async function getSubmissionsForSupervisor(supervisorId: string, limit = 
       .limit(limit);
 
     if (error) throw error;
-    return (data || []).map(mapDbSubmission);
+    const result = (data || []).map(mapDbSubmission);
+    _bySupervisorCache.set(ck, { data: result, fetchedAt: Date.now() });
+    return result;
   } catch (error) {
     console.error('Error fetching supervisor submissions:', error);
     return [];
@@ -122,6 +156,9 @@ export async function getSubmissionsForSupervisor(supervisorId: string, limit = 
 }
 
 export async function getSubmissionById(id: string): Promise<Submission | null> {
+  const cached = _byIdCache.get(id);
+  if (_isFresh(cached)) return cached.data;
+
   try {
     const { data, error } = await supabase
       .from('submissions')
@@ -130,7 +167,9 @@ export async function getSubmissionById(id: string): Promise<Submission | null> 
       .single();
 
     if (error) throw error;
-    return data ? mapDbSubmission(data) : null;
+    const result = data ? mapDbSubmission(data) : null;
+    _byIdCache.set(id, { data: result, fetchedAt: Date.now() });
+    return result;
   } catch (error) {
     console.error('Error fetching submission:', error);
     return null;
@@ -141,6 +180,10 @@ export async function getSubmissionByMilestoneAndStudent(
   milestoneId: string,
   studentId: string
 ): Promise<Submission | null> {
+  const ck = `${milestoneId}:${studentId}`;
+  const cached = _byMilestoneStudentCache.get(ck);
+  if (_isFresh(cached)) return cached.data;
+
   try {
     const { data, error } = await supabase
       .from('submissions')
@@ -150,7 +193,9 @@ export async function getSubmissionByMilestoneAndStudent(
       .maybeSingle();
 
     if (error) throw error;
-    return data ? mapDbSubmission(data) : null;
+    const result = data ? mapDbSubmission(data) : null;
+    _byMilestoneStudentCache.set(ck, { data: result, fetchedAt: Date.now() });
+    return result;
   } catch (error) {
     console.error('Error fetching submission:', error);
     return null;
@@ -222,6 +267,7 @@ export async function createSubmission(submission: {
     const err = await res.json().catch(() => ({}));
     throw new Error((err as any).error || 'Failed to create submission');
   }
+  clearSubmissionsCache();
 }
 
 export async function createSubmissionVersion(
@@ -250,6 +296,7 @@ export async function createSubmissionVersion(
     const err = await res.json().catch(() => ({}));
     throw new Error((err as any).error || 'Failed to create submission version');
   }
+  clearSubmissionsCache();
 }
 
 export async function submitFeedback(feedback: {
@@ -296,6 +343,7 @@ export async function submitFeedback(feedback: {
     .eq('id', feedback.submissionId);
 
   if (uError) throw uError;
+  clearSubmissionsCache();
 }
 
 // ─── Coordinator-Specific Functions ────────────────────────────────────
