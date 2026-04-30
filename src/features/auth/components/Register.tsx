@@ -296,10 +296,9 @@ export function Register() {
 
   // ── Registration Form ──────────────────────────────────────────────────────
   return (
-    <div className="h-screen flex flex-col lg:flex-row overflow-hidden">
+    <div className="min-h-screen flex flex-col lg:flex-row">
       {/* Left Panel */}
-      <div className="w-full lg:w-1/2 overflow-y-auto bg-[var(--color-surface-white)] flex flex-col">
-        <div className="flex-1 flex items-center justify-center p-6 sm:p-8 lg:p-12">
+      <div className="w-full lg:w-1/2 bg-[var(--color-surface-white)] flex items-center justify-center p-6 sm:p-8 lg:p-12">
         <div className="w-full max-w-md">
           <div className="mb-6">
             <img src="/gpp-logo.png" alt="GPP FCIT KAU" className="w-64 mx-auto mb-6" />
@@ -599,7 +598,6 @@ export function Register() {
               Back to Login
             </Link>
           </div>
-        </div>
         </div>
       </div>
 

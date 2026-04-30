@@ -148,8 +148,14 @@ export function AdminPresentationCommittee() {
         sun: 0, mon: 0, tue: 0, wed: 0, thu: 0, total: 0,
         status: 'none' as const,
       })));
-      // courseCode may be empty when groups come from the backend API (no course join).
-      // Use courseNumber (e.g. '499') as the reliable fallback.
+      // For coordinators, the backend course-scopes /api/groups so every returned
+      // group belongs to coordinatorCourseCode — trust that instead of guessing
+      // from per-group fields (the API doesn't return courseCode and course_number
+      // can be null, which made CPIS-499 groups misclassify as '498').
+      const coordinatorCourseNumber: '498' | '499' | null =
+        isCoordinator && user!.coordinatorCourseCode
+          ? (user!.coordinatorCourseCode.includes('499') ? '499' : '498')
+          : null;
       const isCourse499 = (g: (typeof groups)[number]) =>
         g.courseCode.includes('499') || (g.courseNumber ?? '').includes('499');
 
@@ -157,15 +163,15 @@ export function AdminPresentationCommittee() {
         id: g.id,
         name: g.projectName,
         groupId: g.groupCode,
-        course: (isCourse499(g) ? '499' : '498') as '498' | '499',
+        course: (coordinatorCourseNumber ?? (isCourse499(g) ? '499' : '498')) as '498' | '499',
         status: 'unassigned' as const,
         supervisor: g.supervisorName || undefined,
         students: g.members.map(m => ({ id: m.id, name: m.name })),
       }));
 
-      // For coordinators: auto-detect their course from loaded groups
-      if (isCoordinator && mappedProjects.length > 0) {
-        setCourse(mappedProjects[0].course);
+      // Coordinators: lock the course toggle to their assigned course.
+      if (coordinatorCourseNumber) {
+        setCourse(coordinatorCourseNumber);
       }
 
       // Load saved schedules from DB and hydrate the slot board
