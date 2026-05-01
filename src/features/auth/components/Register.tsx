@@ -113,7 +113,6 @@ export function Register() {
   const [publicGroups,    setPublicGroups]    = useState<PublicGroup[]>([]);
   const [groupsLoading,   setGroupsLoading]   = useState(false);
 
-  const selectedGroup = publicGroups.find((g) => g.id === selectedGroupId) ?? null;
   const selectedCourse = courses.find((c) => c.id === selectedCourseId) ?? null;
 
   // ── Supervisor fields ──────────────────────────────────────────────────────
