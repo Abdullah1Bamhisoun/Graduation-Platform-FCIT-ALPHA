@@ -107,7 +107,11 @@ export function CoordinatorApprovals() {
       const json = await response.json();
       if (!response.ok) throw new Error(json.error || 'Approval failed');
 
-      toast.success('Registration approved successfully');
+      if (json.groupAssignmentWarning) {
+        toast.warning(json.groupAssignmentWarning, { duration: 8000 });
+      } else {
+        toast.success('Registration approved successfully');
+      }
       await loadRegistrations();
     } catch (err: any) {
       toast.error(err.message || 'Failed to approve registration');
@@ -280,6 +284,16 @@ function RegistrationCard({
             {reg.projectName && (
               <div className="mt-2 text-sm text-[var(--color-text-600)]">
                 <span className="font-medium">Project:</span> {reg.projectName}
+              </div>
+            )}
+            {!reg.projectName && reg.groupId && (
+              <div className="mt-2 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-1 inline-block">
+                Wants to join an existing group
+              </div>
+            )}
+            {!reg.projectName && !reg.groupId && reg.accountType === 'student' && (
+              <div className="mt-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 inline-block">
+                No group selected
               </div>
             )}
             <div className="mt-1 text-xs text-[var(--color-text-600)]">

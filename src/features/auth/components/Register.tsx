@@ -175,8 +175,6 @@ export function Register() {
         if (!projectIdea.trim()) newErrors.projectIdea = 'Project idea is required';
       } else {
         if (!selectedGroupId) newErrors.groupId = 'Please select a group to join';
-        if (selectedGroup && selectedGroup.membersCount >= 3)
-          newErrors.groupId = 'This group is full (maximum 3 students)';
       }
     } else {
       if (!supervisorFirstName.trim()) newErrors.firstName   = 'First name is required';
@@ -498,11 +496,10 @@ export function Register() {
                                 <SelectItem value="_none" disabled>No groups available yet</SelectItem>
                               ) : (
                                 publicGroups.map((g) => (
-                                  <SelectItem key={g.id} value={g.id} disabled={g.membersCount >= 3}>
+                                  <SelectItem key={g.id} value={g.id}>
                                     Group {g.groupNumber}
                                     {g.projectName ? ` — ${g.projectName}` : ''}
-                                    {' '}({g.membersCount}/3)
-                                    {g.membersCount >= 3 ? ' — Full' : ''}
+                                    {' '}({g.membersCount}/3 members)
                                   </SelectItem>
                                 ))
                               )}

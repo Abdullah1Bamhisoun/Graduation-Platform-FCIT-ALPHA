@@ -133,9 +133,9 @@ async function getAvailableGroups(req, res) {
     const { data: richData, error: richError } = await richQuery;
 
     if (!richError) {
-      // New columns exist — filter to non-rejected groups
+      // Filter to non-rejected groups with open slots (< 3 members)
       const groups = (richData || [])
-        .filter((g) => g.status !== 'rejected')
+        .filter((g) => g.status !== 'rejected' && (g.members || []).length < 3)
         .map((g) => ({
           id: g.id,
           groupNumber: g.group_number ?? parseInt(g.group_code?.split('_')[1], 10) ?? null,
@@ -161,17 +161,19 @@ async function getAvailableGroups(req, res) {
     const { data, error } = await fallbackQuery;
     if (error) throw error;
 
-    const groups = (data || []).map((g, idx) => ({
-      id: g.id,
-      groupNumber: parseInt(g.group_code?.split('_')[0], 10) || idx + 1,
-      department: null,
-      projectName: g.project_name || null,
-      isLocked: false,
-      status: 'pending',
-      gender: null,
-      courseNumber: null,
-      membersCount: (g.members || []).length,
-    }));
+    const groups = (data || [])
+      .filter((g) => (g.members || []).length < 3)
+      .map((g, idx) => ({
+        id: g.id,
+        groupNumber: parseInt(g.group_code?.split('_')[0], 10) || idx + 1,
+        department: null,
+        projectName: g.project_name || null,
+        isLocked: false,
+        status: 'pending',
+        gender: null,
+        courseNumber: null,
+        membersCount: (g.members || []).length,
+      }));
 
     res.json(groups);
   } catch (error) {

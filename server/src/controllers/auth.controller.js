@@ -186,6 +186,7 @@ async function approveRegistration(req, res) {
     }
 
     // ── Group assignment (students only) ──────────────────────────────────────
+    let groupAssignmentWarning = null;
     if (registration.account_type === 'student') {
       const userId = authUser.user.id;
       const termMap = { First: '01', Second: '02' };
@@ -283,16 +284,18 @@ async function approveRegistration(req, res) {
         // ── NO IDEA: join an existing group selected during registration ──
         const { data: group, error: groupLookupError } = await supabaseAdmin
           .from('groups')
-          .select('id, members:group_members(student_id)')
+          .select('id, group_number, members:group_members(student_id)')
           .eq('id', registration.group_id)
           .single();
 
         if (groupLookupError || !group) {
           console.error(`approveRegistration: group ${registration.group_id} not found for student ${userId}:`, groupLookupError?.message);
+          groupAssignmentWarning = `The group the student selected (ID: ${registration.group_id}) no longer exists. Please assign them to a group manually.`;
         } else {
           const memberCount = (group.members || []).length;
           if (memberCount >= 3) {
             console.warn(`approveRegistration: group ${registration.group_id} is full (${memberCount}/3) — student ${userId} not added`);
+            groupAssignmentWarning = `Group ${group.group_number} is now full (3/3 members). The student was approved but NOT assigned to any group. Please assign them manually.`;
           } else {
             // Guard against duplicate membership (avoids unique-constraint violations)
             const alreadyMember = (group.members || []).some((m) => m.student_id === userId);
@@ -305,6 +308,7 @@ async function approveRegistration(req, res) {
               });
               if (memberInsertError) {
                 console.error(`approveRegistration: failed to add student ${userId} to group ${registration.group_id}:`, memberInsertError.message);
+                groupAssignmentWarning = `Student was approved but could not be added to Group ${group.group_number} due to a database error. Please assign them manually.`;
               }
             }
           }
@@ -359,6 +363,7 @@ async function approveRegistration(req, res) {
       success: true,
       message: 'Registration approved successfully',
       userId: authUser.user.id,
+      groupAssignmentWarning,
     });
   } catch (error) {
     console.error('Error approving registration:', error);
