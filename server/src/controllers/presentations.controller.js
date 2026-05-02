@@ -467,7 +467,11 @@ async function assignSchedule(req, res) {
         .catch((err) => console.error('[presentations] Failed to send presentation email:', err.message));
     }
 
-    await cacheDelPattern('presentations:student-view:*');
+    await Promise.all([
+      cacheDelPattern('presentations:student-view:*'),
+      cacheDelPattern('calendar:*'),
+      cacheDelPattern('announcements:*'),
+    ]);
     res.json({ success: true });
 
     // ── Trigger 7: per-committee-member announcement + notification + personal calendar ───
@@ -564,6 +568,12 @@ async function assignSchedule(req, res) {
               }),
             ]);
           }
+          // Personal calendar events were just created — bust calendar + announcement caches
+          // again so committee members see the new entry immediately on their next fetch.
+          await Promise.all([
+            cacheDelPattern('calendar:*'),
+            cacheDelPattern('announcements:*'),
+          ]);
         } catch (e) {
           console.error('[presentations] Trigger-7 committee notification error:', e.message);
         }
@@ -684,7 +694,11 @@ async function deleteSchedule(req, res) {
       .eq('group_id', groupId);
     if (delErr) throw delErr;
 
-    await cacheDelPattern('presentations:student-view:*');
+    await Promise.all([
+      cacheDelPattern('presentations:student-view:*'),
+      cacheDelPattern('calendar:*'),
+      cacheDelPattern('announcements:*'),
+    ]);
     return res.json({ success: true });
   } catch (error) {
     console.error('Error deleting presentation schedule:', error);
