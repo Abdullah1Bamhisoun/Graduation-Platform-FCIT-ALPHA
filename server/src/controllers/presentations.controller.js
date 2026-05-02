@@ -399,24 +399,25 @@ async function assignSchedule(req, res) {
 
     // ── Announcement (broadcast to students & supervisors) ─────────────────
     const formatted = formatPresentationDateTime(presentationDate);
+    const formattedDateOnly = formatted.split(' – ')[0];
     const locationLine = location ? `\nLocation: ${location}` : '';
     const announcementContent = [
       `A presentation slot has been scheduled for ${projectName}.`,
       '',
-      `Date & Time: ${formatted}`,
+      `Date: ${formattedDateOnly}`,
       `Day / Slot: ${day} – ${timeSlot}`,
       ...(location ? [`Location: ${location}`] : []),
     ].join('\n');
 
-    // Target only students. Committee supervisors get a dedicated, group-scoped
-    // "Committee Assignment" announcement in Trigger 7 below — sending the
-    // broadcast version too would double-notify them. Coordinators still see
-    // this via the author_id-based filter in announcements.controller.js.
+    // Scoped to the affected group only — the group's students (and their
+    // supervisor) see it; other groups' students do not. Committee supervisors
+    // get a dedicated "Committee Assignment" announcement in Trigger 7 below.
     const { error: announcementErr } = await supabaseAdmin.from('announcements').insert({
-      title: `Presentation Scheduled: ${projectName}`,
+      title: `Committee Evaluation Scheduled: ${projectName}`,
       content: announcementContent,
       author_id: req.user.id,
       target_roles: ['student'],
+      group_id: groupId,
       published_at: new Date().toISOString(),
       expires_at: null,
     });
@@ -491,6 +492,7 @@ async function assignSchedule(req, res) {
           const groupStudents = await notificationService.getGroupMembers(groupId);
           const studentNames  = groupStudents.map((s) => s.name).join(', ') || 'N/A';
           const formattedDate = formatPresentationDateTime(presentationDate);
+          const formattedDateOnly = formattedDate.split(' – ')[0];
           // Resolve supervisor name: prefer the embedded join, fall back to a
           // direct profiles lookup when the FK join doesn't return the row.
           let supervisorName = groupData?.supervisor?.name ?? null;
@@ -512,7 +514,8 @@ async function assignSchedule(req, res) {
             `Group: ${projectName}${groupNum ? ` (Group ${groupNum})` : ''}`,
             `Students: ${studentNames}`,
             `Supervisor: ${supervisorName}`,
-            `Evaluation Date & Time: ${formattedDate}`,
+            `Evaluation Date: ${formattedDateOnly}`,
+            `Day / Slot: ${day} – ${timeSlot}`,
             ...(location ? [`Location: ${location}`] : []),
           ].join('\n');
 

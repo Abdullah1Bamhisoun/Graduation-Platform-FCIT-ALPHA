@@ -50,9 +50,11 @@ async function createAnnouncement({ title, content, targetRoles, courseId, group
 
     // Build the full payload: try with course_id + group_id (migrations 005+006).
     // Fall back progressively if columns don't exist yet.
-    const withCourseAndGroup = courseId
-      ? { ...base, course_id: courseId, ...(groupId ? { group_id: groupId } : {}) }
-      : base;
+    const withCourseAndGroup = {
+      ...base,
+      ...(courseId ? { course_id: courseId } : {}),
+      ...(groupId  ? { group_id:  groupId  } : {}),
+    };
 
     let result = await supabaseAdmin.from('announcements').insert(withCourseAndGroup).select('id').single();
 

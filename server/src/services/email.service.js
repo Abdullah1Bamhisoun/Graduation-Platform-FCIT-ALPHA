@@ -440,12 +440,12 @@ function sendPresentationScheduled(studentEmails, data) {
   `;
 
   const subject = courseName
-    ? `[${courseName}] Presentation Scheduled: ${projectName}`
-    : `Presentation Scheduled: ${projectName}`;
+    ? `[${courseName}] Committee Evaluation Scheduled: ${projectName}`
+    : `Committee Evaluation Scheduled: ${projectName}`;
 
   return Promise.allSettled(
     studentEmails.filter(Boolean).map((email) =>
-      sendEmail(email, subject, layout(body, 'Presentation Scheduled'))
+      sendEmail(email, subject, layout(body, 'Committee Evaluation Scheduled'))
     )
   );
 }
