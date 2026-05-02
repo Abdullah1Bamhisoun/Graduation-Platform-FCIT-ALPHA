@@ -107,22 +107,29 @@ export async function getMilestones(courseCode?: string): Promise<Milestone[]> {
  * Fetch visible milestones for a student, filtered to their course only.
  * Students without a group see no milestones (empty array).
  */
-export async function getMilestonesByStudentWithStatus(studentId: string): Promise<Milestone[]> {
+export async function getMilestonesByStudentWithStatus(
+  studentId: string,
+  opts?: { groupId?: string; courseId?: string },
+): Promise<Milestone[]> {
   const cached = _studentCache.get(studentId);
   if (_isFresh(cached)) return cached.data;
 
   try {
-    // Resolve the student's course via their group membership
-    const { data: membership } = await supabase
-      .from('group_members')
-      .select('group_id')
-      .eq('student_id', studentId)
-      .limit(1)
-      .maybeSingle();
+    // Use caller-supplied group/course IDs when available to avoid redundant queries.
+    let groupId: string | null = opts?.groupId ?? null;
+    let courseId: string | null = opts?.courseId ?? null;
 
-    const groupId = membership?.group_id ?? null;
-    let courseId: string | null = null;
-    if (groupId) {
+    if (!groupId) {
+      const { data: membership } = await supabase
+        .from('group_members')
+        .select('group_id')
+        .eq('student_id', studentId)
+        .limit(1)
+        .maybeSingle();
+      groupId = membership?.group_id ?? null;
+    }
+
+    if (!courseId && groupId) {
       const { data: group } = await supabase
         .from('groups')
         .select('course_id')
@@ -134,24 +141,24 @@ export async function getMilestonesByStudentWithStatus(studentId: string): Promi
     // No group → no milestones
     if (!courseId || !groupId) return [];
 
-    // Fetch visible milestones for the student's course
-    const { data: milestones, error: mError } = await supabase
-      .from('milestones')
-      .select('*, course:courses!course_id(code), rubric_criteria(id, name, max_score, sort_order)')
-      .eq('visible', true)
-      .eq('course_id', courseId)
-      .order('due_date');
-
-    if (mError) throw mError;
-
-    // Fetch submission statuses via backend API (bypasses RLS so all group members
-    // see the correct status regardless of who submitted each chapter)
-    const session = await supabase.auth.getSession();
-    const token = session.data.session?.access_token ?? '';
-    const statusRes = await apiFetch(
-      apiUrl(`/api/submissions/group-milestone-statuses?groupId=${groupId}`),
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
+    // Fetch milestones and submission statuses in parallel — both only need
+    // groupId/courseId which are already known at this point.
+    const sessionProm = supabase.auth.getSession();
+    const [{ data: milestones, error: mError }, statusRes] = await Promise.all([
+      supabase
+        .from('milestones')
+        .select('*, course:courses!course_id(code), rubric_criteria(id, name, max_score, sort_order)')
+        .eq('visible', true)
+        .eq('course_id', courseId)
+        .order('due_date'),
+      sessionProm.then(async (session) => {
+        const token = session.data.session?.access_token ?? '';
+        return apiFetch(
+          apiUrl(`/api/submissions/group-milestone-statuses?groupId=${groupId}`),
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      }),
+    ]);
 
     const submissionMap = new Map<string, string>();
     if (statusRes.ok) {

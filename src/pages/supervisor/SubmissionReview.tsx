@@ -57,12 +57,14 @@ interface SubmissionComment {
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
-async function fetchChapterSubmissions(token: string): Promise<ChapterSubmission[]> {
-  const res = await apiFetch(apiUrl('/api/submissions/chapter-submissions'), {
-    headers: { Authorization: `Bearer ${token}`, 'X-Active-Role': 'supervisor' },
-  });
-  if (!res.ok) throw new Error('Failed to fetch chapter submissions');
-  return res.json();
+async function fetchChapterSubmission(token: string, submissionId: string): Promise<ChapterSubmission | null> {
+  const res = await apiFetch(
+    apiUrl(`/api/submissions/chapter-submissions?submissionId=${encodeURIComponent(submissionId)}`),
+    { headers: { Authorization: `Bearer ${token}`, 'X-Active-Role': 'supervisor' } },
+  );
+  if (!res.ok) throw new Error('Failed to fetch chapter submission');
+  const data: ChapterSubmission[] = await res.json();
+  return data[0] ?? null;
 }
 
 async function submitApproval(
@@ -174,11 +176,9 @@ export function SupervisorSubmissionReview() {
     (async () => {
       try {
         const token = await getToken();
-        const all = await fetchChapterSubmissions(token);
-        const found = all.find((s) => s.id === id) ?? null;
+        const found = await fetchChapterSubmission(token, id);
         setSubmission(found);
         if (found) {
-          // Pre-populate feedback from localStorage draft
           const saved = localStorage.getItem(draftKey(found.id));
           if (saved) setFeedback(saved);
         }

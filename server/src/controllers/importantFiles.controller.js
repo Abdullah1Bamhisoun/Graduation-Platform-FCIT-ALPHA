@@ -1,5 +1,18 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { normalizeCourseCode } = require('../utils/helpers');
+const { cacheGet, cacheSet, cacheDelPattern, TTL } = require('../utils/cache');
+
+const cacheKeyFor = (req) => {
+  const role = req.user?.role;
+  const activeRole = req.user?.activeRole;
+  if (activeRole === 'coordinator' && req.user.coordinatorCourseId) {
+    return `important-files:course:${req.user.coordinatorCourseId}`;
+  }
+  if (role === 'student') {
+    return `important-files:student:${req.user.id}`;
+  }
+  return 'important-files:all';
+};
 
 /**
  * GET /api/important-files
@@ -9,6 +22,10 @@ const { normalizeCourseCode } = require('../utils/helpers');
  */
 async function listFiles(req, res) {
   try {
+    const ck = cacheKeyFor(req);
+    const cached = await cacheGet(ck);
+    if (cached) return res.json(cached);
+
     let query = supabaseAdmin
       .from('important_files')
       .select('id, name, description, size, type, file_url, course_id, uploaded_at, courses(code)')
@@ -22,30 +39,23 @@ async function listFiles(req, res) {
       query = query.eq('course_id', req.user.coordinatorCourseId);
 
     } else if (role === 'student') {
-      // Step 1: get the student's group_id
+      // Single join: membership → group(course_id) in one round-trip
       const { data: membership } = await supabaseAdmin
         .from('group_members')
-        .select('group_id')
+        .select('group:groups!group_id(course_id)')
         .eq('student_id', req.user.id)
         .limit(1)
         .maybeSingle();
 
-      let studentCourseId = null;
-      if (membership?.group_id) {
-        // Step 2: get course_id from the group
-        const { data: grp } = await supabaseAdmin
-          .from('groups')
-          .select('course_id')
-          .eq('id', membership.group_id)
-          .maybeSingle();
-        studentCourseId = grp?.course_id ?? null;
-      }
+      const studentCourseId = membership?.group?.course_id ?? null;
 
       if (studentCourseId) {
         query = query.eq('course_id', studentCourseId);
       } else {
         // Student not yet in a group — show nothing
-        return res.json([]);
+        const empty = [];
+        await cacheSet(ck, empty, TTL.SHORT);
+        return res.json(empty);
       }
     }
     // Admin, Supervisor, and all other roles: no filter — see everything
@@ -53,7 +63,7 @@ async function listFiles(req, res) {
     const { data, error } = await query;
     if (error) throw error;
 
-    res.json((data || []).map((f) => ({
+    const result = (data || []).map((f) => ({
       id: f.id,
       name: f.name,
       description: f.description,
@@ -63,7 +73,10 @@ async function listFiles(req, res) {
       courseId: f.course_id || null,
       courseCode: normalizeCourseCode(f.courses?.code) || null,
       uploadedAt: f.uploaded_at,
-    })));
+    }));
+
+    await cacheSet(ck, result, TTL.MEDIUM);
+    res.json(result);
   } catch (error) {
     console.error('Error listing important files:', error);
     res.status(500).json({ error: 'Failed to fetch files' });
@@ -110,6 +123,8 @@ async function createFile(req, res) {
       .single();
 
     if (error) throw error;
+
+    await cacheDelPattern('important-files:*');
 
     res.json({
       id: data.id,
@@ -168,6 +183,7 @@ async function updateFile(req, res) {
 
     if (error) throw error;
 
+    await cacheDelPattern('important-files:*');
     res.json({ success: true });
   } catch (error) {
     console.error('Error updating important file:', error);
@@ -207,6 +223,7 @@ async function deleteFile(req, res) {
 
     if (error) throw error;
 
+    await cacheDelPattern('important-files:*');
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting important file:', error);

@@ -16,7 +16,7 @@ export function StudentFeedback() {
 
   useEffect(() => {
     if (!user) return;
-    getSubmissionsForStudent(user.id)
+    getSubmissionsForStudent(user.id, 50)
       .then(setSubmissions)
       .finally(() => setLoading(false));
   }, [user]);

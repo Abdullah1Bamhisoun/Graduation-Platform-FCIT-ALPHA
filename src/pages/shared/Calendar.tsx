@@ -377,15 +377,15 @@ export function Calendar() {
                           href={buildGoogleCalUrl(event)}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className={`block w-full text-[11px] leading-snug px-1 py-0.5 rounded mb-0.5 wrap-break-word line-clamp-2 font-medium ${isPast ? 'bg-gray-100! text-gray-400! border-gray-300! border' : eventTypeColors[event.type]}`}
+                          className={`block w-full text-[11px] leading-snug rounded mb-0.5 font-medium truncate sm:line-clamp-2 sm:wrap-break-word sm:px-1 sm:py-0.5 h-1.5 sm:h-auto ${isPast ? 'bg-gray-100! text-gray-400! border-gray-300! border' : eventTypeColors[event.type]}`}
                           title={`${event.title} — Add to Google Calendar`}
                         >
-                          {event.title}
+                          <span className="hidden sm:inline">{event.title}</span>
                         </a>
                       );
                     })}
                     {dayEvents.length > 2 && (
-                      <div className="text-[10px] font-medium text-(--color-text-500) px-1">
+                      <div className="text-[10px] font-medium text-(--color-text-500) px-1 hidden sm:block">
                         +{dayEvents.length - 2} more
                       </div>
                     )}

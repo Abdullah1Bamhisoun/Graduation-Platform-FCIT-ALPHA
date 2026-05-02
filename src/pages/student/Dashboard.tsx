@@ -5,11 +5,9 @@ import { StatusBadge } from '../../features/submissions/components/StatusBadge';
 import { Button } from '../../components/ui/button';
 import { getMilestonesByStudentWithStatus } from '../../services/milestones';
 import { getNotificationsForUser } from '../../services/notifications';
-import { getUpcomingEvents } from '../../services/dashboard';
 import { getGroupForStudent, type GroupData } from '../../services/groups';
 import { getSubmissionsForStudent } from '../../services/submissions';
 import { getWeeklyReportsByGroup } from '../../services/weekly-reports';
-import type { UpcomingEvent } from '../../services/dashboard';
 import { Calendar, CheckCircle, Clock, FileText, Users, MessageSquare } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../lib/AuthContext';
@@ -21,7 +19,6 @@ export function StudentDashboard() {
   const { user } = useAuth();
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [_upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
   const [group, setGroup] = useState<GroupData | null>(null);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [weeklyReports, setWeeklyReports] = useState<WeeklyReport[]>([]);
@@ -32,16 +29,14 @@ export function StudentDashboard() {
     getGroupForStudent(user.id).then(g => {
       setGroup(g);
       return Promise.all([
-        getMilestonesByStudentWithStatus(user.id),
-        getNotificationsForUser(user.id),
-        getUpcomingEvents(1),
-        getSubmissionsForStudent(user.id),
+        getMilestonesByStudentWithStatus(user.id, g ? { groupId: g.id, courseId: g.courseId } : undefined),
+        getNotificationsForUser(user.id, 100),
+        getSubmissionsForStudent(user.id, 20),
         g ? getWeeklyReportsByGroup(g.id) : Promise.resolve([]),
       ]);
-    }).then(([m, n, events, subs, reports]) => {
+    }).then(([m, n, subs, reports]) => {
       setMilestones(m);
       setNotifications(n);
-      setUpcomingEvents(events);
       setSubmissions(subs);
       setWeeklyReports(reports);
     }).finally(() => setLoading(false));

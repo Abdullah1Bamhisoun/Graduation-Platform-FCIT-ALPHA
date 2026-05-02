@@ -13,13 +13,14 @@ function mapDbNotification(data: any): Notification {
   };
 }
 
-export async function getNotificationsForUser(userId: string): Promise<Notification[]> {
+export async function getNotificationsForUser(userId: string, limit = 500): Promise<Notification[]> {
   try {
     const { data, error } = await supabase
       .from('notifications')
       .select('*')
       .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(limit);
 
     if (error) throw error;
     return (data || []).map(mapDbNotification);

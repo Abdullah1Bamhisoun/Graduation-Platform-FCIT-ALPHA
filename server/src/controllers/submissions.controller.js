@@ -38,7 +38,11 @@ async function getChapterSubmissionsForSupervisor(req, res) {
     const groupMap = Object.fromEntries(groups.map((g) => [g.id, g]));
 
     // Step 2 — get submissions for those groups
-    const { data: submissions, error: sError } = await supabaseAdmin
+    // Optional: filter to a single submission when ?submissionId=X is provided
+    // (used by the review detail page to avoid fetching all submissions)
+    const { submissionId } = req.query;
+
+    let submissionsQuery = supabaseAdmin
       .from('submissions')
       .select(`
         id, group_id, student_id, milestone_id, status,
@@ -48,8 +52,15 @@ async function getChapterSubmissionsForSupervisor(req, res) {
         versions:submission_versions!submission_id(version, file_name, file_size, file_path, uploaded_at, notes)
       `)
       .in('group_id', groupIds)
-      .order('updated_at', { ascending: false })
-      .range(req.pagination.from, req.pagination.to);
+      .order('updated_at', { ascending: false });
+
+    if (submissionId) {
+      submissionsQuery = submissionsQuery.eq('id', submissionId);
+    } else {
+      submissionsQuery = submissionsQuery.range(req.pagination.from, req.pagination.to);
+    }
+
+    const { data: submissions, error: sError } = await submissionsQuery;
 
     if (sError) throw sError;
 

@@ -56,22 +56,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // ── Load user profile + all roles from user_roles table ───────────────────
   const loadUserProfile = useCallback(
     async (authUser: SupabaseUser): Promise<User | null> => {
-      // 1. Fetch base profile
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', authUser.id)
-        .single();
+      // 1 & 2. Fetch profile and roles in parallel — both are independent.
+      const [{ data: profile, error }, roleEntries] = await Promise.all([
+        supabase.from('profiles').select('*').eq('id', authUser.id).single(),
+        getUserRoles(authUser.id),
+      ]);
 
       if (error || !profile) {
         console.error('Failed to load profile:', error?.message);
         throw new Error('Your account is pending admin approval. Please wait — you will be able to log in once approved.');
       }
 
-      // 2. Fetch all roles from user_roles table (authoritative source)
-      const roleEntries = await getUserRoles(authUser.id);
-
-      // 3. Coordinator course UUID — check user_roles first, then profiles, then platform_locks
+      // 3. Coordinator course UUID — check user_roles first, then profiles, then platform_locks fallback
       const coordinatorEntry = roleEntries.find((r) => r.roleName === 'coordinator');
       let coordinatorCourseId: string | undefined =
         coordinatorEntry?.coordinatorCourseId ??

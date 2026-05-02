@@ -5,40 +5,14 @@ const { cacheGet, cacheSet, cacheDelPattern, TTL } = require('../utils/cache');
 
 const weekStatusCk = (courseType) => `week-statuses:${courseType}`;
 
-/**
- * Seed closed rows for a course type if the table is empty for it.
- * Tries 16 weeks; falls back to 14 if the DB has a stricter check constraint.
- */
-async function ensureSeeded(courseType) {
-  // Fetch existing week numbers so we can insert only the missing ones
-  const { data: existing } = await supabaseAdmin
-    .from('week_statuses')
-    .select('week_number')
-    .eq('course_type', courseType);
-
-  const existingNums = new Set((existing || []).map((r) => r.week_number));
-  const missing = Array.from({ length: 16 }, (_, i) => i + 1).filter((n) => !existingNums.has(n));
-
-  if (missing.length === 0) return; // all 16 weeks already exist
-
-  const rows = missing.map((n) => ({
-    course_type: courseType,
-    week_number: n,
-    is_open:     false,
-    was_opened:  false,
-  }));
-
-  const { error } = await supabaseAdmin
-    .from('week_statuses')
-    .insert(rows);
-
-  if (error) console.error(`Seed error for ${courseType} (missing weeks ${missing.join(',')}):`, error.message);
-}
+// Per-process flag — once we've confirmed all 16 weeks exist for a courseType,
+// skip the seed-check on subsequent requests (it's a one-time event).
+const _seededCourseTypes = new Set();
 
 /**
  * GET /api/week-statuses?courseType=498
  * Returns all 16 week statuses for a course type.
- * Auto-seeds rows on first access.
+ * Auto-seeds missing rows on first access (one-time per process).
  */
 async function getWeekStatuses(req, res) {
   try {
@@ -52,8 +26,7 @@ async function getWeekStatuses(req, res) {
     const cached = await cacheGet(ck);
     if (cached) return res.json(cached);
 
-    await ensureSeeded(courseType);
-
+    // Single SELECT — seed-check is derived from the result, not a separate query.
     const { data, error } = await supabaseAdmin
       .from('week_statuses')
       .select('*')
@@ -62,9 +35,36 @@ async function getWeekStatuses(req, res) {
 
     if (error) throw error;
 
-    const payload = data || [];
-    await cacheSet(ck, payload, TTL.SHORT);
-    res.json(payload);
+    let rows = data || [];
+
+    // Seed missing weeks only if needed (skip entirely once confirmed seeded).
+    if (!_seededCourseTypes.has(courseType)) {
+      if (rows.length < 16) {
+        const existingNums = new Set(rows.map((r) => r.week_number));
+        const missing = Array.from({ length: 16 }, (_, i) => i + 1).filter((n) => !existingNums.has(n));
+        if (missing.length > 0) {
+          const seedRows = missing.map((n) => ({
+            course_type: courseType,
+            week_number: n,
+            is_open:     false,
+            was_opened:  false,
+          }));
+          const { data: inserted, error: seedErr } = await supabaseAdmin
+            .from('week_statuses')
+            .insert(seedRows)
+            .select('*');
+          if (seedErr) {
+            console.error(`Seed error for ${courseType} (missing weeks ${missing.join(',')}):`, seedErr.message);
+          } else if (inserted) {
+            rows = [...rows, ...inserted].sort((a, b) => a.week_number - b.week_number);
+          }
+        }
+      }
+      _seededCourseTypes.add(courseType);
+    }
+
+    await cacheSet(ck, rows, TTL.SHORT);
+    res.json(rows);
   } catch (err) {
     console.error('Error fetching week statuses:', JSON.stringify(err));
     res.status(500).json({ error: 'Failed to fetch week statuses' });

@@ -38,22 +38,21 @@ async function authenticate(req, res, next) {
       return res.status(401).json({ error: 'Invalid or expired token' });
     }
 
-    // ── 3. Fetch base profile (use supabaseAdmin to bypass RLS) ───────────────
-    const { data: profile, error: profileError } = await supabaseAdmin
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
+    // ── 3 & 4. Fetch profile and roles in parallel (independent queries) ─────
+    const [
+      { data: profile, error: profileError },
+      { data: userRoles },
+    ] = await Promise.all([
+      supabaseAdmin.from('profiles').select('*').eq('id', user.id).single(),
+      supabaseAdmin
+        .from('user_roles')
+        .select('coordinator_course_id, roles(name)')
+        .eq('user_id', user.id),
+    ]);
 
     if (profileError || !profile) {
       return res.status(404).json({ error: 'User profile not found' });
     }
-
-    // ── 4. Fetch all roles from user_roles ────────────────────────────────────
-    const { data: userRoles } = await supabaseAdmin
-      .from('user_roles')
-      .select('coordinator_course_id, roles(name)')
-      .eq('user_id', user.id);
 
     const roles = (userRoles || []).map((ur) => ur.roles?.name).filter(Boolean);
     // Always include profile.role so that a user's primary role (e.g. 'admin')

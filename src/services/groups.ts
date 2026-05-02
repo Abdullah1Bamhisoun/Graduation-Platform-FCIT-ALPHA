@@ -15,9 +15,11 @@ function _isFresh<T>(entry: CacheEntry<T> | undefined): entry is CacheEntry<T> {
 export interface SupervisorGroup { id: string; name: string }
 
 let _supervisorGroupsMineCache: CacheEntry<SupervisorGroup[]> | undefined;
+const _studentGroupCache = new Map<string, CacheEntry<GroupData | null>>();
 
 export function clearGroupsCache() {
   _supervisorGroupsMineCache = undefined;
+  _studentGroupCache.clear();
 }
 
 /** Fetch the current supervisor's own groups from /api/groups/mine with caching. */
@@ -147,6 +149,9 @@ export async function getGroupsForSupervisor(supervisorId: string): Promise<Grou
 }
 
 export async function getGroupForStudent(studentId: string): Promise<GroupData | null> {
+  const cached = _studentGroupCache.get(studentId);
+  if (_isFresh(cached)) return cached.data;
+
   try {
     // Step 1: find the group this student belongs to
     const { data: membership, error: memError } = await supabase
@@ -157,7 +162,10 @@ export async function getGroupForStudent(studentId: string): Promise<GroupData |
       .maybeSingle();
 
     if (memError) throw memError;
-    if (!membership) return null;
+    if (!membership) {
+      _studentGroupCache.set(studentId, { data: null, fetchedAt: Date.now() });
+      return null;
+    }
 
     const groupId = membership.group_id;
 
@@ -194,7 +202,7 @@ export async function getGroupForStudent(studentId: string): Promise<GroupData |
 
     const supervisor = groupRow.supervisor_id ? profileMap[groupRow.supervisor_id] : null;
 
-    return mapDbGroup({
+    const result = mapDbGroup({
       ...groupRow,
       supervisor: supervisor ? { id: supervisor.id, name: supervisor.name } : null,
       members: memberIds.map((id: string) => ({
@@ -202,6 +210,8 @@ export async function getGroupForStudent(studentId: string): Promise<GroupData |
         student: profileMap[id] ? { id, name: profileMap[id].name, student_id: profileMap[id].student_id } : null,
       })),
     });
+    _studentGroupCache.set(studentId, { data: result, fetchedAt: Date.now() });
+    return result;
   } catch (error) {
     console.error('Error fetching student group:', error);
     return null;

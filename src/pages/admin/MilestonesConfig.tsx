@@ -641,7 +641,7 @@ export function AdminMilestonesConfig() {
 
       {/* Add Assessment Modal */}
       <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
-        <DialogContent className="!left-[280px] !right-4 !top-[5vh] !bottom-[5vh] !translate-x-0 !translate-y-0 !w-auto !max-w-none !h-[90vh] !max-h-[90vh] !rounded-xl overflow-y-auto flex flex-col">
+        <DialogContent className="!left-4 !right-4 lg:!left-[280px] !top-[5vh] !bottom-[5vh] !translate-x-0 !translate-y-0 !w-auto !max-w-none !h-[90vh] !max-h-[90vh] !rounded-xl overflow-y-auto flex flex-col">
           <DialogHeader>
             <DialogTitle>Add Assessment</DialogTitle>
           </DialogHeader>
