@@ -331,6 +331,7 @@ export interface PresentationSchedule {
   students: { id: string; name: string }[];
   day: string;
   timeSlot: string;
+  scheduledAt: string | null;
   projectName: string;
   projectDescription: string;
   committeeMembers: string[];

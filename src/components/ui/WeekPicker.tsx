@@ -58,9 +58,10 @@ function getCalendarWeeks(year: number, month: number): Date[][] {
 interface WeekPickerProps {
   value: string; // 'YYYY-Www'
   onChange: (week: string) => void;
+  markedDates?: Set<string>; // 'YYYY-MM-DD' strings that have assignments
 }
 
-export function WeekPicker({ value, onChange }: WeekPickerProps) {
+export function WeekPicker({ value, onChange, markedDates }: WeekPickerProps) {
   const today = new Date();
   const [open, setOpen] = useState(false);
   const [viewYear, setViewYear] = useState(today.getFullYear());
@@ -171,10 +172,12 @@ export function WeekPicker({ value, onChange }: WeekPickerProps) {
                   {week.map((day, j) => {
                     const inMonth = day.getMonth() === viewMonth;
                     const isToday = day.toDateString() === today.toDateString();
+                    const dateKey = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+                    const isMarked = markedDates?.has(dateKey);
                     return (
                       <div
                         key={j}
-                        className={`text-center text-sm py-1.5 rounded ${
+                        className={`relative text-center text-sm py-1.5 rounded ${
                           selected
                             ? 'text-white font-medium'
                             : isToday
@@ -185,6 +188,9 @@ export function WeekPicker({ value, onChange }: WeekPickerProps) {
                         }`}
                       >
                         {day.getDate()}
+                        {isMarked && (
+                          <span className={`absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full ${selected ? 'bg-green-300' : 'bg-green-500'}`} />
+                        )}
                       </div>
                     );
                   })}

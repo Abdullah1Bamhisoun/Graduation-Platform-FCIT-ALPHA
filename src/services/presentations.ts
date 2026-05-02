@@ -242,6 +242,7 @@ function mapDbPresentationSchedule(data: any): PresentationSchedule {
     projectDescription: group?.project_description ?? '',
     committeeMembers: data.committee_members ?? [],
     supervisorName: group?.supervisor?.name ?? undefined,
+    scheduledAt: data.scheduled_at ?? null,
   };
 }
 

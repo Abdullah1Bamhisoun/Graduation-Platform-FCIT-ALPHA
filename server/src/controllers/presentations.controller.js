@@ -34,14 +34,16 @@ function isMissingTable(err) {
 }
 
 /**
- * Format a Date to "Monday, 15 May 2026 – 10:00 AM" (server locale).
+ * Format a Date to "Monday, 15 May 2026 – 10:00 AM" (Asia/Riyadh timezone).
  */
 function formatPresentationDateTime(date) {
   const datePart = date.toLocaleDateString('en-US', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    timeZone: 'Asia/Riyadh',
   });
   const timePart = date.toLocaleTimeString('en-US', {
     hour: '2-digit', minute: '2-digit', hour12: true,
+    timeZone: 'Asia/Riyadh',
   });
   return `${datePart} – ${timePart}`;
 }

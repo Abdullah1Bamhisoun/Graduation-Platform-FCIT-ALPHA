@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { Layout } from '../../components/layout/Layout';
 import { getProfilesByRole } from '../../services/profiles';
@@ -10,6 +10,7 @@ import {
   deletePresentationSchedule,
   getPresentationsByCourse,
   getServerTime,
+  isoWeekToMonday,
 } from '../../services/presentations';
 import { Button } from '../../components/ui/button';
 import { WeekPicker } from '../../components/ui/WeekPicker';
@@ -43,6 +44,7 @@ import {
   ChevronDown,
   Undo2,
   Redo2,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -96,7 +98,7 @@ const DAY_NAMES: Record<typeof DAYS[number], string> = {
   Wed: 'Wednesday',
   Thu: 'Thursday',
 };
-const TIME_SLOTS = [
+const DEFAULT_TIME_SLOTS = [
   { start: '09:00 am', end: '09:25 am' },
   { start: '09:30 am', end: '09:55 am' },
   { start: '10:00 am', end: '10:25 am' },
@@ -104,8 +106,31 @@ const TIME_SLOTS = [
   { start: '11:00 am', end: '11:25 am' },
   { start: '11:30 am', end: '11:55 am' },
   { start: '12:00 pm', end: '12:25 pm' },
-  { start: '12:30 pm', end: '01:00 pm' },
+  { start: '12:30 pm', end: '12:55 pm' },
 ];
+
+function addMinutes(time: string, mins: number): string {
+  const match = time.match(/(\d+):(\d+)\s*(am|pm)/i);
+  if (!match) return time;
+  let h = parseInt(match[1], 10);
+  let m = parseInt(match[2], 10);
+  const period = match[3].toLowerCase();
+  if (period === 'pm' && h !== 12) h += 12;
+  if (period === 'am' && h === 12) h = 0;
+  m += mins;
+  h += Math.floor(m / 60);
+  m = m % 60;
+  h = h % 24;
+  const newPeriod = h < 12 ? 'am' : 'pm';
+  const display12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${String(display12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${newPeriod}`;
+}
+
+function nextTimeSlot(lastStart: string): { start: string; end: string } {
+  const start = addMinutes(lastStart, 30);
+  const end = addMinutes(lastStart, 55);
+  return { start, end };
+}
 
 
 export function AdminPresentationCommittee() {
@@ -129,6 +154,8 @@ export function AdminPresentationCommittee() {
   const [committeePool, setCommitteePool] = useState<Set<string>>(new Set());
   const [poolOpen, setPoolOpen] = useState(true);
   const [unassignedOpen, setUnassignedOpen] = useState(true);
+
+  const [timeSlots, setTimeSlots] = useState(DEFAULT_TIME_SLOTS);
 
   const isCoordinator = user?.activeRole === 'coordinator';
 
@@ -194,7 +221,7 @@ export function AdminPresentationCommittee() {
 
         // Reconstruct TimeSlot[] from saved data
         const reconstructed: TimeSlot[] = allSaved.map((s, i) => {
-          const timeInfo = TIME_SLOTS.find(t => t.start === s.timeSlot);
+          const timeInfo = timeSlots.find(t => t.start === s.timeSlot);
           const project = mappedProjects.find(p => p.id === s.groupId);
           const slotWeek = s.scheduledAt ? dateToIsoWeek(new Date(s.scheduledAt)) : undefined;
           return {
@@ -275,7 +302,7 @@ export function AdminPresentationCommittee() {
 
   // Create new slot
   const handleCreateSlot = (day: typeof DAYS[number], time: string) => {
-    const timeInfo = TIME_SLOTS.find(t => t.start === time);
+    const timeInfo = timeSlots.find(t => t.start === time);
     const endTime = timeInfo?.end ?? '';
     const newSlot: TimeSlot = {
       id: `slot-${Date.now()}`,
@@ -436,12 +463,12 @@ export function AdminPresentationCommittee() {
     // Track which day+time combinations are already occupied
     const takenSlots = new Set<string>(slots.map(s => `${s.day}-${s.startTime}`));
 
-    // committeeLoad[supervisorName][day] = TIME_SLOTS indices already assigned
+    // committeeLoad[supervisorName][day] = timeSlots indices already assigned
     const committeeLoad: Record<string, Record<string, number[]>> = {};
     slots
       .filter(s => s.status === 'assigned')
       .forEach(s => {
-        const idx = TIME_SLOTS.findIndex(t => t.start === s.startTime);
+        const idx = timeSlots.findIndex(t => t.start === s.startTime);
         [s.supervisor, s.supervisor2].filter(Boolean).forEach(name => {
           if (!name) return;
           committeeLoad[name] ??= {};
@@ -450,12 +477,12 @@ export function AdminPresentationCommittee() {
         });
       });
 
-    // groupSessionsInDay[groupId][day] = TIME_SLOTS indices — for back-to-back avoidance
+    // groupSessionsInDay[groupId][day] = timeSlots indices — for back-to-back avoidance
     const groupSessionsInDay: Record<string, Record<string, number[]>> = {};
     slots
       .filter(s => s.status === 'assigned' && s.projectId)
       .forEach(s => {
-        const idx = TIME_SLOTS.findIndex(t => t.start === s.startTime);
+        const idx = timeSlots.findIndex(t => t.start === s.startTime);
         groupSessionsInDay[s.projectId!] ??= {};
         groupSessionsInDay[s.projectId!][s.day] ??= [];
         groupSessionsInDay[s.projectId!][s.day].push(idx);
@@ -516,8 +543,8 @@ export function AdminPresentationCommittee() {
       let placed = false;
 
       outer: for (const day of dayOrder) {
-        for (let timeIdx = 0; timeIdx < TIME_SLOTS.length; timeIdx++) {
-          const timeInfo = TIME_SLOTS[timeIdx];
+        for (let timeIdx = 0; timeIdx < timeSlots.length; timeIdx++) {
+          const timeInfo = timeSlots[timeIdx];
           const key = `${day}-${timeInfo.start}`;
 
           if (takenSlots.has(key)) continue;
@@ -596,8 +623,8 @@ export function AdminPresentationCommittee() {
     for (const day of DAYS) {
       const dayIndices = (newSlotsByDay[day] ?? [])
         .sort((a, b) =>
-          TIME_SLOTS.findIndex(t => t.start === newSlots[a].startTime) -
-          TIME_SLOTS.findIndex(t => t.start === newSlots[b].startTime)
+          timeSlots.findIndex(t => t.start === newSlots[a].startTime) -
+          timeSlots.findIndex(t => t.start === newSlots[b].startTime)
         );
 
       for (let blockStart = 0; blockStart < dayIndices.length; blockStart += 4) {
@@ -759,7 +786,7 @@ export function AdminPresentationCommittee() {
       .sort((a, b) => {
         const dayOrder = DAYS.indexOf(a.day as typeof DAYS[number]) - DAYS.indexOf(b.day as typeof DAYS[number]);
         if (dayOrder !== 0) return dayOrder;
-        return TIME_SLOTS.findIndex(t => t.start === a.startTime) - TIME_SLOTS.findIndex(t => t.start === b.startTime);
+        return timeSlots.findIndex(t => t.start === a.startTime) - timeSlots.findIndex(t => t.start === b.startTime);
       })
       .map(slot => {
         const proj = slot.projectId ? projects.find(p => p.id === slot.projectId) : null;
@@ -838,6 +865,18 @@ export function AdminPresentationCommittee() {
     return projects.filter(p => p.status === 'unassigned' && (course === null || p.course === course));
   };
 
+  const markedDates = useMemo(() => {
+    const set = new Set<string>();
+    for (const slot of slots) {
+      if (slot.status !== 'assigned') continue;
+      const d = computeScheduledAt(slot.week ?? weekStart, slot.day, slot.startTime);
+      if (!d) continue;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      set.add(key);
+    }
+    return set;
+  }, [slots, weekStart]);
+
   return (
     <Layout user={user} pageTitle="Presentation & Committee Management">
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -868,7 +907,7 @@ export function AdminPresentationCommittee() {
           </div>
 
 
-          <WeekPicker value={weekStart} onChange={setWeekStart} />
+          <WeekPicker value={weekStart} onChange={setWeekStart} markedDates={markedDates} />
 
           <Button variant="outline" size="sm" onClick={handleDownload}>
             <Download className="w-4 h-4 mr-2" />
@@ -929,21 +968,49 @@ export function AdminPresentationCommittee() {
                         <th className="border border-[var(--color-border)] p-2 bg-[var(--color-surface-alt)] w-24 text-xs text-[var(--color-text-600)]">
                           Time
                         </th>
-                        {DAYS.map((day) => (
-                          <th key={day} className="border border-[var(--color-border)] p-2 bg-[var(--color-surface-alt)] w-[140px]">
-                            <div className="text-sm text-[var(--color-text-900)]">{DAY_NAMES[day]}</div>
-                            <div className="text-xs text-[var(--color-text-600)]">
-                              {getSlotsForDay(day).length} slots
-                            </div>
-                          </th>
-                        ))}
+                        {(() => {
+                          const monday = isoWeekToMonday(weekStart);
+                          const offsets: Record<string, number> = { Sun: -1, Mon: 0, Tue: 1, Wed: 2, Thu: 3 };
+                          return DAYS.map((day) => {
+                            let dateLabel = '';
+                            if (monday) {
+                              const d = new Date(monday);
+                              d.setDate(monday.getDate() + offsets[day]);
+                              dateLabel = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                            }
+                            return (
+                              <th key={day} className="border border-[var(--color-border)] p-2 bg-[var(--color-surface-alt)] w-[140px]">
+                                <div className="text-sm font-semibold text-[var(--color-text-900)]">{DAY_NAMES[day]}</div>
+                                {dateLabel && (
+                                  <div className="text-base font-bold text-[var(--color-primary-600)]">{dateLabel}</div>
+                                )}
+                                <div className="text-xs text-[var(--color-text-600)]">
+                                  {getSlotsForDay(day).length} slots
+                                </div>
+                              </th>
+                            );
+                          });
+                        })()}
                       </tr>
                     </thead>
                     <tbody>
-                      {TIME_SLOTS.map((time) => (
+                      {timeSlots.map((time, timeIdx) => {
+                        const isAdded = timeIdx >= DEFAULT_TIME_SLOTS.length;
+                        return (
                         <tr key={time.start}>
                           <td className="border border-[var(--color-border)] p-2 text-xs text-[var(--color-text-600)] text-center bg-[var(--color-surface-alt)]">
-                            {time.start} - {time.end}
+                            <div className="flex items-center justify-between gap-1">
+                              <span>{time.start} - {time.end}</span>
+                              {isAdded && (
+                                <button
+                                  onClick={() => setTimeSlots(prev => prev.filter(t => t.start !== time.start))}
+                                  className="text-red-400 hover:text-red-600 transition-colors flex-shrink-0"
+                                  title="Remove row"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              )}
+                            </div>
                           </td>
                           {DAYS.map((day) => {
                             const slot = getSlotForDayTime(day, time.start);
@@ -1024,9 +1091,22 @@ export function AdminPresentationCommittee() {
                             );
                           })}
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
+                  <div className="flex justify-center py-2 border-t border-[var(--color-border)]">
+                    <button
+                      onClick={() => {
+                        const last = timeSlots[timeSlots.length - 1];
+                        setTimeSlots(prev => [...prev, nextTimeSlot(last.start)]);
+                      }}
+                      className="flex items-center gap-1 text-xs text-white bg-green-500 hover:bg-green-600 px-3 py-1.5 rounded transition-colors"
+                    >
+                      <Plus className="w-3 h-3" />
+                      Add time row
+                    </button>
+                  </div>
                 </div>
 
                 {slots.length === 0 && (
