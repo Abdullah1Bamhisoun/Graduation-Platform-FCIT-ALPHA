@@ -144,7 +144,7 @@ export async function getMilestonesByStudentWithStatus(
     // Fetch milestones and submission statuses in parallel — both only need
     // groupId/courseId which are already known at this point.
     const sessionProm = supabase.auth.getSession();
-    const [{ data: milestones, error: mError }, statusRes] = await Promise.all([
+    const [{ data: milestones }, statusRes] = await Promise.all([
       supabase
         .from('milestones')
         .select('*, course:courses!course_id(code), rubric_criteria(id, name, max_score, sort_order)')
