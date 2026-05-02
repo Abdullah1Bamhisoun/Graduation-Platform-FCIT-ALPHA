@@ -408,11 +408,15 @@ async function assignSchedule(req, res) {
       ...(location ? [`Location: ${location}`] : []),
     ].join('\n');
 
+    // Target only students. Committee supervisors get a dedicated, group-scoped
+    // "Committee Assignment" announcement in Trigger 7 below — sending the
+    // broadcast version too would double-notify them. Coordinators still see
+    // this via the author_id-based filter in announcements.controller.js.
     const { error: announcementErr } = await supabaseAdmin.from('announcements').insert({
       title: `Presentation Scheduled: ${projectName}`,
       content: announcementContent,
       author_id: req.user.id,
-      target_roles: ['student', 'supervisor', 'coordinator'],
+      target_roles: ['student'],
       published_at: new Date().toISOString(),
       expires_at: null,
     });

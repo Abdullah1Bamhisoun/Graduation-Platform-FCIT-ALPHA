@@ -7,18 +7,25 @@ import type { StudentPresentationView } from '../../services/presentations';
 import { Calendar, Clock, MapPin } from 'lucide-react';
 import { useLockStatus } from '../../hooks/useLockStatus';
 import { LockedBanner } from '../../components/ui/LockedBanner';
+import { useHasPresentationTime } from '../../hooks/useHasPresentationTime';
 
 export function StudentPresentationSelection() {
   const { user } = useAuth();
   const { isLocked } = useLockStatus('presentations');
   const [data, setData] = useState<StudentPresentationView>({ group: null, schedule: null });
   const [loading, setLoading] = useState(true);
+  const { markAsSeen } = useHasPresentationTime(user);
 
   useEffect(() => {
     getStudentPresentationView()
       .then(setData)
       .finally(() => setLoading(false));
   }, []);
+
+  // Clear the sidebar red dot once the page is open
+  useEffect(() => {
+    markAsSeen();
+  }, [markAsSeen]);
 
   if (!user) return null;
   if (loading)
