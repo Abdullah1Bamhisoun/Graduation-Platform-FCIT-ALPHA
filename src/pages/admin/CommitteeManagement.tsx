@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../lib/AuthContext';
-import { getPresentationSchedules, getStudentPresentationSelections, assignPresentationSchedule } from '../../services/presentations';
+import { getPresentationSchedules, getStudentPresentationSelections } from '../../services/presentations';
 import { Button } from '../../components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../../components/ui/dialog';
@@ -97,42 +97,32 @@ export function AdminCommitteeManagement() {
       ? getSupervisorConflict(selectedSupervisor, selectedSchedule)
       : null;
 
-  const handleConfirmAddMember = async () => {
+  const handleConfirmAddMember = () => {
     if (!selectedSupervisor || !selectedSchedule) return;
     if (selectedSupervisorConflict) return;
 
-    const target = schedules.find(s => s.groupId === selectedSchedule);
-    if (!target) return;
-    if (target.committeeMembers.includes(selectedSupervisor)) {
-      toast.error('This supervisor is already a committee member');
-      return;
-    }
+    const updatedSchedules = schedules.map(s => {
+      if (s.groupId === selectedSchedule) {
+        if (s.committeeMembers.includes(selectedSupervisor)) {
+          toast.error('This supervisor is already a committee member');
+          return s;
+        }
+        toast.success('Committee member added successfully');
+        return {
+          ...s,
+          committeeMembers: [...s.committeeMembers, selectedSupervisor],
+        };
+      }
+      return s;
+    });
 
-    const newMembers = [...target.committeeMembers, selectedSupervisor];
-
-    try {
-      await assignPresentationSchedule({
-        groupId: target.groupId,
-        scheduledAt: target.scheduledAt!,
-        day: target.day,
-        timeSlot: target.timeSlot,
-        committeeMembers: newMembers,
-      });
-    } catch (err: any) {
-      toast.error(err?.message ?? 'Failed to save committee member');
-      return;
-    }
-
-    setSchedules(schedules.map(s =>
-      s.groupId === selectedSchedule ? { ...s, committeeMembers: newMembers } : s
-    ));
-    toast.success('Committee member added successfully');
+    setSchedules(updatedSchedules);
     setShowAddMemberDialog(false);
     setSelectedSchedule(null);
     setSelectedSupervisor('');
   };
 
-  const handleRemoveMember = async (groupId: string, member: string) => {
+  const handleRemoveMember = (groupId: string, member: string) => {
     const schedule = schedules.find(s => s.groupId === groupId);
     if (!schedule) return;
 
@@ -141,24 +131,17 @@ export function AdminCommitteeManagement() {
       return;
     }
 
-    const newMembers = schedule.committeeMembers.filter(m => m !== member);
+    const updatedSchedules = schedules.map(s => {
+      if (s.groupId === groupId) {
+        return {
+          ...s,
+          committeeMembers: s.committeeMembers.filter(m => m !== member),
+        };
+      }
+      return s;
+    });
 
-    try {
-      await assignPresentationSchedule({
-        groupId: schedule.groupId,
-        scheduledAt: schedule.scheduledAt!,
-        day: schedule.day,
-        timeSlot: schedule.timeSlot,
-        committeeMembers: newMembers,
-      });
-    } catch (err: any) {
-      toast.error(err?.message ?? 'Failed to remove committee member');
-      return;
-    }
-
-    setSchedules(schedules.map(s =>
-      s.groupId === groupId ? { ...s, committeeMembers: newMembers } : s
-    ));
+    setSchedules(updatedSchedules);
     toast.success('Committee member removed successfully');
   };
 

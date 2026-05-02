@@ -6,6 +6,7 @@ import {
 import { User, UserRole } from '../../types';
 import { useUnreadAnnouncements } from '../../hooks/useUnreadAnnouncements';
 import { usePendingRegistrationsCount } from '../../hooks/usePendingRegistrationsCount';
+import { useHasPresentationTime } from '../../hooks/useHasPresentationTime';
 import { useAuth } from '../../lib/AuthContext';
 import { toast } from 'sonner';
 import gppLogo from '/gpp-logo.png';
@@ -99,6 +100,7 @@ export function Sidebar({ user, isOpen = false, onClose }: SidebarProps) {
   const items = navItems[role] ?? navItems['student'];
   const { unreadCount } = useUnreadAnnouncements(user);
   const { pendingCount } = usePendingRegistrationsCount(user);
+  const { hasPresentationTime } = useHasPresentationTime(user);
   const { switchRole } = useAuth();
 
   const switchableRoles = user.roles.filter((r) => SWITCHABLE_ROLES.includes(r));
@@ -182,6 +184,8 @@ export function Sidebar({ user, isOpen = false, onClose }: SidebarProps) {
             const showAnnouncementBadge = item.label === 'Announcements' && unreadCount > 0;
             // Show pending registrations badge on "User Management" for coordinator/admin
             const showPendingBadge = item.label === 'User Management' && pendingCount > 0;
+            // Show red dot on "Presentation Time" when the student has a confirmed slot
+            const showPresentationDot = item.label === 'Presentation Time' && hasPresentationTime;
 
             return (
               <li key={item.href}>
@@ -205,6 +209,9 @@ export function Sidebar({ user, isOpen = false, onClose }: SidebarProps) {
                     <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-amber-500 text-white text-xs font-semibold leading-none">
                       {pendingCount > 99 ? '99+' : pendingCount}
                     </span>
+                  )}
+                  {showPresentationDot && (
+                    <span className="w-2 h-2 rounded-full bg-red-500" title="Presentation time assigned" />
                   )}
                 </Link>
               </li>
