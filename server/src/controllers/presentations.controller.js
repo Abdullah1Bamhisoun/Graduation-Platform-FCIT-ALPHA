@@ -34,18 +34,30 @@ function isMissingTable(err) {
 }
 
 /**
- * Format a Date to "Monday, 15 May 2026 – 10:00 AM" (Asia/Riyadh timezone).
+ * Format a Date to "Monday, 15 May 2026 – 10:00 AM" (Asia/Riyadh, UTC+3).
+ *
+ * Uses manual UTC+3 offset arithmetic instead of toLocaleString(... timeZone),
+ * because slim Node.js images (alpine, etc.) ship without full ICU data and
+ * silently fall back to UTC when an unknown timeZone is requested.
  */
 function formatPresentationDateTime(date) {
-  const datePart = date.toLocaleDateString('en-US', {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-    timeZone: 'Asia/Riyadh',
-  });
-  const timePart = date.toLocaleTimeString('en-US', {
-    hour: '2-digit', minute: '2-digit', hour12: true,
-    timeZone: 'Asia/Riyadh',
-  });
-  return `${datePart} – ${timePart}`;
+  // Add 3 hours, then read UTC parts — that gives us Riyadh local components
+  // regardless of the runtime's locale data.
+  const riyadh = new Date(date.getTime() + 3 * 60 * 60 * 1000);
+  const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const months   = ['January', 'February', 'March', 'April', 'May', 'June',
+                    'July', 'August', 'September', 'October', 'November', 'December'];
+  const weekday  = weekdays[riyadh.getUTCDay()];
+  const month    = months[riyadh.getUTCMonth()];
+  const day      = riyadh.getUTCDate();
+  const year     = riyadh.getUTCFullYear();
+  let   hours    = riyadh.getUTCHours();
+  const minutes  = String(riyadh.getUTCMinutes()).padStart(2, '0');
+  const ampm     = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  if (hours === 0) hours = 12;
+  const hh = String(hours).padStart(2, '0');
+  return `${weekday}, ${month} ${day}, ${year} – ${hh}:${minutes} ${ampm}`;
 }
 
 /**
@@ -511,16 +523,25 @@ async function assignSchedule(req, res) {
               .maybeSingle();
             const memberGroupId = memberGroup?.id ?? null;
 
+            // Only create a group-scoped announcement when we have a group to
+            // scope it to. Without a memberGroupId the announcement would be
+            // saved with group_id = NULL and become visible to every supervisor
+            // (since the supervisor filter matches group_id IS NULL). The bell
+            // notification and email below still reach the committee member.
+            const announcementPromise = memberGroupId
+              ? notificationService.createAnnouncement({
+                  title:       `Committee Assignment: ${projectName}`,
+                  content:     announcementContent,
+                  targetRoles: ['supervisor'],
+                  courseId:    null,
+                  groupId:     memberGroupId,
+                  authorId:    req.user.id,
+                  expiresAt:   presentationDate.toISOString().slice(0, 10),
+                })
+              : Promise.resolve(null);
+
             await Promise.all([
-              notificationService.createAnnouncement({
-                title:       `Committee Assignment: ${projectName}`,
-                content:     announcementContent,
-                targetRoles: ['supervisor'],
-                courseId:    null,
-                groupId:     memberGroupId,
-                authorId:    req.user.id,
-                expiresAt:   presentationDate.toISOString().slice(0, 10),
-              }),
+              announcementPromise,
               notificationService.createUserNotifications([profile.id], {
                 type:    'presentation',
                 title:   'You Are Assigned as Committee Evaluator',
