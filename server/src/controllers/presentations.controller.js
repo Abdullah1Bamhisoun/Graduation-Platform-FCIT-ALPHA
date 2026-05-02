@@ -471,7 +471,18 @@ async function assignSchedule(req, res) {
           const groupStudents = await notificationService.getGroupMembers(groupId);
           const studentNames  = groupStudents.map((s) => s.name).join(', ') || 'N/A';
           const formattedDate = formatPresentationDateTime(presentationDate);
-          const supervisorName = groupData?.supervisor?.name ?? 'N/A';
+          // Resolve supervisor name: prefer the embedded join, fall back to a
+          // direct profiles lookup when the FK join doesn't return the row.
+          let supervisorName = groupData?.supervisor?.name ?? null;
+          if (!supervisorName && groupData?.supervisor_id) {
+            const { data: supProfile } = await supabaseAdmin
+              .from('profiles')
+              .select('name')
+              .eq('id', groupData.supervisor_id)
+              .maybeSingle();
+            supervisorName = supProfile?.name ?? null;
+          }
+          supervisorName = supervisorName ?? 'N/A';
           const groupNum       = groupData?.group_number ?? '';
           const courseId       = await notificationService.getCourseIdFromGroup(groupId);
 
