@@ -678,7 +678,16 @@ async function deleteSchedule(req, res) {
       }
     }
 
-    // Delete linked calendar event
+    // Delete the schedule row FIRST so the FK reference to calendar_events
+    // is released (otherwise the calendar event delete violates the
+    // presentation_schedules_calendar_event_id_fkey constraint).
+    const { error: delErr } = await supabaseAdmin
+      .from('presentation_schedules')
+      .delete()
+      .eq('group_id', groupId);
+    if (delErr) throw delErr;
+
+    // Now delete the linked calendar event
     if (existing.calendar_event_id) {
       const { error: calDeleteErr } = await supabaseAdmin
         .from('calendar_events')
@@ -686,13 +695,6 @@ async function deleteSchedule(req, res) {
         .eq('id', existing.calendar_event_id);
       if (calDeleteErr) console.warn('[presentations] Failed to delete linked calendar event:', calDeleteErr);
     }
-
-    // Delete the schedule row
-    const { error: delErr } = await supabaseAdmin
-      .from('presentation_schedules')
-      .delete()
-      .eq('group_id', groupId);
-    if (delErr) throw delErr;
 
     await Promise.all([
       cacheDelPattern('presentations:student-view:*'),
