@@ -451,6 +451,185 @@ async function listReportComments(req, res) {
   }
 }
 
+// ─── POST /api/reports/:id/notify-supervisor-response ────────────────────────
+
+/**
+ * Notify group students that the supervisor has responded to their weekly report.
+ * The supervisor response itself is written by the client directly to Supabase
+ * via supervisorRespondToWeeklyReport(); this endpoint exists solely to fire
+ * the feedback email + in-app notifications + announcement.
+ *
+ * Body: { commentPreview?: string }
+ */
+async function notifySupervisorResponse(req, res) {
+  try {
+    const { id } = req.params;
+    const commentPreview     = (req.body?.commentPreview || '').toString().trim();
+    const progressStatus     = (req.body?.progressStatus || '').toString().trim();
+    const allMembersAttended = req.body?.allMembersAttended;
+    const absentStudentName  = (req.body?.absentStudentName || '').toString().trim();
+
+    // Live schema uses course_id (FK to courses), not course_type. Pull the
+    // course code via the embed and derive '498' / '499' for the email.
+    const { data: report, error: rErr } = await supabaseAdmin
+      .from('weekly_reports')
+      .select('id, group_id, week_number, course_id, course:courses!course_id(code)')
+      .eq('id', id)
+      .single();
+
+    if (rErr || !report) {
+      console.error('[reports] notifySupervisorResponse: report lookup failed', rErr?.message);
+      return res.status(404).json({ error: 'Report not found' });
+    }
+
+    const isAdmin = (req.user.roles || []).includes('admin');
+    if (!isAdmin) {
+      const isSup = await isGroupSupervisor(req.user.id, report.group_id);
+      if (!isSup) return res.status(403).json({ error: 'Access denied: not the supervisor of this group' });
+    }
+
+    res.json({ success: true });
+
+    ;(async () => {
+      try {
+        const members = await notificationService.getGroupMembers(report.group_id);
+
+        const studentIds    = members.map((m) => m.id);
+        const studentEmails = members.map((m) => m.email).filter(Boolean);
+        console.log('[reports] notifySupervisorResponse: members', {
+          reportId:    report.id,
+          studentIds:  studentIds.length,
+          emails:      studentEmails.length,
+        });
+        if (studentIds.length === 0) return;
+
+        const supervisorName = req.user.name || 'Your supervisor';
+        const courseCode     = report.course?.code || '';
+        const courseType     = courseCode.includes('499') ? '499' : '498';
+
+        if (studentEmails.length > 0) {
+          emailService.sendWeeklyReportFeedback(studentEmails, {
+            supervisorName,
+            weekNumber:     report.week_number,
+            courseType,
+            commentPreview,
+            progressStatus,
+            allMembersAttended,
+            absentStudentName,
+          })
+            .then(() => console.log('[reports] feedback email dispatched to', studentEmails.length, 'student(s)'))
+            .catch((e) => console.error('[reports] Failed to send weekly-report-feedback email:', e.message));
+        } else {
+          console.warn('[reports] notifySupervisorResponse: no student emails on profiles for group', report.group_id);
+        }
+
+        await Promise.all([
+          notificationService.createUserNotifications(studentIds, {
+            type:    'feedback',
+            title:   `Feedback on Weekly Report #${report.week_number}`,
+            message: `${supervisorName} responded to your Weekly Report #${report.week_number}.`,
+            link:    '/student/weekly-reports',
+          }),
+          notificationService.createAnnouncement({
+            title:       `Supervisor Feedback on Weekly Report #${report.week_number}`,
+            content:     `Your supervisor responded to Weekly Report #${report.week_number}. Please review it.`,
+            targetRoles: ['student'],
+            courseId:    report.course_id,
+            groupId:     report.group_id,
+            authorId:    req.user.id,
+          }),
+        ]);
+      } catch (e) {
+        console.error('[reports] notifySupervisorResponse error:', e.message);
+      }
+    })();
+  } catch (error) {
+    console.error('Error notifying supervisor response:', error);
+    res.status(500).json({ error: 'Failed to notify supervisor response' });
+  }
+}
+
+// ─── POST /api/reports/:id/notify-submission ─────────────────────────────────
+
+/**
+ * Notify the supervisor that a student submitted a weekly report.
+ * The submission row itself is written by the client directly to Supabase via
+ * submitStudentWeeklyReport(); this endpoint exists solely to fire the
+ * "report submitted" email + supervisor notification + announcement.
+ */
+async function notifySubmission(req, res) {
+  try {
+    const { id } = req.params;
+
+    const { data: report, error: rErr } = await supabaseAdmin
+      .from('weekly_reports')
+      .select('id, group_id, week_number, course_id, course:courses!course_id(code)')
+      .eq('id', id)
+      .single();
+
+    if (rErr || !report) {
+      console.error('[reports] notifySubmission: report lookup failed', rErr?.message);
+      return res.status(404).json({ error: 'Report not found' });
+    }
+
+    const isAdmin = (req.user.roles || []).includes('admin');
+    if (!isAdmin) {
+      const member = await isGroupMember(req.user.id, report.group_id);
+      if (!member) return res.status(403).json({ error: 'Access denied: not a member of this group' });
+    }
+
+    res.json({ success: true });
+
+    ;(async () => {
+      try {
+        const supervisor = await notificationService.getSupervisorOfGroup(report.group_id);
+        if (!supervisor) {
+          console.warn('[reports] notifySubmission: no supervisor for group', report.group_id);
+          return;
+        }
+
+        const courseCode = report.course?.code || '';
+        const courseType = courseCode.includes('499') ? '499' : '498';
+        const studentName = req.user.name || 'A student';
+
+        if (supervisor.email) {
+          emailService.sendWeeklyReportSubmitted(supervisor.email, {
+            studentName,
+            weekNumber: report.week_number,
+            courseType,
+          })
+            .then(() => console.log('[reports] submitted email dispatched to supervisor', supervisor.email))
+            .catch((e) => console.error('[reports] Failed to send weekly-report-submitted email:', e.message));
+        } else {
+          console.warn('[reports] notifySubmission: supervisor has no email');
+        }
+
+        await Promise.all([
+          notificationService.createAnnouncement({
+            title:       `Weekly Report #${report.week_number} Submitted`,
+            content:     `${studentName} submitted Weekly Report #${report.week_number}.\nCourse: CPIS-${courseType}`,
+            targetRoles: ['supervisor'],
+            courseId:    report.course_id,
+            groupId:     report.group_id,
+            authorId:    req.user.id,
+          }),
+          notificationService.createUserNotifications([supervisor.id], {
+            type:    'submission',
+            title:   `New Weekly Report #${report.week_number}`,
+            message: `${studentName} submitted Weekly Report #${report.week_number}.`,
+            link:    '/supervisor/weekly-reports',
+          }),
+        ]);
+      } catch (e) {
+        console.error('[reports] notifySubmission error:', e.message);
+      }
+    })();
+  } catch (error) {
+    console.error('Error notifying submission:', error);
+    res.status(500).json({ error: 'Failed to notify submission' });
+  }
+}
+
 // ─── Exports ──────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -459,4 +638,6 @@ module.exports = {
   updateReportStatus,
   addReportComment,
   listReportComments,
+  notifySupervisorResponse,
+  notifySubmission,
 };

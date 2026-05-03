@@ -38,4 +38,27 @@ router.post('/:id/comments', authenticate, controller.addReportComment);
  */
 router.get('/:id/comments', authenticate, controller.listReportComments);
 
+/**
+ * POST /api/reports/:id/notify-supervisor-response
+ * Fire emails + in-app notifications + announcement after the supervisor
+ * responds to a weekly report (the response itself is written client-side).
+ */
+router.post(
+  '/:id/notify-supervisor-response',
+  authenticate,
+  requireSupervisorOrAdmin,
+  controller.notifySupervisorResponse,
+);
+
+/**
+ * POST /api/reports/:id/notify-submission
+ * Fire supervisor email + announcement + in-app notification after a student
+ * submits a weekly report (the submission itself is written client-side).
+ */
+router.post(
+  '/:id/notify-submission',
+  authenticate,
+  controller.notifySubmission,
+);
+
 module.exports = router;

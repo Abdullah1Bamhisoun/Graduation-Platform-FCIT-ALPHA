@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Layout } from '../../components/layout/Layout';
 import { Button } from '../../components/ui/button';
 import { Label } from '../../components/ui/label';
@@ -28,6 +29,7 @@ const WEEK_STATUS_STYLES: Record<WeekDisplayStatus, string> = {
 export function SupervisorWeeklyReports() {
   const { user } = useAuth();
   const { isLocked } = useLockStatus('weekly_reports');
+  const [searchParams, setSearchParams] = useSearchParams();
   const [selectedGroup, setSelectedGroup] = useState<string>('');
   const [selectedReport, setSelectedReport] = useState<WeeklyReport | null>(null);
   const [showRespondForm, setShowRespondForm] = useState(false);
@@ -68,6 +70,43 @@ export function SupervisorWeeklyReports() {
       setWeekStatuses(statuses);
     });
   }, [selectedGroup, groups]);
+
+  // Deep-link from supervisor dashboard: ?groupId=...&week=12 selects the group
+  // and pops the Respond form for that week as soon as data is loaded.
+  useEffect(() => {
+    const qsGroup = searchParams.get('groupId');
+    if (qsGroup && groups.some(g => g.id === qsGroup) && selectedGroup !== qsGroup) {
+      setSelectedGroup(qsGroup);
+    }
+  }, [groups, searchParams, selectedGroup]);
+
+  useEffect(() => {
+    const qsGroup = searchParams.get('groupId');
+    const qsWeek  = searchParams.get('week');
+    if (!qsGroup || !qsWeek) return;
+    if (selectedGroup !== qsGroup) return;
+    const weekNum = Number(qsWeek);
+    if (!Number.isFinite(weekNum)) return;
+    const report = reports.find(r => r.weekNumber === weekNum);
+    if (!report) return;
+    if (report.supervisorResponseStatus === 'responded') {
+      setSelectedReport(report);
+    } else if (report.submissionStatus === 'submitted') {
+      setRespondingWeek(weekNum);
+      setFormData({
+        allMembersAttended: 'true',
+        absentStudentName: '',
+        progressStatus: 'good',
+        supervisorComments: '',
+      });
+      setShowRespondForm(true);
+    }
+    // consume the query params so refresh / back doesn't re-trigger
+    const next = new URLSearchParams(searchParams);
+    next.delete('groupId');
+    next.delete('week');
+    setSearchParams(next, { replace: true });
+  }, [reports, searchParams, selectedGroup, setSearchParams]);
 
   if (!user) return null;
 

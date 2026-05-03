@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { apiFetch, apiUrl } from '../lib/api';
 import type { WeeklyReport } from '../types';
 import { mapCourseCode, mapProgressStatus, mapSubmissionStatus, toDbProgressStatus } from './mappers';
 
@@ -142,7 +143,7 @@ export async function submitStudentWeeklyReport(report: {
   futureWork: string;
   discussionPoints: string;
 }): Promise<void> {
-  const { error } = await supabase.from('weekly_reports').upsert(
+  const { data, error } = await supabase.from('weekly_reports').upsert(
     {
       group_id:                   report.groupId,
       week_number:                report.weekNumber,
@@ -158,10 +159,41 @@ export async function submitStudentWeeklyReport(report: {
       submission_status:          'submitted',  // triggers student_mark = 1 via DB trigger
     },
     { onConflict: 'group_id,week_number' }
-  );
+  )
+    .select('id')
+    .single();
 
   if (error) throw error;
   clearWeeklyReportsCache();
+
+  // Fire-and-forget: notify supervisor by email + in-app notification.
+  // Direct Supabase write skips Express, so this call is what triggers the email.
+  if (data?.id) {
+    try {
+      const sess = await supabase.auth.getSession();
+      const token = sess.data.session?.access_token;
+      if (!token) {
+        console.warn('[weekly-reports] no session token; skipping notify-submission');
+        return;
+      }
+      const res = await apiFetch(apiUrl(`/api/reports/${data.id}/notify-submission`), {
+        method: 'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          Authorization:   `Bearer ${token}`,
+          'X-Active-Role': 'student',
+        },
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        console.error('[weekly-reports] notify-submission failed:', res.status, detail);
+      } else {
+        console.log('[weekly-reports] notify-submission OK for report', data.id);
+      }
+    } catch (e) {
+      console.error('[weekly-reports] failed to dispatch submission notification:', e);
+    }
+  }
 }
 
 /**
@@ -208,6 +240,40 @@ export async function supervisorRespondToWeeklyReport(params: {
 
   if (error) throw error;
   clearWeeklyReportsCache();
+
+  // Fire-and-forget: tell the backend to email students + create notifications.
+  // The DB write above does not go through Express, so without this call the
+  // group's students never hear about the supervisor's response.
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) {
+      console.warn('[weekly-reports] no session token; skipping notify-supervisor-response');
+      return;
+    }
+    const res = await apiFetch(apiUrl(`/api/reports/${existing.id}/notify-supervisor-response`), {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        Authorization:   `Bearer ${token}`,
+        'X-Active-Role': 'supervisor',
+      },
+      body: JSON.stringify({
+        commentPreview:     params.supervisorComments,
+        progressStatus:     params.progressStatus,
+        allMembersAttended: params.allMembersAttended,
+        absentStudentName:  params.absentStudentName ?? '',
+      }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      console.error('[weekly-reports] notify-supervisor-response failed:', res.status, detail);
+    } else {
+      console.log('[weekly-reports] notify-supervisor-response OK for report', existing.id);
+    }
+  } catch (e) {
+    console.error('[weekly-reports] failed to dispatch supervisor-response notification:', e);
+  }
 }
 
 /**

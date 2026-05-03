@@ -607,9 +607,26 @@ function sendWeeklyReportSubmitted(supervisorEmail, data) {
  * @param {{ supervisorName: string, weekNumber: number, courseType: string, commentPreview: string, groupName?: string, appUrl?: string }} data
  */
 function sendWeeklyReportFeedback(studentEmails, data) {
-  const { supervisorName, weekNumber, courseType, commentPreview, groupName = '', appUrl = '' } = data;
+  const {
+    supervisorName, weekNumber, courseType, commentPreview,
+    progressStatus, allMembersAttended, absentStudentName,
+    groupName = '', appUrl = '',
+  } = data;
   const courseName = `CPIS-${courseType}`;
   const reportsUrl = appUrl || (APP_URL ? `${APP_URL}/student/weekly-reports` : '');
+
+  const PROGRESS_LABEL = {
+    excellent:           'Excellent Progress',
+    good:                'Good Progress',
+    satisfactory:        'Satisfactory',
+    'needs-improvement': 'Needs Improvement',
+  };
+  const PROGRESS_BADGE = {
+    excellent:           { bg: '#dcfce7', color: '#166534' },
+    good:                { bg: '#dbeafe', color: '#1e40af' },
+    satisfactory:        { bg: '#fef3c7', color: '#92400e' },
+    'needs-improvement': { bg: '#fee2e2', color: '#991b1b' },
+  };
 
   const rows = [
     ['Supervisor', supervisorName],
@@ -617,6 +634,22 @@ function sendWeeklyReportFeedback(studentEmails, data) {
     ['Week',       `Week ${weekNumber}`],
   ];
   if (groupName) rows.push(['Group', groupName]);
+
+  if (progressStatus && PROGRESS_LABEL[progressStatus]) {
+    const badge = PROGRESS_BADGE[progressStatus];
+    rows.push(['Progress Status',
+      `<span style="display:inline-block;padding:3px 10px;border-radius:12px;background:${badge.bg};color:${badge.color};font-size:13px;font-weight:600;">${PROGRESS_LABEL[progressStatus]}</span>`,
+    ]);
+  }
+
+  if (typeof allMembersAttended === 'boolean') {
+    const attendanceText = allMembersAttended
+      ? 'Yes — all members attended'
+      : (absentStudentName
+          ? `No — absent: ${absentStudentName}`
+          : 'No');
+    rows.push(['All Members Attended', attendanceText]);
+  }
 
   const commentBlock = commentPreview
     ? `<div style="background:#f9fafb;border-left:4px solid #1a6b4a;padding:14px 16px;margin:0 0 20px;border-radius:0 4px 4px 0;">

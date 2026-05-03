@@ -59,7 +59,7 @@ export function SupervisorDashboard() {
       title: `Week ${r.weekNumber} Report`,
       subtitle: r.dateRange,
       date: r.submittedAt ?? '',
-      navigateTo: `/supervisor/weekly-report/${r.id}`,
+      navigateTo: `/supervisor/weekly-reports?groupId=${r.groupId}&week=${r.weekNumber}`,
     })),
   ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
@@ -147,11 +147,13 @@ export function SupervisorDashboard() {
         >
           <div className="space-y-3">
             {unrespondedReports.length > 0 ? (
-              unrespondedReports.map((report) => (
+              unrespondedReports.map((report) => {
+                const respondHref = `/supervisor/weekly-reports?groupId=${report.groupId}&week=${report.weekNumber}`;
+                return (
                 <div
                   key={report.id}
                   className="flex items-center justify-between p-4 rounded-lg !bg-white dark:bg-gray-800 border-[1.5px] border-[var(--color-border)] hover:border-[var(--color-primary-600)] cursor-pointer transition-colors"
-                  onClick={() => navigate(`/supervisor/weekly-report/${report.id}`)}
+                  onClick={() => navigate(respondHref)}
                 >
                   <div className="flex-1 min-w-0">
                     <h3 className="text-[var(--color-text-900)] mb-0.5">Week {report.weekNumber} Report</h3>
@@ -164,12 +166,13 @@ export function SupervisorDashboard() {
                   </div>
                   <Button
                     size="sm"
-                    onClick={(e) => { e.stopPropagation(); navigate(`/supervisor/weekly-report/${report.id}`); }}
+                    onClick={(e) => { e.stopPropagation(); navigate(respondHref); }}
                   >
                     Respond
                   </Button>
                 </div>
-              ))
+                );
+              })
             ) : (
               <div className="text-center py-8 text-[var(--color-text-600)]">
                 <FileText className="w-12 h-12 mx-auto mb-3 opacity-50" />
