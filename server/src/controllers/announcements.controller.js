@@ -133,13 +133,7 @@ async function listAnnouncements(req, res) {
       .order('published_at', { ascending: false });
 
     if (role) {
-      if (req.user?.activeRole === 'supervisor') {
-        // Supervisors see announcements targeting their role AND announcements they
-        // authored (which target 'student' but are scoped to their own group).
-        query = query.or(`target_roles.cs.{${role}},author_id.eq.${req.user.id}`);
-      } else {
-        query = query.contains('target_roles', [role]);
-      }
+      query = query.contains('target_roles', [role]);
     }
 
     // Coordinators: only see announcements they authored that are course-wide
