@@ -9,7 +9,7 @@ import { getGroupFiles, getRoleBadge, type GroupFile } from '../../services/grou
 import { getSignedUrl } from '../../services/storage';
 import {
   ChevronLeft, ChevronRight, CheckCircle2, XCircle,
-  BookOpen, History, AlertTriangle, Info,
+  BookOpen, History, AlertTriangle,
   Paperclip, Download, ChevronDown, ChevronUp, FileText,
 } from 'lucide-react';
 
@@ -607,13 +607,11 @@ export function AdminTermHistory() {
                       </div>
                     )}
 
-                    {/* Components table */}
+                    {/* Components summary table */}
                     <div className="rounded-2xl border border-(--color-border) bg-(--color-surface-white) overflow-hidden">
-                      <div className="px-5 py-3.5 border-b border-(--color-border) bg-(--color-surface-alt)">
-                        <div className="flex items-center gap-2">
-                          <BookOpen className="w-4 h-4 text-(--color-primary)" />
-                          <h3 className="text-sm font-semibold text-(--color-text-900)">Grade Components — CPIS-{schemeTab}</h3>
-                        </div>
+                      <div className="px-5 py-3.5 border-b border-(--color-border) bg-(--color-surface-alt) flex items-center gap-2">
+                        <BookOpen className="w-4 h-4 text-(--color-primary)" />
+                        <h3 className="text-sm font-semibold text-(--color-text-900)">Grade Components — CPIS-{schemeTab}</h3>
                       </div>
                       {scheme.components.length === 0 ? (
                         <p className="px-5 py-4 text-sm text-(--color-text-500) italic">No components defined.</p>
@@ -634,7 +632,6 @@ export function AdminTermHistory() {
                               <span className="w-20 text-right text-sm font-bold text-(--color-text-900)">{c.total_marks}</span>
                             </div>
                           ))}
-                          {/* Total row */}
                           <div className="grid grid-cols-[1fr_auto_auto] gap-4 px-5 py-3 bg-(--color-surface-alt)">
                             <span className="text-sm font-bold text-(--color-text-900)">Total</span>
                             <span className="w-24" />
@@ -646,39 +643,90 @@ export function AdminTermHistory() {
                       )}
                     </div>
 
-                    {/* Criteria table */}
-                    {scheme.criteria.length > 0 && (
-                      <div className="rounded-2xl border border-(--color-border) bg-(--color-surface-white) overflow-hidden">
-                        <div className="px-5 py-3.5 border-b border-(--color-border) bg-(--color-surface-alt) flex items-center gap-2">
-                          <Info className="w-4 h-4 text-(--color-primary)" />
-                          <h3 className="text-sm font-semibold text-(--color-text-900)">Rubric Criteria — CPIS-{schemeTab}</h3>
-                        </div>
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-xs">
-                            <thead>
-                              <tr className="border-b border-(--color-border) bg-(--color-surface-alt)">
-                                <th className="text-left px-4 py-2 text-(--color-text-500) font-semibold uppercase tracking-wider w-48">Criterion</th>
-                                {[1, 2, 3, 4, 5].map((n) => (
-                                  <th key={n} className="text-center px-3 py-2 text-(--color-text-500) font-semibold uppercase tracking-wider">{n}</th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-(--color-border)">
-                              {scheme.criteria.map((c) => (
-                                <tr key={c.criterion_key}>
-                                  <td className="px-4 py-3">
-                                    <p className="font-medium text-(--color-text-900)">{c.criterion_name}</p>
-                                    <p className="text-(--color-text-500) font-mono text-[10px]">{c.criterion_key}</p>
-                                  </td>
-                                  {[c.description_1, c.description_2, c.description_3, c.description_4, c.description_5].map((desc, i) => (
-                                    <td key={i} className="px-3 py-3 text-center text-(--color-text-600) max-w-[120px]">
-                                      {desc ?? '—'}
-                                    </td>
+                    {/* Components grouped with their criteria */}
+                    {scheme.components.length === 0 ? (
+                      <p className="text-sm text-(--color-text-500) italic px-1">No components defined.</p>
+                    ) : (
+                      <div className="space-y-4">
+                        {scheme.components.map((comp) => {
+                          const criteria = scheme.criteria.filter(
+                            (cr) => cr.component_key === comp.component_key,
+                          );
+                          const hasCriteria = criteria.length > 0;
+                          const hasDescriptions = hasCriteria && criteria.some(
+                            (cr) => cr.description_1 || cr.description_2 || cr.description_3 || cr.description_4 || cr.description_5,
+                          );
+
+                          return (
+                            <div key={comp.component_key} className="rounded-2xl border border-(--color-border) bg-(--color-surface-white) overflow-hidden">
+                              {/* Component header */}
+                              <div className="flex items-center justify-between gap-3 px-5 py-3 bg-(--color-surface-alt) border-b border-(--color-border)">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <BookOpen className="w-4 h-4 text-(--color-primary) shrink-0" />
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-semibold text-(--color-text-900)">{comp.component_name}</p>
+                                    <p className="text-[10px] font-mono text-(--color-text-500)">{comp.component_key}</p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-3 shrink-0 text-xs text-(--color-text-600)">
+                                  <span className="capitalize">{comp.evaluator_role}</span>
+                                  <span className="font-bold text-(--color-primary) text-sm">{comp.total_marks} pts</span>
+                                </div>
+                              </div>
+
+                              {/* Criteria rows */}
+                              {!hasCriteria ? (
+                                <p className="px-5 py-3 text-xs text-(--color-text-500) italic">No rubric criteria — manually entered by coordinator.</p>
+                              ) : hasDescriptions ? (
+                                /* Full rubric table */
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-xs">
+                                    <thead>
+                                      <tr className="border-b border-(--color-border)">
+                                        <th className="text-left px-4 py-2 text-(--color-text-500) font-semibold uppercase tracking-wider min-w-[160px]">Criterion</th>
+                                        {[1, 2, 3, 4, 5].map((n) => (
+                                          <th key={n} className="text-center px-3 py-2 text-(--color-text-500) font-semibold uppercase tracking-wider min-w-[120px]">{n}</th>
+                                        ))}
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-(--color-border)">
+                                      {criteria.map((cr) => (
+                                        <tr key={cr.criterion_key} className="hover:bg-(--color-surface-alt) transition-colors">
+                                          <td className="px-4 py-3 align-top">
+                                            <p className="font-semibold text-(--color-text-900)">{cr.criterion_name}</p>
+                                            <p className="text-(--color-text-500) font-mono text-[10px] mt-0.5">{cr.criterion_key}</p>
+                                          </td>
+                                          {[cr.description_1, cr.description_2, cr.description_3, cr.description_4, cr.description_5].map((desc, i) => (
+                                            <td key={i} className="px-3 py-3 text-center text-(--color-text-600) align-top leading-relaxed">
+                                              {desc ?? <span className="text-(--color-text-400)">—</span>}
+                                            </td>
+                                          ))}
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ) : (
+                                /* Criteria list without descriptions */
+                                <div className="divide-y divide-(--color-border)">
+                                  {criteria.map((cr) => (
+                                    <div key={cr.criterion_key} className="flex items-center justify-between px-5 py-2.5">
+                                      <p className="text-xs font-medium text-(--color-text-900)">{cr.criterion_name}</p>
+                                      <p className="text-[10px] font-mono text-(--color-text-500)">{cr.criterion_key}</p>
+                                    </div>
                                   ))}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+
+                        {/* Grand total */}
+                        <div className="flex items-center justify-between px-5 py-3 rounded-xl border border-(--color-border) bg-(--color-surface-alt)">
+                          <span className="text-sm font-bold text-(--color-text-900)">Total Weight</span>
+                          <span className="text-base font-bold text-(--color-primary)">
+                            {scheme.components.reduce((s, c) => s + c.total_marks, 0)} / 100
+                          </span>
                         </div>
                       </div>
                     )}
