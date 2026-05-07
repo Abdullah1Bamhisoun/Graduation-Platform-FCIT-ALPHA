@@ -35,7 +35,8 @@ interface MigrationStudent {
 interface MigrationGroup {
   id: string;
   group_code: string;
-  new_group_code?: string;
+  new_group_code?: string | null;
+  will_migrate: boolean;
   group_number: number;
   project_name: string | null;
   department: string | null;
@@ -147,7 +148,7 @@ export function AdminTermMigration() {
         : (s.grades?.total ?? 0) <  PASS_MARK
     );
     return { ...g, students };
-  }).filter((g) => g.students.length > 0);
+  }).filter((g) => filter === 'all' || g.students.length > 0);
 
   if (!user) return null;
 
@@ -163,7 +164,7 @@ export function AdminTermMigration() {
             </h1>
             {/* Current → Next visual */}
             <div className="flex items-center gap-3 mt-2">
-              <span className="inline-flex flex-col items-center rounded-xl border border-[var(--color-border)] bg-white px-4 py-1.5 text-center shadow-sm">
+              <span className="inline-flex flex-col items-center rounded-xl border border-[var(--color-border)] bg-(--color-surface-white) px-4 py-1.5 text-center shadow-sm">
                 <span className="text-[10px] text-[var(--color-text-500)] uppercase tracking-widest font-semibold">Current</span>
                 <span className="text-sm font-bold text-[var(--color-text-900)] leading-tight">
                   {currentTerm?.term ?? '—'}
@@ -219,7 +220,7 @@ export function AdminTermMigration() {
                   ? f === 'passed' ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
                     : f === 'failed' ? 'bg-red-100 text-red-700 border border-red-300'
                     : 'bg-[var(--color-primary)] text-white'
-                  : 'bg-[var(--color-surface-alt)] border border-[var(--color-border)] text-[var(--color-text-700)] hover:bg-white',
+                  : 'bg-(--color-surface-alt) border border-(--color-border) text-(--color-text-700) hover:bg-(--color-surface-white)',
               ].join(' ')}
             >
               {f === 'all' ? `All (${allStudents.length})` : f === 'passed' ? `Passed (${passed.length})` : `Failed (${failed.length})`}
@@ -251,7 +252,7 @@ export function AdminTermMigration() {
             const groupFailed = group.students.filter((s) => (s.grades?.total ?? 0) <  PASS_MARK).length;
 
             return (
-              <div key={group.id} className="rounded-2xl border border-[var(--color-border)] bg-white shadow-sm overflow-hidden">
+              <div key={group.id} className="rounded-2xl border border-(--color-border) bg-(--color-surface-white) shadow-sm overflow-hidden">
                 {/* Group header */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-5 py-3.5 border-b border-[var(--color-border)] bg-[var(--color-surface-alt)]">
                   <div className="flex items-center gap-3 min-w-0">
@@ -276,13 +277,24 @@ export function AdminTermMigration() {
                   <div className="flex items-center gap-3 shrink-0">
                     {/* Code change badge */}
                     <div className="hidden sm:flex items-center gap-1">
-                      <code className="text-[10px] bg-red-50 border border-red-200 text-red-600 px-1.5 py-0.5 rounded line-through">
-                        {group.group_code}
-                      </code>
-                      <ArrowRight className="w-3 h-3 text-[var(--color-text-400)]" />
-                      <code className="text-[10px] bg-emerald-50 border border-emerald-200 text-emerald-700 px-1.5 py-0.5 rounded">
-                        {group.new_group_code ?? group.group_code.replace(/_498_/g, '_499_')}
-                      </code>
+                      {group.will_migrate ? (
+                        <>
+                          <code className="text-[10px] bg-red-50 border border-red-200 text-red-600 px-1.5 py-0.5 rounded line-through">
+                            {group.group_code}
+                          </code>
+                          <ArrowRight className="w-3 h-3 text-[var(--color-text-400)]" />
+                          <code className="text-[10px] bg-emerald-50 border border-emerald-200 text-emerald-700 px-1.5 py-0.5 rounded">
+                            {group.new_group_code}
+                          </code>
+                        </>
+                      ) : (
+                        <>
+                          <code className="text-[10px] bg-[var(--color-surface-alt)] border border-[var(--color-border)] text-[var(--color-text-600)] px-1.5 py-0.5 rounded">
+                            {group.group_code}
+                          </code>
+                          <span className="text-[10px] text-amber-500 font-medium">stays in 498</span>
+                        </>
+                      )}
                     </div>
                     {/* Pass/fail summary */}
                     <div className="flex items-center gap-1.5">
@@ -373,9 +385,9 @@ export function AdminTermMigration() {
 
       {/* ── Bottom action bar ─────────────────────────────────────────────── */}
       {!loading && groups.length > 0 && (
-        <div className="sticky bottom-0 mt-6 border-t border-[var(--color-border)] bg-white/95 backdrop-blur px-4 py-3 -mx-4 sm:-mx-6 flex items-center justify-between gap-3">
+        <div className="sticky bottom-0 mt-6 border-t border-(--color-border) bg-(--color-surface-white)/95 backdrop-blur px-4 py-3 -mx-4 sm:-mx-6 flex items-center justify-between gap-3">
           <p className="text-sm text-[var(--color-text-600)]">
-            <strong>{groups.length}</strong> group(s) · <strong className="text-emerald-600">{passed.length}</strong> passed · <strong className="text-red-500">{failed.length}</strong> failed
+            <strong>{groups.length}</strong> group(s) · <strong className="text-emerald-600">{groups.filter(g => g.will_migrate).length} will migrate</strong> · <strong className="text-amber-500">{groups.filter(g => !g.will_migrate).length} stays in 498</strong>
           </p>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => navigate(-1)} disabled={applying}>Cancel</Button>
@@ -396,8 +408,11 @@ export function AdminTermMigration() {
             </DialogTitle>
             <DialogDescription className="pt-1">
               You are about to advance to{' '}
-              <strong>{pendingTerm?.term} {pendingTerm?.year}</strong> and migrate all{' '}
-              <strong>{groups.length} CPIS-498 group(s)</strong> to CPIS-499.
+              <strong>{pendingTerm?.term} {pendingTerm?.year}</strong> and migrate{' '}
+              <strong>{groups.filter(g => g.will_migrate).length} passing CPIS-498 group(s)</strong> to CPIS-499.
+              {groups.filter(g => !g.will_migrate).length > 0 && (
+                <span> {groups.filter(g => !g.will_migrate).length} group(s) with failed students will remain in CPIS-498.</span>
+              )}
             </DialogDescription>
           </DialogHeader>
 
@@ -439,7 +454,7 @@ export function AdminTermMigration() {
 // ── Stat card helper ──────────────────────────────────────────────────────────
 function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
   return (
-    <div className="rounded-xl border border-[var(--color-border)] bg-white px-4 py-3 text-center shadow-sm">
+    <div className="rounded-xl border border-(--color-border) bg-(--color-surface-white) px-4 py-3 text-center shadow-sm">
       <p className={`text-2xl font-bold ${color}`}>{value}</p>
       <p className="text-xs text-[var(--color-text-600)] mt-0.5">{label}</p>
     </div>

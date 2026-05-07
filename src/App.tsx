@@ -69,6 +69,7 @@ import { AdminCourseGrades } from './pages/admin/AdminCourseGrades';
 import { AdminPresentationCommittee } from './pages/admin/PresentationCommittee';
 import { AdminLockManager } from './pages/admin/LockManager';
 import { AdminTermMigration } from './pages/admin/TermMigration';
+import { AdminTermHistory } from './pages/admin/TermHistory';
 
 // Coordinator can access its own routes; admin has full override
 const COORDINATOR_ROLES = ['coordinator', 'admin'] as const;
@@ -156,6 +157,7 @@ export default function App() {
           <Route path="/admin/locks" element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><AdminLockManager /></ProtectedRoute>} />
           <Route path="/admin/settings" element={<ProtectedRoute allowedRoles={['admin']}><Settings /></ProtectedRoute>} />
           <Route path="/admin/term-migration" element={<ProtectedRoute allowedRoles={['admin']}><AdminTermMigration /></ProtectedRoute>} />
+          <Route path="/admin/term-history"   element={<ProtectedRoute allowedRoles={[...COORDINATOR_ROLES]}><AdminTermHistory /></ProtectedRoute>} />
           <Route path="/admin/contact"  element={<ProtectedRoute allowedRoles={['admin']}><ContactUs /></ProtectedRoute>} />
 
           {/* Legacy / catch-all */}

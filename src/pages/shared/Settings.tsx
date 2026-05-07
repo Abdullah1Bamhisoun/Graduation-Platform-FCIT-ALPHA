@@ -188,10 +188,10 @@ export function Settings() {
   return (
     <Layout user={user} pageTitle="Settings" unreadCount={0}>
       <Tabs value={pageTab} onValueChange={(v) => setPageTab(v as typeof pageTab)}>
-        <TabsList className={showTermTab ? 'mb-6 bg-slate-100 border border-slate-200 w-full' : 'hidden'}>
-          <TabsTrigger value="general" className="flex-1 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm">General</TabsTrigger>
+        <TabsList className={showTermTab ? 'mb-6 bg-[var(--color-surface-alt)] border border-[var(--color-border)] w-full' : 'hidden'}>
+          <TabsTrigger value="general" className="flex-1 data-[state=active]:bg-[var(--color-surface-white)] data-[state=active]:text-[var(--color-text-900)] data-[state=active]:shadow-sm text-[var(--color-text-600)]">General</TabsTrigger>
           {showTermTab && (
-            <TabsTrigger value="term" className="flex-1 flex items-center gap-1.5 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm">
+            <TabsTrigger value="term" className="flex-1 flex items-center gap-1.5 data-[state=active]:bg-[var(--color-surface-white)] data-[state=active]:text-[var(--color-text-900)] data-[state=active]:shadow-sm text-[var(--color-text-600)]">
               <CalendarDays className="w-3.5 h-3.5" />
               Term Management
             </TabsTrigger>
@@ -386,23 +386,25 @@ export function Settings() {
                     )}
                   </div>
 
-                  {/* Preview link — inside the box, separated by a divider */}
+                  {/* Action links — inside the box, separated by dividers */}
                   {isAdmin && (
                     <button
                       onClick={() => {
-                        // Always target the next Second Semester
-                        const year = currentTerm?.year ?? new Date().getFullYear();
-                        const nextSecond = {
-                          term: 'Second Semester' as const,
-                          year: currentTerm?.term_code === '02' ? year + 1 : year,
-                          term_code: '02' as const,
-                        };
-                        navigate('/admin/term-migration', { state: { pendingTerm: nextSecond } });
+                        navigate('/admin/term-migration', { state: { pendingTerm: computeAdjacentTerm('next') } });
                       }}
                       className="flex items-center justify-center gap-2 border-t border-[var(--color-border)] px-6 py-2.5 text-sm font-medium text-[var(--color-primary)] hover:bg-[var(--color-primary)]/5 transition-colors"
                     >
                       <ArrowRight className="w-3.5 h-3.5" />
                       Preview CPIS-498 groups &amp; grades before migrating
+                    </button>
+                  )}
+                  {showTermTab && (
+                    <button
+                      onClick={() => navigate('/admin/term-history')}
+                      className="flex items-center justify-center gap-2 border-t border-[var(--color-border)] px-6 py-2.5 text-sm font-medium text-[var(--color-text-600)] hover:bg-[var(--color-primary)]/5 hover:text-[var(--color-primary)] transition-colors"
+                    >
+                      <CalendarDays className="w-3.5 h-3.5" />
+                      Browse term history &amp; historical grades
                     </button>
                   )}
                 </div>

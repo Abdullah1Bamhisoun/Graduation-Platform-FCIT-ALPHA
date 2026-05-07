@@ -4,6 +4,7 @@ const { cacheGet, cacheSet, cacheDel, TTL } = require('../utils/cache');
 const TERM_NAMES = ['First Semester', 'Second Semester'];
 const TERM_CODES = ['01', '02'];
 const TERM_CACHE_KEY = 'settings:current-term';
+const PASS_MARK = 60;
 
 const WEEK_CONFIG_CACHE_KEY = 'settings:week-config';
 const DEFAULT_WEEK_CONFIG = { currentWeek: 1, weekOneStartDate: null, holidayWeeks: [] };
@@ -62,6 +63,24 @@ async function setCurrentTerm(req, res) {
 
     const termJson = JSON.stringify({ term, year: Number(year), term_code });
 
+    // Snapshot current grade scheme before overwriting the term
+    try {
+      const cached = await cacheGet(TERM_CACHE_KEY);
+      let oldTerm = cached;
+      if (!oldTerm) {
+        const { data: existing } = await supabaseAdmin
+          .from('platform_locks').select('reason').eq('entity_type', 'current_term')
+          .order('updated_at', { ascending: false }).limit(1).maybeSingle();
+        if (existing?.reason) try { oldTerm = JSON.parse(existing.reason); } catch (_) {}
+      }
+      if (oldTerm?.year && oldTerm?.term_code) {
+        await Promise.all([
+          saveSchemeSnapshot('498', oldTerm.year, oldTerm.term_code, req.user.id),
+          saveSchemeSnapshot('499', oldTerm.year, oldTerm.term_code, req.user.id),
+        ]);
+      }
+    } catch (_) { /* non-fatal */ }
+
     // Upsert: delete any existing 'current_term' rows then insert fresh
     await supabaseAdmin
       .from('platform_locks')
@@ -107,7 +126,81 @@ async function setCurrentTerm(req, res) {
 }
 
 /**
- * Migrate all CPIS-498 groups → CPIS-499.
+ * Returns a Set of group IDs where every student's total grade >= PASS_MARK.
+ * Groups with no students are excluded (nothing to migrate).
+ */
+async function getPassingGroupIds(groupIds, course498Id) {
+  if (!groupIds.length) return new Set();
+
+  const { data: members } = await supabaseAdmin
+    .from('group_members').select('group_id, student_id').in('group_id', groupIds);
+
+  const memberRows = members || [];
+  const studentIds = [...new Set(memberRows.map((m) => m.student_id))];
+  if (!studentIds.length) return new Set();
+
+  const groupStudentsMap = {};
+  for (const m of memberRows) {
+    if (!groupStudentsMap[m.group_id]) groupStudentsMap[m.group_id] = [];
+    groupStudentsMap[m.group_id].push(m.student_id);
+  }
+
+  const [supRes, comRes, delivRes, weeklyRes, peerRes] = await Promise.all([
+    supabaseAdmin.from('supervisor_assessments').select('student_id, score').in('student_id', studentIds).eq('course_id', course498Id),
+    supabaseAdmin.from('committee_evaluations').select('student_id, score').in('student_id', studentIds).eq('course_id', course498Id),
+    supabaseAdmin.from('group_deliverable_grades').select('group_id, score').in('group_id', groupIds).eq('course_id', course498Id),
+    supabaseAdmin.from('weekly_reports').select('group_id, student_mark, supervisor_mark').in('group_id', groupIds),
+    supabaseAdmin.from('peer_evaluations').select('student_id, score').in('student_id', studentIds).eq('course_id', course498Id),
+  ]);
+
+  const supMap = {};
+  for (const r of supRes.data || []) supMap[r.student_id] = r.score ?? 0;
+
+  const comRaw = {};
+  for (const r of comRes.data || []) {
+    if (!comRaw[r.student_id]) comRaw[r.student_id] = { sum: 0, n: 0 };
+    if (r.score != null) { comRaw[r.student_id].sum += r.score; comRaw[r.student_id].n++; }
+  }
+  const comMap = {};
+  for (const [sid, v] of Object.entries(comRaw)) comMap[sid] = v.n ? v.sum / v.n : 0;
+
+  const delivMap = {};
+  for (const r of delivRes.data || []) {
+    if (!delivMap[r.group_id]) delivMap[r.group_id] = 0;
+    delivMap[r.group_id] += r.score ?? 0;
+  }
+
+  const weeklyMap = {};
+  for (const r of weeklyRes.data || []) {
+    if (!weeklyMap[r.group_id]) weeklyMap[r.group_id] = 0;
+    weeklyMap[r.group_id] += (r.student_mark ?? 0) + (r.supervisor_mark ?? 0);
+  }
+
+  const peerRaw = {};
+  for (const r of peerRes.data || []) {
+    if (!peerRaw[r.student_id]) peerRaw[r.student_id] = { sum: 0, n: 0 };
+    if (r.score != null) { peerRaw[r.student_id].sum += r.score; peerRaw[r.student_id].n++; }
+  }
+  const peerMap = {};
+  for (const [sid, v] of Object.entries(peerRaw)) peerMap[sid] = v.n ? v.sum / v.n : 0;
+
+  const passingIds = new Set();
+  for (const [gid, students] of Object.entries(groupStudentsMap)) {
+    if (!students.length) continue;
+    const weekly = Math.min(weeklyMap[gid] ?? 0, 20);
+    const deliv = delivMap[gid] ?? 0;
+    const allPassed = students.every((sid) => {
+      const total = (supMap[sid] ?? 0) + (comMap[sid] ?? 0) + weekly + deliv + (peerMap[sid] ?? 0);
+      return total >= PASS_MARK;
+    });
+    if (allPassed) passingIds.add(gid);
+  }
+
+  return passingIds;
+}
+
+/**
+ * Migrate CPIS-498 groups → CPIS-499, but only for groups where all students passed.
  * Updates course_id, course_number, and the course-number segment of group_code.
  * Returns the number of groups migrated.
  */
@@ -136,19 +229,18 @@ async function migrate498To499(actorId) {
     if (fetchError) throw fetchError;
     if (!groups498 || groups498.length === 0) return 0;
 
-    // Update each group
-    let count = 0;
-    for (const group of groups498) {
-      // Update group_code: only replace _498_ → _499_; keep the original term segment intact
-      const newCode = (group.group_code || '').replace(/_498_/g, '_499_');
+    // Only migrate groups where all students passed
+    const passingIds = await getPassingGroupIds(groups498.map((g) => g.id), cpis498.id);
+    const groupsToMigrate = groups498.filter((g) => passingIds.has(g.id));
 
+    if (!groupsToMigrate.length) return 0;
+
+    let count = 0;
+    for (const group of groupsToMigrate) {
+      const newCode = (group.group_code || '').replace(/_498_/g, '_499_');
       const { error: updateError } = await supabaseAdmin
         .from('groups')
-        .update({
-          course_id: cpis499.id,
-          course_number: '499',
-          group_code: newCode,
-        })
+        .update({ course_id: cpis499.id, course_number: '499', group_code: newCode })
         .eq('id', group.id);
 
       if (!updateError) count++;
@@ -450,10 +542,13 @@ async function getMigrationPreview(req, res) {
         };
       }).filter(Boolean);
 
+      const willMigrate = students.length > 0 && students.every((s) => s.grades.total >= PASS_MARK);
+
       return {
         id: g.id,
         group_code: g.group_code,
-        new_group_code: previewNewCode(g.group_code),
+        new_group_code: willMigrate ? previewNewCode(g.group_code) : null,
+        will_migrate: willMigrate,
         group_number: g.group_number,
         project_name: g.project_name,
         department: g.department,
@@ -483,4 +578,261 @@ async function getMigrationPreview(req, res) {
   }
 }
 
-module.exports = { getCurrentTerm, setCurrentTerm, getWeekConfig, setWeekConfig, getMigrationPreview };
+/**
+ * Fetch grade scheme components + criteria for a given courseType.
+ * Used for snapshotting and for term-data responses.
+ */
+async function fetchSchemeForCourseType(courseType) {
+  const [compRes, critRes] = await Promise.all([
+    supabaseAdmin.from('grading_components').select('*').eq('course_type', courseType).eq('is_active', true).order('display_order'),
+    supabaseAdmin.from('grading_rubric_criteria').select('*').eq('course_type', courseType).eq('is_active', true).order('display_order'),
+  ]);
+  return { components: compRes.data || [], criteria: critRes.data || [] };
+}
+
+/**
+ * Save a grade scheme snapshot for a specific term + course type in platform_locks.
+ * entity_type format: scheme_snapshot_<courseType>_<year>_<term_code>
+ */
+async function saveSchemeSnapshot(courseType, year, term_code, actorId) {
+  try {
+    const scheme = await fetchSchemeForCourseType(courseType);
+    const entityType = `scheme_snapshot_${courseType}_${year}_${term_code}`;
+    // Remove any stale snapshot first
+    await supabaseAdmin.from('platform_locks').delete().eq('entity_type', entityType);
+    await supabaseAdmin.from('platform_locks').insert({
+      entity_type: entityType,
+      entity_id: null,
+      is_locked: false,
+      reason: JSON.stringify(scheme),
+      locked_by: actorId,
+    });
+  } catch (err) {
+    console.warn(`saveSchemeSnapshot(${courseType}, ${year}, ${term_code}):`, err.message);
+  }
+}
+
+/**
+ * GET /api/settings/terms-list  (admin only)
+ * Returns all distinct terms that have group data, sorted newest first.
+ * Also marks which term is currently active.
+ */
+async function getTermsList(req, res) {
+  try {
+    const [groupsRes, currentTermRes] = await Promise.all([
+      supabaseAdmin.from('groups').select('group_code'),
+      cacheGet(TERM_CACHE_KEY),
+    ]);
+
+    let currentTerm = currentTermRes;
+    if (!currentTerm) {
+      const { data } = await supabaseAdmin
+        .from('platform_locks').select('reason').eq('entity_type', 'current_term')
+        .order('updated_at', { ascending: false }).limit(1).maybeSingle();
+      if (data?.reason) try { currentTerm = JSON.parse(data.reason); } catch (_) {}
+    }
+    if (!currentTerm) currentTerm = { term: 'Second Semester', year: 2026, term_code: '02' };
+
+    const termMap = new Map();
+    for (const g of groupsRes.data || []) {
+      const parts = (g.group_code || '').split('_');
+      if (parts.length < 5) continue;
+      const year = parseInt(parts[3]);
+      const tc   = parts[4];
+      if (isNaN(year) || !TERM_CODES.includes(tc)) continue;
+      const key = `${year}_${tc}`;
+      if (!termMap.has(key)) {
+        termMap.set(key, {
+          year,
+          term_code: tc,
+          term: tc === '01' ? 'First Semester' : 'Second Semester',
+        });
+      }
+    }
+
+    // Ensure current term is always in the list even if no groups yet
+    const ck = `${currentTerm.year}_${currentTerm.term_code}`;
+    if (!termMap.has(ck)) termMap.set(ck, currentTerm);
+
+    const terms = Array.from(termMap.values())
+      .sort((a, b) => b.year - a.year || b.term_code.localeCompare(a.term_code))
+      .map((t) => ({
+        ...t,
+        isCurrent: t.year === currentTerm.year && t.term_code === currentTerm.term_code,
+      }));
+
+    res.json({ terms, currentTerm });
+  } catch (err) {
+    console.error('getTermsList error:', err);
+    res.status(500).json({ error: 'Failed to fetch terms list' });
+  }
+}
+
+/**
+ * GET /api/settings/term-data?year=2026&term_code=01  (admin only)
+ * Returns all groups, students, and grades for the given term.
+ * Also returns the grade scheme snapshot for that term (or current if no snapshot).
+ */
+async function getTermData(req, res) {
+  try {
+    const year      = parseInt(req.query.year);
+    const term_code = req.query.term_code;
+
+    if (isNaN(year) || !TERM_CODES.includes(term_code)) {
+      return res.status(400).json({ error: 'Valid year and term_code (01|02) are required' });
+    }
+
+    // ── Fetch groups whose group_code embeds this term ────────────────────────
+    const pattern498 = `%_498_${year}_${term_code}_%`;
+    const pattern499 = `%_499_${year}_${term_code}_%`;
+
+    const [res498, res499] = await Promise.all([
+      supabaseAdmin.from('groups').select('id, group_code, group_number, project_name, department, gender, course_number, course_id').ilike('group_code', pattern498),
+      supabaseAdmin.from('groups').select('id, group_code, group_number, project_name, department, gender, course_number, course_id').ilike('group_code', pattern499),
+    ]);
+
+    const rawGroups = [...(res498.data || []), ...(res499.data || [])];
+    const groupIds  = rawGroups.map((g) => g.id);
+
+    // ── Fetch courses for grade queries ───────────────────────────────────────
+    const { data: courses } = await supabaseAdmin.from('courses').select('id, code').in('code', ['CPIS-498', 'CPIS-499']);
+    const course498 = (courses || []).find((c) => c.code === 'CPIS-498');
+    const course499 = (courses || []).find((c) => c.code === 'CPIS-499');
+    const courseIdMap = {};
+    if (course498) courseIdMap[course498.id] = '498';
+    if (course499) courseIdMap[course499.id] = '499';
+
+    // ── Fetch members ─────────────────────────────────────────────────────────
+    let memberRows = [];
+    if (groupIds.length) {
+      const { data } = await supabaseAdmin.from('group_members').select('group_id, student_id').in('group_id', groupIds);
+      memberRows = data || [];
+    }
+    const studentIds = [...new Set(memberRows.map((m) => m.student_id))];
+
+    // ── Fetch student profiles ────────────────────────────────────────────────
+    const profileMap = {};
+    if (studentIds.length) {
+      const { data } = await supabaseAdmin.from('profiles').select('id, name, email, student_id').in('id', studentIds);
+      for (const p of data || []) profileMap[p.id] = p;
+    }
+
+    // ── Fetch grade data ──────────────────────────────────────────────────────
+    const courseIds = [course498?.id, course499?.id].filter(Boolean);
+
+    const [supRes, comRes, delivRes, weeklyRes, peerRes] = await Promise.all([
+      studentIds.length && courseIds.length
+        ? supabaseAdmin.from('supervisor_assessments').select('student_id, score, max_score, course_id').in('student_id', studentIds).in('course_id', courseIds)
+        : { data: [] },
+      studentIds.length && courseIds.length
+        ? supabaseAdmin.from('committee_evaluations').select('student_id, score, max_score, course_id').in('student_id', studentIds).in('course_id', courseIds)
+        : { data: [] },
+      groupIds.length && courseIds.length
+        ? supabaseAdmin.from('group_deliverable_grades').select('group_id, score, max_score, course_id').in('group_id', groupIds).in('course_id', courseIds)
+        : { data: [] },
+      groupIds.length
+        ? supabaseAdmin.from('weekly_reports').select('group_id, student_mark, supervisor_mark').in('group_id', groupIds)
+        : { data: [] },
+      studentIds.length && courseIds.length
+        ? supabaseAdmin.from('peer_evaluations').select('student_id, score, max_score, course_id').in('student_id', studentIds).in('course_id', courseIds)
+        : { data: [] },
+    ]);
+
+    // ── Build grade lookup maps ───────────────────────────────────────────────
+    const supMap = {};
+    for (const r of supRes.data || []) supMap[r.student_id] = { score: r.score ?? null, max: r.max_score ?? 20 };
+
+    const comRaw = {};
+    for (const r of comRes.data || []) {
+      if (!comRaw[r.student_id]) comRaw[r.student_id] = { total: 0, count: 0, max: r.max_score ?? 40 };
+      if (r.score != null) { comRaw[r.student_id].total += r.score; comRaw[r.student_id].count++; }
+    }
+    const comMap = {};
+    for (const [sid, v] of Object.entries(comRaw)) comMap[sid] = { score: v.count ? +(v.total / v.count).toFixed(1) : null, max: v.max };
+
+    const delivMap = {};
+    for (const r of delivRes.data || []) {
+      if (!delivMap[r.group_id]) delivMap[r.group_id] = { earned: 0, max: 0 };
+      if (r.score != null) delivMap[r.group_id].earned += r.score;
+      if (r.max_score != null) delivMap[r.group_id].max += r.max_score;
+    }
+
+    const weeklyMap = {};
+    for (const r of weeklyRes.data || []) {
+      if (!weeklyMap[r.group_id]) weeklyMap[r.group_id] = 0;
+      weeklyMap[r.group_id] += (r.student_mark ?? 0) + (r.supervisor_mark ?? 0);
+    }
+
+    const peerRaw = {};
+    for (const r of peerRes.data || []) {
+      if (!peerRaw[r.student_id]) peerRaw[r.student_id] = { total: 0, count: 0, max: r.max_score ?? 5 };
+      if (r.score != null) { peerRaw[r.student_id].total += r.score; peerRaw[r.student_id].count++; }
+    }
+    const peerMap = {};
+    for (const [sid, v] of Object.entries(peerRaw)) peerMap[sid] = { score: v.count ? +(v.total / v.count).toFixed(1) : null, max: v.max };
+
+    // ── Build group → students index ──────────────────────────────────────────
+    const groupStudentsMap = {};
+    for (const m of memberRows) {
+      if (!groupStudentsMap[m.group_id]) groupStudentsMap[m.group_id] = [];
+      const p = profileMap[m.student_id];
+      if (p) groupStudentsMap[m.group_id].push(p);
+    }
+
+    // ── Assemble groups with grades ───────────────────────────────────────────
+    const groups = rawGroups.map((g) => {
+      const weekly  = Math.min(weeklyMap[g.id] ?? 0, 20);
+      const deliv   = delivMap[g.id] ?? { earned: 0, max: 15 };
+      const students = (groupStudentsMap[g.id] || []).map((s) => {
+        const sup  = supMap[s.id]  ?? { score: null, max: 20 };
+        const com  = comMap[s.id]  ?? { score: null, max: 40 };
+        const peer = peerMap[s.id] ?? { score: null, max: 5 };
+        const total = (sup.score ?? 0) + (com.score ?? 0) + weekly + (deliv.earned ?? 0) + (peer.score ?? 0);
+        return {
+          id: s.id, name: s.name, email: s.email, student_id: s.student_id,
+          grades: {
+            supervisor:   { score: sup.score,    max: sup.max },
+            committee:    { score: com.score,    max: com.max },
+            weekly:       { score: weekly,       max: 20 },
+            deliverables: { score: deliv.earned, max: deliv.max || 15 },
+            peer:         { score: peer.score,   max: peer.max },
+            total: +total.toFixed(1),
+          },
+        };
+      });
+      return {
+        id: g.id, group_code: g.group_code, group_number: g.group_number,
+        course_number: g.course_number, project_name: g.project_name,
+        department: g.department, gender: g.gender, students,
+      };
+    }).sort((a, b) => a.course_number.localeCompare(b.course_number) || a.group_number - b.group_number);
+
+    // ── Fetch grade scheme (snapshot or current) ──────────────────────────────
+    const loadSnapshot = async (courseType) => {
+      const et = `scheme_snapshot_${courseType}_${year}_${term_code}`;
+      const { data } = await supabaseAdmin.from('platform_locks').select('reason').eq('entity_type', et).maybeSingle();
+      if (data?.reason) try { return { ...JSON.parse(data.reason), isSnapshot: true }; } catch (_) {}
+      return null;
+    };
+
+    const [snap498, snap499, live498, live499] = await Promise.all([
+      loadSnapshot('498'), loadSnapshot('499'),
+      fetchSchemeForCourseType('498'), fetchSchemeForCourseType('499'),
+    ]);
+
+    const scheme = {
+      '498': snap498 ?? { ...live498, isSnapshot: false },
+      '499': snap499 ?? { ...live499, isSnapshot: false },
+    };
+
+    res.json({
+      year, term_code, term: term_code === '01' ? 'First Semester' : 'Second Semester',
+      groups, scheme,
+    });
+  } catch (err) {
+    console.error('getTermData error:', err);
+    res.status(500).json({ error: 'Failed to fetch term data' });
+  }
+}
+
+module.exports = { getCurrentTerm, setCurrentTerm, getWeekConfig, setWeekConfig, getMigrationPreview, getTermsList, getTermData };
