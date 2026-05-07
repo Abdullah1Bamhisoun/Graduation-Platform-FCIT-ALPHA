@@ -245,16 +245,26 @@ export function AdminTermHistory() {
     return data.session?.access_token ?? '';
   }, []);
 
+  const authHeaders = useCallback(async () => {
+    const token = await getToken();
+    const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+    if (user?.activeRole) headers['X-Active-Role'] = user.activeRole;
+    return headers;
+  }, [getToken, user?.activeRole]);
+
   // Load term list on mount
   useEffect(() => {
+    if (!user) return;
     (async () => {
       setLoadingList(true);
       try {
-        const token = await getToken();
         const res = await apiFetch(apiUrl('/api/settings/terms-list'), {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: await authHeaders(),
         });
-        if (!res.ok) throw new Error();
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error((err as any).error ?? `HTTP ${res.status}`);
+        }
         const body = await res.json();
         const list: TermEntry[] = body.terms ?? [];
         setTerms(list);
@@ -269,33 +279,35 @@ export function AdminTermHistory() {
           const currentIdx = list.findIndex((t) => t.isCurrent);
           setTermIdx(currentIdx >= 0 ? currentIdx : 0);
         }
-      } catch {
-        toast.error('Failed to load term list');
+      } catch (err: any) {
+        toast.error(`Failed to load term list: ${err.message ?? 'Unknown error'}`);
       } finally {
         setLoadingList(false);
       }
     })();
-  }, []);
+  }, [user]);
 
   // Load term data whenever selected term changes
   const selectedTerm = terms[termIdx];
   useEffect(() => {
-    if (!selectedTerm) return;
+    if (!selectedTerm || !user) return;
     setSearchParams({ year: String(selectedTerm.year), term_code: selectedTerm.term_code }, { replace: true });
 
     (async () => {
       setLoadingData(true);
       setTermData(null);
       try {
-        const token = await getToken();
         const res = await apiFetch(
           apiUrl(`/api/settings/term-data?year=${selectedTerm.year}&term_code=${selectedTerm.term_code}`),
-          { headers: { Authorization: `Bearer ${token}` } },
+          { headers: await authHeaders() },
         );
-        if (!res.ok) throw new Error();
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error((err as any).error ?? `HTTP ${res.status}`);
+        }
         setTermData(await res.json());
-      } catch {
-        toast.error('Failed to load term data');
+      } catch (err: any) {
+        toast.error(`Failed to load term data: ${err.message ?? 'Unknown error'}`);
       } finally {
         setLoadingData(false);
       }

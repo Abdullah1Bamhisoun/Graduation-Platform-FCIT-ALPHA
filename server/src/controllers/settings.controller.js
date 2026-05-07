@@ -619,12 +619,10 @@ async function saveSchemeSnapshot(courseType, year, term_code, actorId) {
  */
 async function getTermsList(req, res) {
   try {
-    const [groupsRes, currentTermRes] = await Promise.all([
-      supabaseAdmin.from('groups').select('group_code'),
-      cacheGet(TERM_CACHE_KEY),
-    ]);
+    // Fetch groups and current term independently so neither can block the other
+    const groupsRes = await supabaseAdmin.from('groups').select('group_code');
 
-    let currentTerm = currentTermRes;
+    let currentTerm = await cacheGet(TERM_CACHE_KEY).catch(() => null);
     if (!currentTerm) {
       const { data } = await supabaseAdmin
         .from('platform_locks').select('reason').eq('entity_type', 'current_term')
