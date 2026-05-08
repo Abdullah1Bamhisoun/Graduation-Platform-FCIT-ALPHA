@@ -49,7 +49,7 @@ async function getCurrentTerm(req, res) {
  */
 async function setCurrentTerm(req, res) {
   try {
-    const { term, year, term_code } = req.body;
+    const { term, year, term_code, triggerMigration } = req.body;
 
     if (!TERM_NAMES.includes(term)) {
       return res.status(400).json({ error: `Invalid term. Must be one of: ${TERM_NAMES.join(', ')}` });
@@ -102,9 +102,9 @@ async function setCurrentTerm(req, res) {
     // Invalidate cached term so next GET returns fresh data
     await cacheDel(TERM_CACHE_KEY);
 
-    // ── Auto-migration: CPIS-498 → CPIS-499 when changing TO Second Semester ──
+    // ── Auto-migration: CPIS-498 → CPIS-499 when explicitly triggered from migration page ──
     let migratedGroups = 0;
-    if (term_code === '02') {
+    if (triggerMigration === true) {
       migratedGroups = await migrate498To499(req.user.id);
     }
 

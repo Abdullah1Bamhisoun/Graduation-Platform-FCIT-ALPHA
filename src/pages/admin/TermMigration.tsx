@@ -120,7 +120,7 @@ export function AdminTermMigration() {
       const res = await apiFetch(apiUrl('/api/settings/current-term'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(pendingTerm),
+        body: JSON.stringify({ ...pendingTerm, triggerMigration: true }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((body as any).error ?? `Error ${res.status}`);
