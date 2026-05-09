@@ -1,5 +1,6 @@
 const nodemailer = require('nodemailer');
 const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM, APP_URL } = require('../config/env');
+const { supabaseAdmin } = require('../config/supabase');
 
 // ─── Transport ─────────────────────────────────────────────────────────────────
 
@@ -22,7 +23,10 @@ const transporter = nodemailer.createTransport({
  * so that email failures never block the HTTP response.
  */
 async function sendEmail(to, subject, html) {
-  const recipients = Array.isArray(to) ? to.filter(Boolean) : [to].filter(Boolean);
+  const all = Array.isArray(to) ? to.filter(Boolean) : [to].filter(Boolean);
+  if (all.length === 0) return;
+
+  const recipients = await filterOptedInEmails(all);
   if (recipients.length === 0) return;
 
   await transporter.sendMail({
@@ -31,6 +35,47 @@ async function sendEmail(to, subject, html) {
     subject,
     html,
   });
+}
+
+// ─── Opt-out Filter ────────────────────────────────────────────────────────────
+
+/**
+ * Given a list of email addresses, returns only those whose owners have NOT
+ * explicitly disabled email notifications (email_notifications !== false).
+ * Defaults to opted-in when the preference is unset or the profile is not found.
+ */
+async function filterOptedInEmails(emails) {
+  const list = (Array.isArray(emails) ? emails : [emails]).filter(Boolean);
+  if (list.length === 0) return [];
+
+  try {
+    const { data: profiles } = await supabaseAdmin
+      .from('profiles')
+      .select('id, email')
+      .in('email', list);
+
+    if (!profiles?.length) return list;
+
+    const profileMap = Object.fromEntries(profiles.map((p) => [p.email, p.id]));
+
+    const checks = await Promise.all(
+      profiles.map(async (p) => {
+        try {
+          const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(p.id);
+          return { email: p.email, optedIn: user?.user_metadata?.email_notifications !== false };
+        } catch {
+          return { email: p.email, optedIn: true };
+        }
+      })
+    );
+
+    const optedInSet = new Set(checks.filter((c) => c.optedIn).map((c) => c.email));
+    // Always include emails not in the profiles table (e.g. external addresses)
+    return list.filter((e) => !profileMap[e] || optedInSet.has(e));
+  } catch {
+    // On any error, fail open and send to all
+    return list;
+  }
 }
 
 // ─── Shared HTML Layout ────────────────────────────────────────────────────────
@@ -936,6 +981,46 @@ function sendRegistrationRejected(to, { name, accountType }) {
   return sendEmail(to, 'Registration Status Update — FCIT Graduation Platform', layout(body, 'Registration Update'));
 }
 
+/**
+ * Milestone deadline updated → students in the course
+ *
+ * @param {string[]} studentEmails
+ * @param {{ milestoneName: string, courseName: string, openDate: string, dueDate: string, description?: string, appUrl?: string }} data
+ */
+function sendMilestoneDeadlineUpdated(studentEmails, data) {
+  const { milestoneName, courseName, openDate, dueDate, description, appUrl = '' } = data;
+  const fmt = (d) => new Date(d).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+  const calUrl = makeGoogleCalUrl({
+    title:       `[${courseName}] Deadline: ${milestoneName}`,
+    startISO:    dueDate,
+    allDay:      true,
+    description: [courseName, description].filter(Boolean).join('\n'),
+  });
+
+  const body = `
+    ${heading('Deadline Updated')}
+    ${paragraph(`The deadline for <strong>${milestoneName}</strong> in <strong>${courseName}</strong> has been updated.`)}
+    ${infoTable([
+      ['Milestone', milestoneName],
+      ['Course',    courseName],
+      ['Opens',     fmt(openDate)],
+      ['New Deadline', `<strong style="color:#dc2626;">${fmt(dueDate)}</strong>`],
+    ])}
+    ${description ? `<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:18px;margin:0 0 20px;">
+      <p style="margin:0;font-size:14px;color:#374151;line-height:1.7;white-space:pre-line;">${description}</p>
+    </div>` : ''}
+    ${googleCalendarButton(calUrl)}
+    ${appUrl ? ctaButton('View Milestone', appUrl) : ''}
+  `;
+
+  return Promise.allSettled(
+    studentEmails.filter(Boolean).map((email) =>
+      sendEmail(email, `[${courseName}] Deadline Updated: ${milestoneName}`, layout(body, 'Deadline Updated'))
+    )
+  );
+}
+
 // ─── Exports ───────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -960,4 +1045,5 @@ module.exports = {
   sendMeetingReminder,
   sendMeetingCancelled,
   sendDiscussionNotification,
+  sendMilestoneDeadlineUpdated,
 };

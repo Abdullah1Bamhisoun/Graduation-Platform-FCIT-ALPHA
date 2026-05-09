@@ -12,6 +12,7 @@ import { useState, useEffect } from 'react';
 import { getCalendarEvents, createCalendarEvent, deleteCalendarEvent } from '../../services/calendarEvents';
 import type { CalendarEvent } from '../../services/calendarEvents';
 import { getSupervisorGroupsMine } from '../../services/groups';
+import { getMilestones, getMilestonesByStudentWithStatus } from '../../services/milestones';
 
 interface SupervisorGroup {
   id: string;
@@ -101,6 +102,7 @@ export function Calendar() {
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+  const [milestoneEvents, setMilestoneEvents] = useState<CalendarEvent[]>([]);
   const [supervisorGroups, setSupervisorGroups] = useState<SupervisorGroup[]>([]);
 
   const isSupervisor = user?.activeRole === 'supervisor';
@@ -118,6 +120,23 @@ export function Calendar() {
       }));
     });
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    const fetchFn = user.activeRole === 'student'
+      ? getMilestonesByStudentWithStatus(user.id)
+      : getMilestones();
+    fetchFn.then((milestones) => {
+      setMilestoneEvents(
+        milestones.map((m) => ({
+          id: `milestone-${m.id}`,
+          title: m.name,
+          date: m.dueDate.slice(0, 10),
+          type: 'deadline' as const,
+        }))
+      );
+    }).catch(() => {});
+  }, [user?.id, user?.activeRole]);
 
   useEffect(() => {
     if (!isSupervisor) return;
@@ -152,6 +171,7 @@ export function Calendar() {
   };
 
   const canDeleteEvent = (event: CalendarEvent) => {
+    if (event.id.startsWith('milestone-')) return false; // managed via milestones config
     if (user?.role === 'admin') return true;
     if (user?.activeRole === 'coordinator' && event.courseId === user.coordinatorCourseId) return true;
     if (isSupervisor && event.groupId && supervisorGroups.some((g) => g.id === event.groupId)) return true;
@@ -198,6 +218,20 @@ export function Calendar() {
       toast.error(err instanceof Error ? err.message : 'Failed to add event');
     }
   };
+
+  // Merge live milestone events with calendar events, replacing stale milestone-generated ones.
+  // The backend creates calendar events titled "Milestone Due: {name}" on milestone creation,
+  // but those become stale when milestone dates change. We replace them with live data.
+  const milestoneNames = new Set(milestoneEvents.map((e) => e.title));
+  const allEvents: CalendarEvent[] = [
+    ...calendarEvents.filter(
+      (e) =>
+        milestoneEvents.length === 0 ||
+        !e.title.startsWith('Milestone Due: ') ||
+        !milestoneNames.has(e.title.slice('Milestone Due: '.length))
+    ),
+    ...milestoneEvents,
+  ];
 
   const daysInMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate();
   const firstDayOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1).getDay();
@@ -355,7 +389,7 @@ export function Calendar() {
               {Array.from({ length: daysInMonth }, (_, i) => {
                 const day = i + 1;
                 const date = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                const dayEvents = calendarEvents.filter(e => e.date === date);
+                const dayEvents = allEvents.filter(e => e.date === date);
                 const today = new Date();
                 const isToday = day === today.getDate() && currentMonth.getMonth() === today.getMonth() && currentMonth.getFullYear() === today.getFullYear();
 
@@ -411,7 +445,7 @@ export function Calendar() {
                 const monthEnd   = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate()).padStart(2, '0')}`;
                 const today      = new Date().toISOString().slice(0, 10);
                 const isCurrentMonth = currentMonth.getFullYear() === new Date().getFullYear() && currentMonth.getMonth() === new Date().getMonth();
-                const upcoming = calendarEvents.filter((e) =>
+                const upcoming = allEvents.filter((e) =>
                   e.date >= (isCurrentMonth ? today : monthStart) && e.date <= monthEnd
                 );
                 return (

@@ -14,7 +14,7 @@ import { Label } from '../../components/ui/label';
 import { Switch } from '../../components/ui/switch';
 import { Textarea } from '../../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { Settings, Plus, Edit2, Save, X, Trash2, Award, Users, FileType } from 'lucide-react';
+import { Settings, Plus, Edit2, Save, X, Trash2, Award, Users, FileType, Bell } from 'lucide-react';
 import { TimePicker } from '../../components/ui/TimePicker';
 import {
   Dialog,
@@ -219,11 +219,20 @@ export function AdminMilestonesConfig() {
     }
   };
 
-  const handleSave = async (config: MilestoneConfig) => {
+  const handleSave = async (config: MilestoneConfig, notify = false) => {
     setSaving(true);
     try {
-      await updateMilestone(config.id, config);
-      toast.success('Assessment updated successfully');
+      const { notified, notifyError } = await updateMilestone(config.id, config, notify);
+      if (notify) {
+        if (notified) {
+          toast.success('Assessment updated — students notified via announcement, bell, and email');
+        } else {
+          toast.success('Assessment updated');
+          toast.error(`Notification failed: ${notifyError ?? 'unknown error'}`);
+        }
+      } else {
+        toast.success('Assessment updated successfully');
+      }
       setEditingId(null);
     } catch (err: any) {
       toast.error(err.message ?? 'Failed to save milestone');
@@ -530,6 +539,15 @@ export function AdminMilestonesConfig() {
                     >
                       <Save className="w-4 h-4" />
                       {saving ? 'Saving…' : 'Save Changes'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleSave(config, true)}
+                      className="col-span-2 sm:col-span-1 justify-center gap-2 border-blue-400 text-blue-600 hover:bg-blue-50 hover:border-blue-500"
+                      disabled={isLocked || saving}
+                    >
+                      <Bell className="w-4 h-4" />
+                      {saving ? 'Saving…' : 'Save & Notify Students'}
                     </Button>
                   </div>
                 </div>

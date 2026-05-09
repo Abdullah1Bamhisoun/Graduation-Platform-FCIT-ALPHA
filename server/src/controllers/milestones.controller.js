@@ -286,7 +286,90 @@ async function updateMilestone(req, res) {
     if (uErr) throw uErr;
 
     await cacheDelPattern('milestones:*');
-    res.json({ success: true });
+
+    // Notify students synchronously so errors surface to the caller.
+    let notified = false;
+    if (req.body.notify) {
+      try {
+        const { data: m, error: mErr } = await supabaseAdmin
+          .from('milestones')
+          .select('name, course_id, open_date, due_date')
+          .eq('id', id)
+          .maybeSingle();
+
+        if (!m) throw new Error(`Milestone re-fetch failed: ${mErr?.message ?? 'row not returned'}`);
+
+        {
+          const { data: course } = await supabaseAdmin
+            .from('courses').select('code, name').eq('id', m.course_id).single();
+
+          const courseCode  = normalizeCourseCode(course?.code ?? '');
+          const courseLabel = [courseCode, course?.name].filter(Boolean).join(' — ');
+          const dueDateFmt  = new Date(m.due_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+          const openDateFmt = new Date(m.open_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+          const content = [
+            `The deadline for "${m.name}" has been updated.`,
+            `Course: ${courseLabel}`,
+            '',
+            `Submission opens: ${openDateFmt}`,
+            `New deadline: ${dueDateFmt}`,
+          ].join('\n');
+
+          // 1. Course-scoped announcement visible on the Announcements page
+          const ann = await notificationService.createAnnouncement({
+            title:       `Deadline Updated: ${m.name}`,
+            content,
+            targetRoles: ['student'],
+            courseId:    m.course_id,
+            authorId:    req.user.id,
+            expiresAt:   m.due_date,
+          });
+          if (!ann) throw new Error('createAnnouncement returned null — check DB/migration logs');
+
+          // 2. Resolve all students in this course
+          const { data: groups } = await supabaseAdmin
+            .from('groups').select('id').eq('course_id', m.course_id);
+          const groupIds = (groups || []).map((g) => g.id);
+
+          if (groupIds.length > 0) {
+            const { data: members } = await supabaseAdmin
+              .from('group_members').select('student_id').in('group_id', groupIds);
+            const studentIds = [...new Set((members || []).map((mb) => mb.student_id))];
+
+            if (studentIds.length > 0) {
+              // 3. Per-user bell notifications
+              await notificationService.createUserNotifications(studentIds, {
+                type:    'announcement',
+                title:   `Deadline Updated: ${m.name}`,
+                message: `New deadline: ${dueDateFmt}`,
+                link:    '/student/milestones',
+              });
+
+              // 4. Emails (best-effort, non-blocking)
+              const { data: profiles } = await supabaseAdmin
+                .from('profiles').select('email').in('id', studentIds);
+              const emails = (profiles || []).map((p) => p.email).filter(Boolean);
+              if (emails.length > 0) {
+                emailService.sendMilestoneDeadlineUpdated(emails, {
+                  milestoneName: m.name,
+                  courseName:    courseCode || courseLabel,
+                  openDate:      m.open_date,
+                  dueDate:       m.due_date,
+                }).catch((e) => console.error('[milestones] email send error:', e.message));
+              }
+            }
+          }
+
+          notified = true;
+        }
+      } catch (notifyErr) {
+        console.error('[milestones] notify-on-update error:', notifyErr.message);
+        return res.json({ success: true, notified: false, notifyError: notifyErr.message });
+      }
+    }
+
+    res.json({ success: true, notified });
   } catch (error) {
     console.error('Error updating milestone:', error);
     res.status(500).json({ error: 'Failed to update milestone' });

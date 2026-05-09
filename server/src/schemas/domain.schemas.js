@@ -62,6 +62,7 @@ const updateMilestoneSchema = Joi.object({
   gradingCriterionId:     Joi.string().uuid().allow(null, '').optional(),
   includeInCommitteeEval: Joi.boolean().optional(),
   allowedFileType:        Joi.string().valid(...ALLOWED_FILE_TYPES).allow(null, '').optional(),
+  notify:                 Joi.boolean().optional(),
 });
 
 // ── Submissions ───────────────────────────────────────────────────────────────

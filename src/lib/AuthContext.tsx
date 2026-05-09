@@ -37,6 +37,8 @@ interface AuthContextType {
   logout: () => void;
   /** Switch active role for multi-role faculty (supervisor ↔ coordinator) */
   switchRole: (newRole: UserRole) => Promise<void>;
+  /** Patch the in-memory user object without a full reload */
+  updateUser: (updates: Partial<User>) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -277,6 +279,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     navigate(getDashboardPath(newRole));
   };
 
+  const updateUser = useCallback((updates: Partial<User>) => {
+    setUser((prev) => (prev ? { ...prev, ...updates } : null));
+  }, []);
+
   const value: AuthContextType = {
     user,
     isAuthenticated: !!user,
@@ -284,6 +290,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     login,
     logout,
     switchRole,
+    updateUser,
   };
 
   return (

@@ -277,8 +277,9 @@ export async function createMilestone(config: Omit<MilestoneConfig, 'id'>): Prom
   return data.id as string;
 }
 
-/** Update a milestone via the backend API (validates course scope server-side). */
-export async function updateMilestone(id: string, updates: Partial<MilestoneConfig>): Promise<void> {
+/** Update a milestone via the backend API (validates course scope server-side).
+ *  Returns true if student notifications were successfully sent (only meaningful when notify=true). */
+export async function updateMilestone(id: string, updates: Partial<MilestoneConfig>, notify = false): Promise<{ notified: boolean; notifyError?: string }> {
   const session = await supabase.auth.getSession();
   const token = session.data.session?.access_token;
   const userId = session.data.session?.user?.id ?? '';
@@ -302,6 +303,7 @@ export async function updateMilestone(id: string, updates: Partial<MilestoneConf
       gradingCriterionId:     updates.gradingCriterionId ?? null,
       includeInCommitteeEval: updates.includeInCommitteeEval ?? false,
       allowedFileType:        updates.allowedFileType ?? null,
+      notify,
     }),
   });
 
@@ -310,6 +312,8 @@ export async function updateMilestone(id: string, updates: Partial<MilestoneConf
     throw new Error(err.error || 'Failed to update milestone');
   }
   clearMilestonesCache();
+  const data = await response.json().catch(() => ({}));
+  return { notified: data.notified ?? false, notifyError: data.notifyError as string | undefined };
 }
 
 /** Delete a milestone via the backend API (also deletes its linked announcement). */

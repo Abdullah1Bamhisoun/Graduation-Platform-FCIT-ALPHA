@@ -27,7 +27,7 @@ interface CurrentTerm { term: string; year: number; term_code: string; }
 
 
 export function Settings() {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const navigate = useNavigate();
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [notifSaving, setNotifSaving]               = useState(false);
@@ -56,6 +56,10 @@ export function Settings() {
 
   const isAdmin = user?.activeRole === 'admin';
 
+  // ── Profile name editing ──────────────────────────────────────────────────
+  const [profileName, setProfileName] = useState('');
+  const [profileSaving, setProfileSaving] = useState(false);
+
   const getToken = useCallback(async () => {
     const { data } = await supabase.auth.getSession();
     return data.session?.access_token ?? '';
@@ -83,6 +87,10 @@ export function Settings() {
   useEffect(() => {
     if (user?.activeRole === 'admin' || user?.activeRole === 'coordinator') fetchCurrentTerm();
   }, [user?.activeRole, fetchCurrentTerm]);
+
+  useEffect(() => {
+    if (user?.name) setProfileName(user.name);
+  }, [user?.name]);
 
   const computeAdjacentTerm = (direction: 'prev' | 'next'): CurrentTerm => {
     const base = currentTerm ?? { term: 'Second Semester', year: 2026, term_code: '02' };
@@ -137,7 +145,21 @@ export function Settings() {
   };
 
 
-  const handleSaveProfile    = () => toast.success('Profile settings saved successfully');
+  const handleSaveProfile = async () => {
+    const trimmed = profileName.trim();
+    if (!trimmed) { toast.error('Name cannot be empty'); return; }
+    setProfileSaving(true);
+    try {
+      const { error } = await supabase.from('profiles').update({ name: trimmed }).eq('id', user!.id);
+      if (error) throw error;
+      updateUser({ name: trimmed });
+      toast.success('Profile updated successfully');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save profile');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
 
   const handleSaveNotifications = async () => {
     setNotifSaving(true);
@@ -210,7 +232,7 @@ export function Settings() {
               <div className="space-y-4 max-w-xl">
                 <div>
                   <Label htmlFor="name">Full Name</Label>
-                  <Input id="name" type="text" defaultValue={user.name} className="mt-1.5" />
+                  <Input id="name" type="text" value={profileName} onChange={(e) => setProfileName(e.target.value)} className="mt-1.5" />
                 </div>
                 <div>
                   <Label htmlFor="email">Email Address</Label>
@@ -237,7 +259,7 @@ export function Settings() {
                   <Input id="institution" type="text" defaultValue="Faculty of Computing and Information Technology - King Abdulaziz University" disabled className="mt-1.5 bg-[var(--color-surface-alt)]" />
                 </div>
                 <div className="pt-2">
-                  <Button onClick={handleSaveProfile}>Save Changes</Button>
+                  <Button onClick={handleSaveProfile} disabled={profileSaving}>{profileSaving ? 'Saving…' : 'Save Changes'}</Button>
                 </div>
               </div>
             </Card>
