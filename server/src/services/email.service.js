@@ -37,6 +37,23 @@ async function sendEmail(to, subject, html) {
   });
 }
 
+// ─── Supervisor Preference Helpers ────────────────────────────────────────────
+
+/**
+ * Returns true if the supervisor has auto_notify_students enabled (default: true).
+ */
+async function supervisorAutoNotifyEnabled(supervisorId) {
+  try {
+    const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(supervisorId);
+    const pref = user?.user_metadata?.auto_notify_students;
+    return pref !== false;
+  } catch {
+    return true;
+  }
+}
+
+module.exports.supervisorAutoNotifyEnabled = supervisorAutoNotifyEnabled;
+
 // ─── Opt-out Filter ────────────────────────────────────────────────────────────
 
 /**

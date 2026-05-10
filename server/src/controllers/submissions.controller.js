@@ -244,11 +244,15 @@ async function updateSubmissionApproval(req, res) {
 
           const emails = (studentProfiles || []).map((p) => p.email).filter(Boolean);
           if (emails.length > 0) {
-            emailService.sendSubmissionDecision(emails, {
-              status: decisionLabel,
-              feedback: feedback ?? '',
-              milestoneName: mileName,
-              courseName: courseCode,
+            emailService.supervisorAutoNotifyEnabled(req.user.id).then((enabled) => {
+              if (enabled) {
+                emailService.sendSubmissionDecision(emails, {
+                  status: decisionLabel,
+                  feedback: feedback ?? '',
+                  milestoneName: mileName,
+                  courseName: courseCode,
+                }).catch(console.error);
+              }
             }).catch(console.error);
           }
 

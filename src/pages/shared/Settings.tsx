@@ -29,8 +29,10 @@ interface CurrentTerm { term: string; year: number; term_code: string; }
 export function Settings() {
   const { user, updateUser } = useAuth();
   const navigate = useNavigate();
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [notifSaving, setNotifSaving]               = useState(false);
+  const [emailNotifications, setEmailNotifications]     = useState(true);
+  const [autoNotifyStudents, setAutoNotifyStudents]     = useState(true);
+  const [reminderPendingReviews, setReminderPendingReviews] = useState(true);
+  const [notifSaving, setNotifSaving]                   = useState(false);
   const [group, setGroup]                           = useState<GroupData | null>(null);
 
   // ── Page-level tab ────────────────────────────────────────────────────────
@@ -77,6 +79,8 @@ export function Settings() {
     supabase.auth.getUser().then(({ data: { user: authUser } }) => {
       const meta = authUser?.user_metadata ?? {};
       if (meta.email_notifications !== undefined) setEmailNotifications(meta.email_notifications);
+      if (meta.auto_notify_students !== undefined) setAutoNotifyStudents(meta.auto_notify_students);
+      if (meta.reminder_pending_reviews !== undefined) setReminderPendingReviews(meta.reminder_pending_reviews);
     });
   }, []);
 
@@ -164,7 +168,13 @@ export function Settings() {
   const handleSaveNotifications = async () => {
     setNotifSaving(true);
     try {
-      const { error } = await supabase.auth.updateUser({ data: { email_notifications: emailNotifications } });
+      const { error } = await supabase.auth.updateUser({
+        data: {
+          email_notifications: emailNotifications,
+          auto_notify_students: autoNotifyStudents,
+          reminder_pending_reviews: reminderPendingReviews,
+        },
+      });
       if (error) throw error;
       toast.success('Notification preferences saved');
     } catch (err: any) {
@@ -274,7 +284,13 @@ export function Settings() {
                 <div className="flex items-center justify-between py-3">
                   <div className="space-y-0.5">
                     <Label>Email Notifications</Label>
-                    <p className="text-[var(--color-text-600)]">Receive email notifications for important updates</p>
+                    <p className="text-[var(--color-text-600)]">
+                      {user.role === 'student'
+                        ? 'Submissions reviewed, grades posted, new milestones, presentation schedule, deadline reminders, meeting invitations, and announcements'
+                        : user.role === 'supervisor'
+                        ? 'New file submissions, weekly reports submitted, meeting invitations, and announcements'
+                        : 'Platform announcements, meeting invitations, and administrative updates'}
+                    </p>
                   </div>
                   <Switch checked={emailNotifications} onCheckedChange={setEmailNotifications} />
                 </div>
@@ -338,7 +354,7 @@ export function Settings() {
                       <Label>Auto-notify students</Label>
                       <p className="text-[var(--color-text-600)]">Automatically notify students when reviews are completed</p>
                     </div>
-                    <Switch defaultChecked={true} />
+                    <Switch checked={autoNotifyStudents} onCheckedChange={setAutoNotifyStudents} />
                   </div>
                   <Separator />
                   <div className="flex items-center justify-between py-3">
@@ -346,7 +362,7 @@ export function Settings() {
                       <Label>Reminder for pending reviews</Label>
                       <p className="text-[var(--color-text-600)]">Receive reminders for submissions awaiting review</p>
                     </div>
-                    <Switch defaultChecked={true} />
+                    <Switch checked={reminderPendingReviews} onCheckedChange={setReminderPendingReviews} />
                   </div>
                   <div className="pt-2">
                     <Button onClick={handleSaveNotifications}>Save Preferences</Button>

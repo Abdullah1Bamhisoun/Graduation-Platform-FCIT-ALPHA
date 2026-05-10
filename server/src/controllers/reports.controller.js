@@ -256,12 +256,16 @@ async function updateReportStatus(req, res) {
         const studentEmails  = members.map((m) => m.email).filter(Boolean);
         const statusLabel    = status === 'reviewed' ? 'Reviewed' : 'Changes Requested';
 
-        emailService.sendWeeklyReportStatusUpdate(studentEmails, {
-          supervisorName,
-          weekNumber:  report.week_number,
-          courseType:  report.course_type,
-          status,
-        }).catch((e) => console.error('[reports] Failed to send weekly-report-status-update email:', e.message));
+        emailService.supervisorAutoNotifyEnabled(req.user.id).then((enabled) => {
+          if (enabled) {
+            emailService.sendWeeklyReportStatusUpdate(studentEmails, {
+              supervisorName,
+              weekNumber:  report.week_number,
+              courseType:  report.course_type,
+              status,
+            }).catch((e) => console.error('[reports] Failed to send weekly-report-status-update email:', e.message));
+          }
+        }).catch(console.error);
 
         await notificationService.createUserNotifications(studentIds, {
           type:    'feedback',
@@ -361,13 +365,17 @@ async function addReportComment(req, res) {
 
           const supervisorName = req.user.name || 'Your supervisor';
 
-          // Email every student in the group (fire-and-forget)
-          emailService.sendWeeklyReportFeedback(studentEmails, {
-            supervisorName,
-            weekNumber:     report.week_number,
-            courseType:     report.course_type,
-            commentPreview: content.trim(),
-          }).catch((e) => console.error('[reports] Failed to send weekly-report-feedback email:', e.message));
+          // Email every student in the group (fire-and-forget, respects auto_notify_students pref)
+          emailService.supervisorAutoNotifyEnabled(req.user.id).then((enabled) => {
+            if (enabled) {
+              emailService.sendWeeklyReportFeedback(studentEmails, {
+                supervisorName,
+                weekNumber:     report.week_number,
+                courseType:     report.course_type,
+                commentPreview: content.trim(),
+              }).catch((e) => console.error('[reports] Failed to send weekly-report-feedback email:', e.message));
+            }
+          }).catch(console.error);
 
           await Promise.all([
             notificationService.createUserNotifications(studentIds, {
@@ -508,17 +516,21 @@ async function notifySupervisorResponse(req, res) {
         const courseType     = courseCode.includes('499') ? '499' : '498';
 
         if (studentEmails.length > 0) {
-          emailService.sendWeeklyReportFeedback(studentEmails, {
-            supervisorName,
-            weekNumber:     report.week_number,
-            courseType,
-            commentPreview,
-            progressStatus,
-            allMembersAttended,
-            absentStudentName,
-          })
-            .then(() => console.log('[reports] feedback email dispatched to', studentEmails.length, 'student(s)'))
-            .catch((e) => console.error('[reports] Failed to send weekly-report-feedback email:', e.message));
+          emailService.supervisorAutoNotifyEnabled(req.user.id).then((enabled) => {
+            if (enabled) {
+              emailService.sendWeeklyReportFeedback(studentEmails, {
+                supervisorName,
+                weekNumber:     report.week_number,
+                courseType,
+                commentPreview,
+                progressStatus,
+                allMembersAttended,
+                absentStudentName,
+              })
+                .then(() => console.log('[reports] feedback email dispatched to', studentEmails.length, 'student(s)'))
+                .catch((e) => console.error('[reports] Failed to send weekly-report-feedback email:', e.message));
+            }
+          }).catch(console.error);
         } else {
           console.warn('[reports] notifySupervisorResponse: no student emails on profiles for group', report.group_id);
         }
