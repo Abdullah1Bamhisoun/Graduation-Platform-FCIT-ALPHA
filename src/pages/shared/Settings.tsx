@@ -17,7 +17,7 @@ import { apiUrl, apiFetch } from '@/lib/api';
 import { validatePassword, PasswordRules } from '../../lib/password-rules';
 import { getGroupForStudent, type GroupData } from '../../services/groups';
 
-// ── Term constants ────────────────────────────────────────────────────────────
+// ── Term constants. ────────────────────────────────────────────────────────────
 const TERM_SEQUENCE = [
   { term: 'First Semester',  term_code: '01' },
   { term: 'Second Semester', term_code: '02' },
