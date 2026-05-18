@@ -138,7 +138,7 @@ export function AdminPresentationCommittee() {
 
   // State
   // Coordinators are locked to their assigned course; admins choose explicitly.
-  const [course, setCourse] = useState<'498' | '499' | null>(null);
+  const [course, setCourse] = useState<'498' | '499' | null>('498');
   const [weekStart, setWeekStart] = useState(() => dateToIsoWeek(new Date()));
 
 

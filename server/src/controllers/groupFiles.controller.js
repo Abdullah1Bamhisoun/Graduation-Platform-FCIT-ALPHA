@@ -42,21 +42,13 @@ async function isStudentInGroup(userId, groupId) {
  * Build a Supabase query filter that restricts rows to those the caller may see.
  *
  * Visibility rules:
- *   supervisor  → all files for the group
+ *   admin/supervisor/coordinator → all files for the group
  *   committee   → target_role='committee' OR submit_to_committee=true  (plus their own uploads)
- *   coordinator → same as committee
  *   student     → target_role='all' OR submit_to_committee=true
- *   admin       → all files
  */
 function applyVisibilityFilter(query, callerRole, callerUserId) {
-  if (callerRole === 'admin' || callerRole === 'supervisor') {
+  if (callerRole === 'admin' || callerRole === 'supervisor' || callerRole === 'coordinator') {
     return query; // see everything
-  }
-  if (callerRole === 'coordinator') {
-    // committee files + their own uploads
-    return query.or(
-      `target_role.eq.committee,submit_to_committee.eq.true,uploaded_by.eq.${callerUserId}`
-    );
   }
   if (callerRole === 'committee') {
     // committee files + their own uploads
@@ -125,40 +117,92 @@ async function getGroupFiles(req, res) {
       query = query.eq('course_number', courseNumber);
     }
 
-    const { data: files, error } = await query;
+    // Fetch group_files and milestone submissions in parallel
+    const [{ data: files, error }, { data: groupSubs }] = await Promise.all([
+      query,
+      // Skip submissions when filtering to committee-only files
+      committee === 'true'
+        ? Promise.resolve({ data: [] })
+        : supabaseAdmin
+            .from('submissions')
+            .select('id, student_id, milestone_id, milestone:milestones!milestone_id(name)')
+            .eq('group_id', groupId),
+    ]);
     if (error) throw error;
 
-    // Enrich with uploader names
-    const uploaderIds = [...new Set((files || []).map((f) => f.uploaded_by))];
+    // Fetch all submission versions for this group's submissions
+    const subMap = {};
+    let submissionVersionRows = [];
+    if (groupSubs && groupSubs.length > 0) {
+      for (const s of groupSubs) subMap[s.id] = s;
+      const { data: versions } = await supabaseAdmin
+        .from('submission_versions')
+        .select('submission_id, version, file_name, file_size, file_path, uploaded_at, notes')
+        .in('submission_id', groupSubs.map((s) => s.id))
+        .order('uploaded_at', { ascending: false });
+      submissionVersionRows = versions || [];
+    }
+
+    // Collect all uploader IDs from both sources for a single profiles lookup
+    const groupFileUploaderIds = (files || []).map((f) => f.uploaded_by);
+    const submissionStudentIds = (groupSubs || []).map((s) => s.student_id);
+    const allUploaderIds = [...new Set([...groupFileUploaderIds, ...submissionStudentIds])];
     let nameMap = {};
-    if (uploaderIds.length > 0) {
+    if (allUploaderIds.length > 0) {
       const { data: profiles } = await supabaseAdmin
         .from('profiles')
         .select('id, name')
-        .in('id', uploaderIds);
+        .in('id', allUploaderIds);
       nameMap = Object.fromEntries((profiles || []).map((p) => [p.id, p.name]));
     }
 
-    res.json(
-      (files || []).map((f) => ({
-        id: f.id,
-        groupId: f.group_id,
-        courseId: f.course_id,
-        uploadedBy: f.uploaded_by,
-        uploaderName: nameMap[f.uploaded_by] ?? 'Unknown',
-        uploaderRole: f.uploader_role,
-        fileName: f.file_name,
-        fileSize: f.file_size,
-        filePath: f.file_path,
-        targetRole: f.target_role,
-        submitToCommittee: f.submit_to_committee,
-        versionNumber: f.version_number,
-        parentFileId: f.parent_file_id,
-        courseNumber: f.course_number,
-        notes: f.notes,
-        uploadedAt: f.uploaded_at,
-      }))
-    );
+    const groupFilesResult = (files || []).map((f) => ({
+      id: f.id,
+      groupId: f.group_id,
+      courseId: f.course_id,
+      uploadedBy: f.uploaded_by,
+      uploaderName: nameMap[f.uploaded_by] ?? 'Unknown',
+      uploaderRole: f.uploader_role,
+      fileName: f.file_name,
+      fileSize: f.file_size,
+      filePath: f.file_path,
+      targetRole: f.target_role,
+      submitToCommittee: f.submit_to_committee,
+      versionNumber: f.version_number,
+      parentFileId: f.parent_file_id,
+      courseNumber: f.course_number,
+      notes: f.notes,
+      uploadedAt: f.uploaded_at,
+    }));
+
+    const submissionFilesResult = submissionVersionRows.map((sv) => {
+      const sub = subMap[sv.submission_id];
+      const milestoneName = sub?.milestone?.name ?? 'Submission';
+      const noteText = sv.notes ? `[${milestoneName}] ${sv.notes}` : `[${milestoneName}]`;
+      return {
+        id: `sv_${sv.submission_id}_v${sv.version}`,
+        groupId,
+        courseId: null,
+        uploadedBy: sub?.student_id ?? '',
+        uploaderName: nameMap[sub?.student_id] ?? 'Student',
+        uploaderRole: 'student',
+        fileName: sv.file_name,
+        fileSize: sv.file_size,
+        filePath: sv.file_path,
+        targetRole: 'supervisor',
+        submitToCommittee: false,
+        versionNumber: sv.version,
+        parentFileId: null,
+        courseNumber: null,
+        notes: noteText,
+        uploadedAt: sv.uploaded_at,
+      };
+    });
+
+    const allFiles = [...groupFilesResult, ...submissionFilesResult]
+      .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
+
+    res.json(allFiles);
   } catch (error) {
     console.error('Error fetching group files:', error);
     res.status(500).json({ error: 'Failed to fetch group files' });

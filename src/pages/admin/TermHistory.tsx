@@ -218,7 +218,7 @@ function gradeColor(score: number | null, max: number) {
 function GradeCell({ label, score, max }: { label: string; score: number | null; max: number }) {
   return (
     <div className="text-center min-w-[52px]">
-      <p className="text-[10px] text-(--color-text-500) font-medium uppercase tracking-wide leading-none mb-0.5">{label}</p>
+      <p className="sm:hidden text-[10px] text-(--color-text-500) font-medium uppercase tracking-wide leading-none mb-0.5">{label}</p>
       <p className={`text-xs font-semibold ${gradeColor(score, max)}`}>
         {score != null ? score : '—'}<span className="text-(--color-text-400) font-normal">/{max}</span>
       </p>
@@ -450,8 +450,8 @@ export function AdminTermHistory() {
                     className={[
                       'px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border',
                       courseFilter === f
-                        ? 'bg-(--color-primary) text-white border-(--color-primary)'
-                        : 'bg-(--color-surface-alt) border-(--color-border) text-(--color-text-700) hover:bg-(--color-surface-white)',
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'bg-(--color-surface-alt) border-(--color-border) text-(--color-text-900) hover:bg-(--color-surface-white)',
                     ].join(' ')}
                   >
                     {f === 'all' ? 'All' : `CPIS-${f}`}
@@ -506,14 +506,14 @@ export function AdminTermHistory() {
                           {/* Column headers */}
                           <div className="hidden sm:grid grid-cols-[1fr_auto] gap-4 px-5 py-2 text-[10px] font-semibold uppercase tracking-wider text-(--color-text-500)">
                             <span>Student</span>
-                            <div className="flex items-center gap-4 pr-2">
+                            <div className="flex items-center gap-4">
                               <span className="w-[52px] text-center">Sup/20</span>
                               <span className="w-[52px] text-center">Com/40</span>
                               <span className="w-[52px] text-center">Wkly/20</span>
                               <span className="w-[52px] text-center">Deliv/15</span>
                               <span className="w-[52px] text-center">Peer/5</span>
                               <span className="w-[72px] text-center">Total/100</span>
-                              <span className="w-16 text-center">Status</span>
+                              <span className="w-[64px] text-center">Status</span>
                             </div>
                           </div>
 
@@ -537,7 +537,7 @@ export function AdminTermHistory() {
                                   <GradeCell label="Deliv" score={s.grades.deliverables.score} max={s.grades.deliverables.max} />
                                   <GradeCell label="Peer"  score={s.grades.peer.score}         max={s.grades.peer.max} />
                                   <div className="text-center min-w-[72px]">
-                                    <p className="text-[10px] text-(--color-text-500) font-medium uppercase tracking-wide leading-none mb-0.5">Total</p>
+                                    <p className="sm:hidden text-[10px] text-(--color-text-500) font-medium uppercase tracking-wide leading-none mb-0.5">Total</p>
                                     <p className={`text-sm font-bold ${isPassed ? 'text-emerald-600' : 'text-red-500'}`}>
                                       {total}<span className="text-(--color-text-400) font-normal text-xs">/100</span>
                                     </p>

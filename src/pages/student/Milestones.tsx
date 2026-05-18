@@ -8,8 +8,8 @@ import { getSubmissionByMilestoneAndGroup } from '../../services/submissions';
 import { getGroupForStudent, GroupData } from '../../services/groups';
 import { getSignedUrl } from '../../services/storage';
 import { useNavigate } from 'react-router-dom';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog';
-import { Calendar, FileText, X, Download, Eye, Loader2 } from 'lucide-react';
+import { Calendar, FileText, X, Download, Eye } from 'lucide-react';
+import { DocumentViewerWithAnnotations } from '../../components/DocumentViewerWithAnnotations';
 import { useLockStatus } from '../../hooks/useLockStatus';
 import { LockedBanner } from '../../components/ui/LockedBanner';
 import { Milestone, Submission } from '../../types';
@@ -31,11 +31,8 @@ export function StudentMilestones() {
   const [group, setGroup] = useState<GroupData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // File viewer modal state
-  const [viewModalOpen, setViewModalOpen] = useState(false);
-  const [viewModalUrl, setViewModalUrl] = useState('');
-  const [viewModalName, setViewModalName] = useState('');
-  const [viewModalLoading, setViewModalLoading] = useState(false);
+  // File viewer state
+  const [viewerFile, setViewerFile] = useState<{ url: string; filePath: string; fileName: string } | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -70,23 +67,11 @@ export function StudentMilestones() {
   };
 
   const handleViewFile = async (filePath: string, fileName: string) => {
-    setViewModalName(fileName);
-    setViewModalUrl('');
-    setViewModalOpen(true);
-    setViewModalLoading(true);
     try {
       const url = await getSignedUrl(filePath);
-      const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
-      setViewModalUrl(
-        ext === 'pdf'
-          ? url
-          : `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`
-      );
+      setViewerFile({ url, filePath, fileName });
     } catch {
       toast.error('Failed to open file');
-      setViewModalOpen(false);
-    } finally {
-      setViewModalLoading(false);
     }
   };
 
@@ -97,6 +82,7 @@ export function StudentMilestones() {
   const chapterMilestones = milestones.filter(m => m.type !== 'weekly-report');
 
   return (
+    <>
     <Layout user={user} pageTitle="Chapter Submissions">
       {isLocked && <LockedBanner />}
 
@@ -213,32 +199,6 @@ export function StudentMilestones() {
           ))}
         </div>
       </div>
-
-      {/* ── File Viewer Modal — full screen ── */}
-      <Dialog open={viewModalOpen} onOpenChange={(open) => { if (!open) { setViewModalOpen(false); setViewModalUrl(''); } }}>
-        <DialogContent className="!inset-0 !translate-x-0 !translate-y-0 !top-0 !left-0 !max-w-full !w-screen !h-screen !rounded-none flex flex-col p-0 gap-0">
-          <DialogHeader className="px-6 py-3 border-b border-gray-200 flex-shrink-0 flex flex-row items-center justify-between">
-            <DialogTitle className="flex items-center gap-2 text-base">
-              <Eye className="w-4 h-4 text-blue-600" />
-              {viewModalName}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="flex-1 overflow-hidden">
-            {viewModalLoading ? (
-              <div className="flex items-center justify-center h-full gap-2 text-gray-500">
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Loading file...
-              </div>
-            ) : viewModalUrl ? (
-              <iframe
-                src={viewModalUrl}
-                className="w-full h-full border-0"
-                title={viewModalName}
-              />
-            ) : null}
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* ── Detail Drawer ── */}
       {selectedMilestone && (
@@ -369,5 +329,17 @@ export function StudentMilestones() {
         </>
       )}
     </Layout>
+    {viewerFile && (
+      <DocumentViewerWithAnnotations
+        fileUrl={viewerFile.url}
+        filePath={viewerFile.filePath}
+        fileName={viewerFile.fileName}
+        onClose={() => setViewerFile(null)}
+        userId={user.id}
+        userName={user.name}
+        userRole={user.activeRole}
+      />
+    )}
+    </>
   );
 }

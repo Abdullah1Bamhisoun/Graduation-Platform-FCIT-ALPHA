@@ -133,22 +133,41 @@ export function DocumentViewerWithAnnotations({
 
   useEffect(() => {
     if (!isPdf) return;
-    let objectUrl: string;
+    let objectUrl: string | undefined;
+    let cancelled = false;
     fetch(fileUrl)
       .then((r) => r.blob())
       .then((blob) => {
+        if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
         setPdfBlobUrl(objectUrl);
       })
-      .catch(() => setPdfLoadError(true));
+      .catch(() => { if (!cancelled) setPdfLoadError(true); });
     return () => {
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      cancelled = true;
+      // Clear the blob URL first so the Document component stops using it,
+      // then revoke after a tick to avoid a PDF.js worker race condition.
+      setPdfBlobUrl(null);
+      if (objectUrl) setTimeout(() => URL.revokeObjectURL(objectUrl!), 500);
     };
   }, [fileUrl, isPdf]);
 
+  // Suppress the PDF.js v4 race condition where in-flight page-render promises
+  // call messageHandler.sendWithPromise() after destroy() sets it to null.
+  // This is a known PDF.js v4 / react-pdf v9 bug and is harmless (cleanup noise).
+  useEffect(() => {
+    function suppress(e: PromiseRejectionEvent) {
+      if (e.reason?.message?.includes('sendWithPromise')) {
+        e.preventDefault();
+      }
+    }
+    window.addEventListener('unhandledrejection', suppress);
+    return () => window.removeEventListener('unhandledrejection', suppress);
+  }, []);
+
   // PDF state
   const [numPages, setNumPages] = useState(0);
-  const [pageWidth, setPageWidth] = useState(700);
+  const [pageWidth, setPageWidth] = useState(0); // 0 = not yet measured; Document defers until measured
   const pdfContainerRef = useRef<HTMLDivElement>(null);
   const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
 
@@ -187,7 +206,9 @@ export function DocumentViewerWithAnnotations({
   useEffect(() => {
     function measure() {
       if (pdfContainerRef.current) {
-        const w = pdfContainerRef.current.offsetWidth - 32;
+        // clientWidth excludes border and scrollbar; subtract padding (p-2 = 16px, p-4 = 32px)
+        const padding = window.innerWidth >= 640 ? 32 : 16;
+        const w = pdfContainerRef.current.clientWidth - padding;
         setPageWidth(Math.max(280, Math.min(w, 900)));
       }
     }
@@ -430,8 +451,17 @@ export function DocumentViewerWithAnnotations({
                 <Loader2 className="w-5 h-5 animate-spin" />
                 Loading PDF…
               </div>
+            ) : pageWidth === 0 ? (
+              // Wait for container width to be measured before rendering so the
+              // canvas is sized correctly on the very first paint (avoids a
+              // 700px → correct-width repaint and the black-margin artifact).
+              <div className="flex items-center justify-center h-40 gap-2 text-gray-500">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Loading PDF…
+              </div>
             ) : (
             <Document
+              key={pdfBlobUrl}
               file={pdfBlobUrl}
               onLoadSuccess={onDocumentLoadSuccess}
               loading={
@@ -452,7 +482,9 @@ export function DocumentViewerWithAnnotations({
                 return (
                   <div
                     key={pageNum}
-                    className="relative mb-4 mx-auto shadow-lg bg-white"
+                    // [&_.react-pdf__Page__canvas]:bg-white prevents the canvas
+                    // transparent regions (PDF margins) from appearing black.
+                    className="relative mb-4 mx-auto shadow-lg overflow-hidden [&_.react-pdf__Page__canvas]:bg-white"
                     style={{ width: pageWidth }}
                     data-page-number={pageNum}
                     ref={(el) => { pageRefs.current[i] = el; }}

@@ -346,7 +346,14 @@ function MeetingDialog({ groups, allSupervisors, initial, onSave, onSaveForGroup
                   {sendMode === 'all' && (
                     <p className="text-xs text-gray-500 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
                       A meeting will be created for each of the {groups.length} groups in your course.
-                      Each group's students and supervisor will be invited.
+                      Each group's students will be invited
+                      {supervisorMode === 'none'
+                        ? '.'
+                        : supervisorMode === 'all'
+                        ? ', along with all supervisors.'
+                        : selectedSupervisors.size > 0
+                        ? `, along with ${selectedSupervisors.size} selected supervisor${selectedSupervisors.size !== 1 ? 's' : ''}.`
+                        : '.'}
                     </p>
                   )}
                 </div>

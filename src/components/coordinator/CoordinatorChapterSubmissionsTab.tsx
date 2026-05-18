@@ -25,13 +25,11 @@ import {
 import { toast } from 'sonner';
 import { getChapterSubmissionsForCoordinator } from '../../services/submissions';
 import { getSignedUrl } from '../../services/storage';
-import { getCoordinatorGroupsWithGrades } from '../../services/groups';
 import { getMilestoneConfigs } from '../../services/milestones';
 import { saveCoordinatorDeliverableScore } from '../../services/grading-rubric';
 import { supabase } from '../../lib/supabase';
 import { DocumentViewerWithAnnotations } from '../DocumentViewerWithAnnotations';
 import type { ChapterSubmission, CoordinatorChapterSubmissionsResult } from '../../services/submissions';
-import type { CoordinatorGroupWithGrades } from '../../services/groups';
 import type { MilestoneConfig } from '../../types';
 
 interface CoordinatorChapterSubmissionsTabProps {
@@ -45,7 +43,7 @@ interface CoordinatorChapterSubmissionsTabProps {
 /** criterionKey → score for a given groupId */
 type GroupScores = Record<string, number>;
 
-export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGradeSaved, role = 'coordinator' }: CoordinatorChapterSubmissionsTabProps) {
+export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGradeSaved, refreshKey, role = 'coordinator' }: CoordinatorChapterSubmissionsTabProps) {
   const [submissions, setSubmissions] = useState<ChapterSubmission[]>([]);
   const [stats, setStats] = useState<CoordinatorChapterSubmissionsResult['stats']>({
     total: 0,
@@ -53,7 +51,7 @@ export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGrade
     approved: 0,
     rejected: 0,
   });
-  const [groups, setGroups] = useState<CoordinatorGroupWithGrades[]>([]);
+  const [groups, setGroups] = useState<{ id: string; number: number; name: string }[]>([]);
   const [selectedGroupFilter, setSelectedGroupFilter] = useState<string>('all');
   const [isLoading, setIsLoading] = useState(true);
 
@@ -92,15 +90,31 @@ export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGrade
   async function loadData(groupFilter = selectedGroupFilter) {
     setIsLoading(true);
     try {
-      const [submissionsData, groupsData, milestoneCfgs] = await Promise.all([
+      const scoresPromise = courseId
+        ? supabase
+            .from('coordinator_deliverable_scores')
+            .select('group_id, deliverable_key, score')
+            .eq('course_id', courseId)
+            .then((r) => r.data ?? [])
+        : Promise.resolve([]);
+
+      const [submissionsData, milestoneCfgs, scoreRows] = await Promise.all([
         getChapterSubmissionsForCoordinator(courseType, groupFilter === 'all' ? undefined : groupFilter, role),
-        getCoordinatorGroupsWithGrades(courseType, role),
         getMilestoneConfigs(courseId),
+        scoresPromise,
       ]);
 
       setSubmissions(submissionsData.submissions);
       setStats(submissionsData.stats);
-      setGroups(groupsData);
+
+      // Derive group list from submissions (avoid a separate API call)
+      const groupMap = new Map<string, { id: string; number: number; name: string }>();
+      for (const s of submissionsData.submissions) {
+        if (s.groupId && !groupMap.has(s.groupId)) {
+          groupMap.set(s.groupId, { id: s.groupId, number: s.groupNumber ?? 0, name: s.projectName ?? '' });
+        }
+      }
+      setGroups([...groupMap.values()].sort((a, b) => a.number - b.number));
 
       // Build milestone lookup map
       const mMap: Record<string, MilestoneConfig> = {};
@@ -109,22 +123,13 @@ export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGrade
       }
       setMilestoneMap(mMap);
 
-      // Load existing scores for all unique groups
-      const uniqueGroupIds = [...new Set(submissionsData.submissions.map((s) => s.groupId).filter(Boolean))];
-      if (uniqueGroupIds.length > 0 && courseId) {
-        const { data: scoreRows } = await supabase
-          .from('coordinator_deliverable_scores')
-          .select('group_id, deliverable_key, score')
-          .eq('course_id', courseId)
-          .in('group_id', uniqueGroupIds);
-
-        const scores: Record<string, GroupScores> = {};
-        for (const row of scoreRows ?? []) {
-          if (!scores[row.group_id]) scores[row.group_id] = {};
-          scores[row.group_id][row.deliverable_key] = Number(row.score);
-        }
-        setGroupScores(scores);
+      // Build scores map
+      const scores: Record<string, GroupScores> = {};
+      for (const row of scoreRows) {
+        if (!scores[row.group_id]) scores[row.group_id] = {};
+        scores[row.group_id][row.deliverable_key] = Number(row.score);
       }
+      setGroupScores(scores);
     } catch (error) {
       console.error('Error loading chapter submissions:', error);
       toast.error('Failed to load chapter submissions');
@@ -139,6 +144,13 @@ export function CoordinatorChapterSubmissionsTab({ courseType, courseId, onGrade
       loadData(selectedGroupFilter);
     }
   }, [selectedGroupFilter]);
+
+  // Reload when parent signals a refresh (e.g. after saving grades in another tab)
+  useEffect(() => {
+    if (refreshKey !== undefined && refreshKey > 0) {
+      loadData(selectedGroupFilter);
+    }
+  }, [refreshKey]);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
